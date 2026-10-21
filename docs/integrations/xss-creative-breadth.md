@@ -1,6 +1,6 @@
 # XSS Idea-Tree Creative Breadth — Integration Dossier
 
-- **Status:** independent release review accepted with two minor wording fixes applied; corrected tip pending verification
+- **Status:** accepted for beta integration; runtime activation remains separate
 - **Owner:** Hermes / BBH XSS
 - **Branch/worktree:** `docs/xss-idea-tree-creative-breadth` at `/home/ryushe/worktrees/bbh-xss-creative-breadth`
 - **Base beta commit:** `51194c7039af2b2637815656c8de5540cc7d5d64`
@@ -16,15 +16,16 @@ The published XSS tree already broadens mechanisms but describes "one hypothesis
 
 - Owners: `skills/xss/SKILL.md`, `skills/xss-payload-engineering/SKILL.md`, conditional reference tree and narrow leaves, `docs/xss-idea-tree.md`, prior `docs/xss-mechanism-ideation.md` diagram, focused routing tests. The tree now admits unlisted ideas and multiple hypotheses; negatives retire tested links, not sibling feeders/consumers. Each causal claim still needs the relevant execution evidence.
 - No target traffic, account actions or payload execution. No global policy rewrite or separate payload catalog.
-- Focused test selection after the minor corrections: **9 passed, 1 opt-in browser skipped**. Full feature suite with the checkout-local `.venv` and `PYTHONPATH` rooted here: **305 passed, 1 skipped, 2 failed**. Unchanged beta under the *same feature-venv interpreter*: **304 passed, 1 skipped, the same 2 failed**. Both failures are in unrelated, unchanged `skills/stack-to-program/scripts/README.md` contracts: missing `Outputs/Mutates` fields and an executable lane example. The initial global interpreter's 17 additional failures were caused by this worktree missing `.venv`; `./setup.sh --install-python-deps` resolved them. `git diff --check` clean. Initial independent review accepted; narrow readback and integrated beta/projection verification are **pending**.
-- Independent release review of exact `51194c7..d4f1edb` diff returned **ACCEPT for beta review** with two non-blocking wording issues: sink-first exploration was gated by the derived leaf's introductory "first establish" phrase, and a client-interpreter row deferred mechanism ideation until after a suspected reparse was already proven. The human diagram also sounded narrower than its prose. Corrected all three spots and added focused assertions; no technical proof boundary or route inventory changed. A narrow readback of the corrected commit remains before beta integration.
+- Focused test selection after the minor corrections: **9 passed, 1 opt-in browser skipped**. Full feature suite with the checkout-local `.venv` and `PYTHONPATH` rooted here: **305 passed, 1 skipped, 2 failed**. Unchanged beta under the *same feature-venv interpreter*: **304 passed, 1 skipped, the same 2 failed**. Both failures are in unrelated, unchanged `skills/stack-to-program/scripts/README.md` contracts: missing `Outputs/Mutates` fields and an executable lane example. The initial global interpreter's 17 additional failures were caused by this worktree missing `.venv`; `./setup.sh --install-python-deps` resolved them. `git diff --check` clean. Both independent reviews accepted; integrated beta/projection verification is **pending**.
+- Independent release review of exact `51194c7..d4f1edb` diff returned **ACCEPT for beta review** with two non-blocking wording issues: sink-first exploration was gated by the derived leaf's introductory "first establish" phrase, and a client-interpreter row deferred mechanism ideation until after a suspected reparse was already proven. The human diagram also sounded narrower than its prose. Corrected all three spots and added focused assertions; no technical proof boundary or route inventory changed. The subsequent narrow readback accepted the correction.
+- Fresh read-only narrow re-review of exact corrected tip `53a46ca32f678116cccaf9281178bcb38116da36` returned **ACCEPT for beta integration**. The three wording gates are resolved without weakening mXSS, browser proof, inherited live-testing, or Attempts ownership. Reviewer confirmed unchanged 29-heading table, focused 9 passed/1 opt-in skip, and checkpoint ancestry. No new blocker or major/minor issue reported.
 
 ## Release and Interruption Gates
 
 1. Initial implementation and focused regression committed at `5fd1ea9962d00e3ed353254c975c98593632d9dd`; reviewer-led sink-first/reparse corrections committed at `42b2b38091f422461c2ad61b81d4853ff9dff953`. This later documentary checkpoint records provenance only.
-2. Independent reviewer accepted creative breadth and evidence/safety boundaries on `d4f1edb`; verify the minor corrections after commit, then beta merge into the clean current integration worktree excluding this branch-local dossier.
+2. Independent reviewer accepted creative breadth on `d4f1edb` and corrected tip `53a46ca`; beta merge into the clean current integration worktree excluding this branch-local dossier is the next step.
 3. Run focused and full suite on the integrated tree, identify any pre-existing failures, push beta only from beta worktree, verify the projected route and an on-demand leaf through the skill resolver.
-4. Until then the active projection remains the earlier wording at `51194c7`. Resume with an independent read-only review of the corrected branch tip; do not claim activation from this feature branch.
+4. Until beta integration/projection checks, the active projection remains the earlier wording at `51194c7`. Resume at the beta merge/check gate; do not claim activation from this feature branch.
 
 ## Decision Record
 
@@ -32,3 +33,4 @@ The published XSS tree already broadens mechanisms but describes "one hypothesis
 - 2026-10-20 PDT — implementation committed at `5fd1ea9962d00e3ed353254c975c98593632d9dd` after focused 9 pass/1 optional skip and full 305 pass/1 skip/2 unrelated baseline failures. Awaiting independent release review and beta integration.
 - 2026-10-20 PDT — fresh read-only reviewer accepted the `d4f1edb` methodology and proof boundaries with two non-blocking minor ambiguities; sink-first and suspected-reparse wording were corrected. Focused/full tests and narrow readback on the corrected tip remain release gates.
 - 2026-10-20 PDT — corrected implementation and focused regression committed at `42b2b38091f422461c2ad61b81d4853ff9dff953`; focused 9 passed/1 skipped, full 305 passed/1 skipped/2 unchanged baseline failures. Narrow readback pending.
+- 2026-10-20 PDT — independent narrow re-review of `53a46ca32f678116cccaf9281178bcb38116da36` ACCEPT; all remaining phrasing issues resolved. Integrate beta next, exclude this dossier, rerun checks and verify local projection; no Hoster/main activation in scope.

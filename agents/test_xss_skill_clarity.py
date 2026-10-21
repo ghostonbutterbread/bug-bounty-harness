@@ -67,8 +67,9 @@ def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> N
         assert cue in router
     assert "inventory --page` fetches HTML script URLs and bounded" in reference
     assert "--input <scoped-js-url-list>" in " ".join(reference.split())
-    assert "filters out non-JS suffixes" in reference
     assert "browser-loaded `chunk.php`" in reference
+    assert "--provenance-input <observed-scripts.jsonl>" in reference
+    assert "fetched or cached response" in reference
     assert "source_sites` are named reads" in router
     assert "not** all accepted request" in reference
     assert "inventoried script" in reference and "browser-loaded script" in reference

@@ -17,6 +17,9 @@ contracts); do not create a second downloader or copy bundles into prompts.
    references, or a prior run. Check the `_library/` URL/hash ledger first:
    reuse present artifacts unless freshness is deliberately requested.
    JS acquisition is cheap relative to its value, so bias toward re-pulling.
+   Browser-observed scripts with a non-JS suffix (for example `chunk.php`)
+   need the explicit `--input` URL plus a matching `--provenance-input` row;
+   see `prompts/js-playbook.md` for the evidence fields and response checks.
    Apply an **age edge: re-pull any artifact whose `last_seen` is older than the
    staleness window regardless of whether its URL is still mapped.** Seven days
    is the default window; a program may set its own. When the operator asks for

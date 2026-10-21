@@ -54,7 +54,9 @@ An HTML login/error response is skipped, not a zero-hit script. Preserve the
 browser observation as a lead if an unauthenticated refetch cannot reproduce
 it; never relabel an unscanned response as inventoried. An HTML `<script src>`
 discovered by `--page` may enter regardless of suffix, but `--page` cannot
-recover a chunk loaded only after interaction.
+recover a chunk loaded only after interaction. Inspect its returned status,
+MIME type and body separately; an HTML `<script src>` alone does not prove
+that the script URL served executable JavaScript.
 Do not conclude that one initial load represents the application.
 
 Keep three evidence levels distinct: an **inventoried script** may be archived

@@ -190,7 +190,8 @@ returns HTML (for example an auth page), keep the browser observation as a
 lead and do not claim the PHP URL was inventoried. Other PHP endpoints in
 the URL list are not fetched via this exception. `--page` is an HTTP page
 fetch, not an interactive browser capture; it may include HTML-discovered
-`script[src]` URLs regardless of suffix.
+`script[src]` URLs regardless of suffix. Its HTML reference alone is not
+proof the response served JavaScript; inspect the status, MIME type, and body.
 
 The helper writes:
 

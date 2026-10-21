@@ -918,6 +918,13 @@ def test_browser_observed_php_script_reuses_validated_cached_body(tmp_path: Path
     get.assert_not_called()
     rows = J.read_jsonl(tmp_path / "second" / "metadata.jsonl")
     assert len(rows) == 1 and rows[0]["url"] == script and rows[0]["sink_sites"]
+    with patch.object(J, "http_get") as get:
+        assert J.main(common + ["--output-root", str(tmp_path / "third")]) == 0
+    get.assert_not_called()
+    third_rows = J.read_jsonl(tmp_path / "third" / "metadata.jsonl")
+    assert len(third_rows) == 1 and third_rows[0]["url"] == script and third_rows[0]["sink_sites"]
+    assert third_rows[0]["status"] == 200
+    assert third_rows[0]["content_type"] == "text/javascript"
 
 
 def test_browser_observed_php_script_does_not_reuse_cached_html(tmp_path: Path):

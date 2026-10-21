@@ -2049,8 +2049,9 @@ def command_inventory(args: argparse.Namespace) -> int:
         cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
         if cached:
             body = cached[0]
-            status = None
-            content_type = ""
+            cached_response = ledger.get("urls", {}).get(url, {})
+            status = cached_response.get("status") if isinstance(cached_response, dict) else None
+            content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
             reused_download = True
         else:
             if args.delay and url not in inline_bodies:
@@ -2062,11 +2063,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             if not body:
                 continue
         if observed_non_js_suffix:
-            response = ledger.get("urls", {}).get(url, {}) if cached else {}
-            response_status = response.get("status") if cached else status
-            response_type = response.get("content_type") if cached else content_type
-            if (not isinstance(response_status, int) or not 200 <= response_status < 300
-                    or not is_js_content_type(response_type)):
+            if (not isinstance(status, int) or not 200 <= status < 300
+                    or not is_js_content_type(content_type)):
                 print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
                 continue
         if cached:

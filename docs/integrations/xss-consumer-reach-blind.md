@@ -1,12 +1,12 @@
 # XSS consumer reach blind-lane correction
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `fix/xss-consumer-reach-blind`
 - **Base:** `3adaf9ed880dda96c42e66c4380f3a3f7688b45a` (`origin/beta`)
 - **Target:** `beta`
 - **Last updated:** 2026-10-21
-- **Recovery checkpoint / implementation commit:** pending
+- **Recovery checkpoint / implementation commit:** `2f8f7e8103e05c044ef87cd3d2cf4ea2c37b0d46`
 - **Inspiration:** post-integration comparison with canonical `blind-xss`.
 
 ## Intent and contract
@@ -15,8 +15,8 @@ The new reachability policy row must not categorically exclude staff-facing arti
 
 ## Evidence and review
 
-- Focused tests: pending.
-- Independent review: prior review missed this adjacent-lane conflict; correction review pending.
+- Focused tests: 12 passed (`test_xss_consumer_reach.py`, `test_xss_mechanism_ideation.py`, `test_xss_defense_chain_policy.py`, `test_xss_skill_clarity.py`); `git diff --check` clean.
+- Independent read-only correction review approved after checking `blind-xss`, `stored-xss`, and program-rule ownership; reviewer ran 10 adjacent focused tests and `git diff --check`.
 - Full-suite known blockers: root `test_catalog.py` missing `bac_checks`; unrelated stack-to-program script-index failure; broad tests timed out. Do not claim suite green.
 
 ## Blockers and deferred work
@@ -26,9 +26,9 @@ No correction-specific blocker. Rerun focused tests, review against blind lane, 
 ## Interruption / resume handoff
 
 - **Branch:** `fix/xss-consumer-reach-blind`
-- **Checkpoint:** pending
-- **Next:** focused tests, review, commit, merge into current beta and retire dossier.
-- **Working tree:** uncommitted until checks.
+- **Checkpoint:** `2f8f7e8103e05c044ef87cd3d2cf4ea2c37b0d46`
+- **Next:** merge into current beta, retire dossier, rerun focused tests, push and verify projection.
+- **Working tree:** clean after this decision update is committed.
 
 ## Decision gates
 
@@ -39,3 +39,4 @@ No correction-specific blocker. Rerun focused tests, review against blind lane, 
 ## Decision record
 
 - 2026-10-21 — identified contradiction with `blind-xss` staff-facing inert canary carve-out; correction drafted.
+- 2026-10-21 — independent correction review accepted with no blocking findings; integrate to beta.

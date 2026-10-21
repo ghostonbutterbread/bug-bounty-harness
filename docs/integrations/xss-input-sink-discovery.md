@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (`origin/beta` at the recorded base)
 - **Last updated:** 2026-10-21 PDT
 - **Owning feature branch/ref:** `docs/xss-input-sink-discovery`
-- **Latest immutable recovery checkpoint:** none yet; no implementation committed
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `3a2d22ccce8844543c093bcd30d83b26385c7607` (implementation and initial dossier; this handoff update follows it)
+- **Feature implementation commit(s):** `3a2d22ccce8844543c093bcd30d83b26385c7607`
 - **Inspiration / canonical references:** Ryushe's Discord request in thread `1562231426932539452`, message `1562530135226191904`; `skills/xss/SKILL.md`; `skills/xss/references/source-acquisition.md`; `skills/js-pull/SKILL.md`; `skills/dom-xss/SKILL.md`; `agents/js_analyzer.py`, `agents/xss_source_sites.py`, and `agents/xss_sink_sites.py`.
 
 ## Intent
@@ -24,7 +24,7 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 
 - Initial `xss` root already mentioned `source_sites`, `sink_sites`, and analyzer under late discovery/script sections, but did not explicitly connect lazy browser loading and DevTools observations to the corpus. The script map documented the named-source module but omitted a separate entry for the sink-site module.
 - `js_analyzer.py inventory` accepts `--page` for an HTTP-fetched page's scripts and `--input` for a scoped JS URL list; `--page` alone is not a browser interaction or lazy-route census. Its module calls and persisted output were inspected directly.
-- Focused source/sink/analyzer/XSS tests: **403 passed** (initial implementation before final documentation adjustment), plus XSS route/script-policy focused tests **36 passed, 2 failed**; the two failures were reproduced on unchanged beta in `skills/stack-to-program/scripts/README.md` contracts. The first feature run had a task-owned wording assertion failure, corrected by restoring the existing “inventory analysis is static” phrase.
+- Focused source/sink/analyzer/XSS tests after final edit: **403 passed**, plus XSS route/script-policy focused tests **36 passed, 2 failed**; the two failures were reproduced on unchanged beta in `skills/stack-to-program/scripts/README.md` contracts. The first feature run had a task-owned wording assertion failure, corrected by restoring the existing “inventory analysis is static” phrase.
 - Full `tests` suite after local `.venv` install: **307 passed, 1 skipped, 2 failed**. Same two unrelated `stack-to-program` failures reproduced on unchanged beta with the same interpreter. An initial attempt using the beta worktree's interpreter failed 15 additional launcher subprocess subtests because this worktree had no `.venv`; `./setup.sh --install-python-deps` resolved those setup failures. No live targets contacted.
 - Independent workflow audits and release review: pending.
 
@@ -36,10 +36,10 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/xss-input-sink-discovery`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `3a2d22ccce8844543c093bcd30d83b26385c7607`
+- **Feature implementation commit(s):** `3a2d22ccce8844543c093bcd30d83b26385c7607`
 - **Exact resume point:** reconcile the two read-only tooling/routing audits against the implemented route, amend any concrete gaps, rerun focused/full tests as needed, then obtain independent release review before beta integration.
-- **Working-tree state at handoff:** implementation and dossier uncommitted until next checkpoint; do not infer a commit from this record.
+- **Working-tree state at handoff:** clean after this dossier-only follow-up commit; implementation checkpoint remains `3a2d22c`.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 
 - 2026-10-21 PDT — task claimed; feature worktree from fetched clean beta; two independent read-only audits dispatched. No live target actions.
 - 2026-10-21 PDT — rooted the two real analyzer modules, authored on-demand acquisition route and script-map entry, ran focused/source integration tests and isolated full suite; only two unchanged-beta stack-to-program failures remain. Awaiting read-only audit results and release review.
+- 2026-10-21 PDT — implementation and initial dossier committed as `3a2d22ccce8844543c093bcd30d83b26385c7607`. This later dossier-only commit records the immutable checkpoint; no beta integration yet.

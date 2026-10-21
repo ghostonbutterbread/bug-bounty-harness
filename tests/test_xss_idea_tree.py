@@ -61,7 +61,7 @@ def test_human_tree_accounts_for_pinned_technique_headings_without_claiming_bypa
     assert "**Out of XSS:**" in section
     assert "not the set of independently demonstrated bypasses" in doc
     assert "Mismatched Contexts (2025/2026 Trend)" in doc
-    assert "Current" not in doc.split("- **Implementation commit:**", 1)[1].splitlines()[0]
+    assert "Current" not in doc.split("- **Implementation commits:**", 1)[1].splitlines()[0]
 
 
 def test_leaves_preserve_existing_research_and_evidence_ownership() -> None:

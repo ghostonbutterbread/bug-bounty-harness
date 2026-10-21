@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20 (PDT)
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
-- **Latest immutable recovery checkpoint:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (implementation; this dossier update is later)
-- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`
+- **Latest immutable recovery checkpoint:** `b09484a43ca4bac403a83f87a3ed75a28b48bf0b` (corrected implementation; this dossier update is later)
+- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`, `b09484a43ca4bac403a83f87a3ed75a28b48bf0b`
 - **Inspiration / canonical references:** Advanced-XSS README at `7d529fe86fe8bdef73b393db9274e427cf637182` (safe-fetched SHA-256 `0bbf3107451b73334bc95d589ab47ed12c1a4b194e155bc92fab77a754a96259`); existing BBH `xss`, `xss-payload-engineering`, `dom-xss`, `xss-lifecycle` and research-card ownership.
 
 ## Intent
@@ -65,18 +65,18 @@ agent walk-through on the built tree.
   merge; read-only narrow re-review confirms all corrected wording and routes.
 - **Why it blocks integration:** release claims require exact committed-tree
   evidence; unrelated baseline failures must be enumerated, not waived.
-- **Next completion step:** commit corrections, rerun focused/full, obtain a
-  narrow independent readback of fixed nits, integrate beta only on acceptance,
+- **Next completion step:** obtain a narrow independent readback of corrected
+  commit `b09484a`; integrate beta only on acceptance,
   then verify beta projection. Hoster/other runtime activation is separate.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
-- **Latest immutable recovery checkpoint:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (implementation; current tip may contain dossier-only update)
-- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`
-- **Exact resume point:** finish correction checkpoint, narrow readback;
+- **Latest immutable recovery checkpoint:** `b09484a43ca4bac403a83f87a3ed75a28b48bf0b` (corrected implementation; current tip may contain dossier/doc-only update)
+- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`, `b09484a43ca4bac403a83f87a3ed75a28b48bf0b`
+- **Exact resume point:** narrow readback of corrected commit;
   integrate beta only after acceptance.
-- **Working-tree state at handoff:** clean after correction checkpoint commit.
+- **Working-tree state at handoff:** clean after this dossier/doc-only commit.
 
 ## Decision gates
 
@@ -101,3 +101,6 @@ agent walk-through on the built tree.
   skip; corrected full rerun 304 passed/1 opt-in skip/2 unchanged baseline
   failures. Corrected commit, narrow readback and beta integration remain
   separate gates.
+- 2026-10-20 — corrections committed at `b09484a43ca4bac403a83f87a3ed75a28b48bf0b`;
+  the next commit updates checkpoint metadata and its matching assertion only.
+  Narrow independent re-review remains before beta merge.

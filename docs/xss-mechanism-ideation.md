@@ -6,8 +6,10 @@
 - **Supersedes:** none; complements the existing parser-stage reference and ResearchMap.
 - **Implementation commits:** `639480ba23b2b490124b4866cd22a883be48412b`
   (initial feature), `7273a774a73059151df48c92cde93d5756634536`
-  (reviewed mXSS/composition correction). Initially promoted to beta by
-  `40077525c9794aff425aadcfe68d220f20121d6c`.
+  (reviewed mXSS/composition correction), `5fd1ea9962d00e3ed353254c975c98593632d9dd`
+  (later creative-breadth wording). The original augmentation was first
+  promoted to beta by `40077525c9794aff425aadcfe68d220f20121d6c`;
+  confirm the selected beta/runtime revision independently.
 
 ## The gap, without understating existing coverage
 

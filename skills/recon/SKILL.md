@@ -1,6 +1,6 @@
 ---
 name: recon
-description: "Use as the default full-platform reconnaissance orchestrator: establish a broad authorized surface baseline, continuously enrich it with scoped runtime evidence, and produce ranked evidence-backed handoffs for deeper lanes."
+description: "Use when initializing a program fully or running full-platform reconnaissance: establish a scoped baseline, enrich runtime evidence, and hand off ranked surfaces."
 ---
 # Full-Platform Reconnaissance
 
@@ -94,10 +94,12 @@ They do not restart the full baseline. Re-run a Recon-Ry delta or a selected
 collection lane only after a material deployment/scope change, a new coverage
 gap, or freshness uncertainty.
 
-Program/vendor documentation and public-code reading are not default baseline
-lanes. Retrieve either only when a concrete endpoint, technology, integration,
-or observed behavior creates a named mapping or live-testing comparison
-question.
+Ordinary `/recon` does not fetch program/vendor documentation or public code
+without a concrete mapping question. Program initialization `--mode full` is
+the explicit exception: it includes bounded public-documentation **discovery**
+by default, not a license to fetch vendor code or treat linked assets as target
+scope. `/recon-docs` owns source-attributed candidate collection; `/docs`
+reviews only justified Program Doc topics.
 
 ## Full-recon lane plan
 
@@ -365,3 +367,85 @@ rules, CAPTCHA/lockout escalation, testing third-party/archive-discovered hosts
 outside saved scope, non-owned data access, destructive actions, or use of new
 credentials. Recon output is surface evidence, not a confirmed finding and not
 a license to launch vulnerability testing.
+
+## Program initializer handoff
+
+When Ryushe says **“init <program> fully”**, **“initialize <program> full”**,
+or **“initialize <program> basic”**, treat that as an owning-agent workflow,
+not merely a CLI request. Resolve the named program/platform and published
+scope/rules, run `bbh scripts/program_init.py` (basic is the default), and for
+full continue through the supervised steps below after initialization succeeds.
+Do not spawn children on a failed/partial initializer. If no program is named,
+ask for it; do not invent a target. A full request never silently downgrades to
+basic when active recon is blocked—report initialization and collection status
+separately.
+
+`bbh scripts/program_init.py <program> --platform <platform> --mode full`
+creates a deterministic, pending handoff at the web (or API) lane's
+`recon/_meta/full-recon-handoff.json` alongside the normal basic bootstrap.
+Public docs discovery is included by default (`--include-docs` remains a
+compatibility spelling). Full-mode platform pulls use `~/Shared/scopes`, so
+full mode rejects any alternate `--shared-root` before contacting the platform;
+basic mode retains its existing behavior. Full rejects
+`--skip-scope` and empty saved scope. A dry run requires scope already saved
+because it does not contact the platform.
+
+### Owning-agent execution contract
+
+The CLI writes only a proposal. The **owning Hermes agent**, not the CLI, must
+execute the following after a named program and published rules are available:
+
+1. Read the generated JSON and current saved scope/rules. Load the entry-chain
+   policies above plus `resource-safety-policy` and `bb-script-rules` before
+   scripts. Obtain approval for request-level destinations (origins, ports and
+   paths), active/passive classes, redirects, and an **aggregate** rate budget
+   across children. If mixed wildcard and restricted paths cannot be enforced
+   at request time, block the broad active producer; post-filtering is not a
+   substitute. No budget or scope approval means stop with a blocker, not an
+   offline handoff called complete.
+2. Call `delegate_task(tasks=[...])` with two independent bounded children:
+   `full-recon` loads `/recon` and first checks for a completed comparable
+   baseline and its current freshness/coverage receipt. If one is intact and
+   current, reuse it; otherwise run the eligible baseline-full lanes (or a
+   named delta for a bounded gap). Never start duplicate Recon-Ry producers
+   just because `init full` was invoked. `js-url-acquisition` loads `/js-pull`
+   and `/live-map` and owns scoped JS URL acquisition/download evidence. Give
+   each only its exact seeds, scope/rate allocation, policy chain, output root
+   and expected receipt from the packet.
+   Do not start both if aggregate traffic cannot be contained. The parent
+   retains rate oversight and stops both on challenge, repeated 429 or scope
+   drift. Delegation returns are not evidence by themselves: read the cited
+   manifests, hashes, gaps and completion/skip receipts.
+3. **Wait for JS evidence** before assigning `katana-endpoints` to a bounded
+   child via `delegate_task`; use only approved page/JS URL inputs from the JS
+   receipt. Katana's documented `-jc` parses/crawls JavaScript endpoints; check
+   the installed `katana -h` before selecting flags, and use memory-intensive
+   `-jsl` only within a verified resource budget. Verify request-level
+   destination/redirect containment and rate against the shared budget, or
+   record a skipped receipt with the reason. Preserve the raw run and source
+   attribution through `/bounty-tools`. Never repeat Recon-Ry's archive
+   producers. Next dispatch `api-mapping` via `delegate_task` with JS
+   and Katana evidence; `/api-surface-mapping` must distinguish declared routes
+   from observed operations and must not invoke operations to test them.
+4. Dispatch `public-docs` via `delegate_task` to `/recon-docs` then `/docs` for
+   bounded provider-compliant public discovery. This may run beside other
+   approved collection when rate budgets permit. Docs are claims, not scope;
+   quarantine third-party and out-of-scope links. A blocked provider gets an
+   explicit skip receipt, not fabricated coverage.
+5. After **all** prerequisite receipts exist (including completion of any
+   detached Recon-Ry jobs, not merely a launch PID), validate source attribution
+   and scope for each candidate. The parent performs `recon-bus-promotion` via
+   `/recon-corpus-write-policy` and Recon Bus; do not duplicate Recon-Ry's own
+   archive promotion. Then perform `url-ingest-review` through `/url-ingest`,
+   inspect existing lane coverage and produce bounded next packets. Record
+   promotion and queue receipts and remaining gaps in the owning run capsule.
+
+If a child fails or remains running, record its actual status and hold downstream
+dependencies; do not mark full complete. Reruns regenerate the **pending**
+handoff from scope and may refresh that file; keep worker progress and receipts
+in run capsules, never in the generated handoff. This CLI does **not** invoke
+`delegate_task`, spawn Hermes processes, or run target traffic;
+`agents/recon_full.py` is also plan-only. Literal CLI-spawning would require a
+separate reviewed runtime with delegated policy context, destination and
+aggregate-rate enforcement; never replace that with an unapproved `hermes chat
+-q` launch.

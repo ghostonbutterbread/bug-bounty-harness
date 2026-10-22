@@ -92,12 +92,27 @@ checkout-local interpreter.
   non-secret mounted-artifact lane before first work or a stale-program refresh.
 - **Inputs:** Program slug, required `--platform` for a scope pull or explicit
   `--skip-scope`; optional repeatable `--lane`; optional Shared/artifact roots.
+  `--mode basic` is the default. `--mode full` requires `--platform`, non-empty
+  saved scope, and web/api lane; bounded public docs discovery is included by
+  default (`--include-docs` is a compatibility option). Full-mode platform pulls
+  reject custom `--shared-root` because pull and scope reads use `~/Shared/scopes`;
+  basic mode retains its existing custom-root behavior.
 - **Outputs:** Shared program layout/context, scope-derived web recon seeds,
   initialization manifest, artifact pointer, and mounted artifact directories.
+  Full also writes deterministic pending stage packets to
+  `<Shared>/web_bounty/<program>/<web|api>/recon/_meta/full-recon-handoff.json`.
 - **Mutates:** Creates missing directories and front-door metadata only; never
-  deletes or overwrites existing program files.
+  deletes or overwrites existing program files in basic mode. Full refreshes
+  only its changed handoff packet on reinitialization; `created` and `refreshed`
+  identify different outcomes (dry-run previews both); receipts belong in producer
+  run capsules, not in the generated packet. Platform scope pull may contact
+  the platform, but no mode makes target requests or launches subagents.
 - **Example:** `scripts/bbh scripts/program_init.py example --platform bugcrowd --lane web --lane apk`
 - **Preview:** `scripts/bbh scripts/program_init.py example --skip-scope --dry-run --json`
+- **Full preview:** `scripts/bbh scripts/program_init.py example --platform bugcrowd --mode full --dry-run --json` (requires already saved scope; does not pull it).
+- **Full workflow:** The owning agent follows the executable `delegate_task`
+  dependency/receipt contract in [`../skills/recon/SKILL.md`](../skills/recon/SKILL.md)
+  after published scope and aggregate-rate approval. The CLI does not dispatch.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_program_init.py -q`
 - **Owner/scope:** Bug Bounty Harness / cross-program bootstrap.
 - **Dependencies:** Python 3 and the checkout-local Bounty Core environment;

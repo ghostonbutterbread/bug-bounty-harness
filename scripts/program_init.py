@@ -143,6 +143,56 @@ def _seed_recon_files(recon_root: Path, domains: set[str], urls: set[str], *, dr
         _write_once(recon_root / name, body, dry_run=dry_run)
     return seeds
 
+def _full_handoff(program: str, domains: set[str], urls: set[str], *, include_docs: bool) -> dict[str, object]:
+    """Stable packets for an agent coordinator, not runnable scanner commands."""
+    seeds, wildcards = recon_seed_lines(domains, urls)
+    scope = {"source": "saved platform scope", "domains": sorted(domains),
+             "urls": sorted(urls), "url_seeds": seeds, "wildcard_seeds": wildcards}
+
+    def packet(key: str, owner: str, depends_on: list[str], task: str, output: str) -> dict[str, object]:
+        return {"id": key, "owner": owner, "depends_on": depends_on,
+                "status": "pending-scope-rate-review" if not depends_on else "pending-prerequisites",
+                "task": task, "expected_receipt": output}
+
+    stages = [
+        packet("full-recon", "/recon", [],
+               "Inspect the completed comparable full-platform baseline and freshness receipt first. If absent, incomplete or materially stale, run /recon at the appropriate baseline-full or explicit full mode against all eligible saved scope; otherwise reuse its evidence or run a targeted delta for a named gap. Assess each active producer's request-level scope and aggregate rate budget. Recon-Ry owns its own stages and archive promotion. Do not infer coverage from a plan.",
+               "Full-recon collection manifests or verified baseline reuse/delta receipt, coverage gaps, scope/rate decision and Recon-Ry completion receipt when launched"),
+        packet("js-url-acquisition", "/js-pull + /live-map", [],
+               "Comprehensively collect scoped JavaScript URL candidates from canonical aggregate, authorized runtime pages/flows, and source-attributed history; dedupe, preserve provenance and fetch only after live-policy approval. Do not silently treat a URL list as downloaded JS or deep review.",
+               "JS URL inventory, content hashes, source/page provenance, failures and coverage gaps"),
+        packet("katana-endpoints", "/bounty-tools + /focused-recon", ["js-url-acquisition"],
+               "Only after the JS collection receipt, run a bounded, scoped Katana endpoint pass over approved page/JS URL inputs with JavaScript parsing (-jc; consider -jsl only within memory budget). Verify local Katana help and request-level scope/redirect containment and rate first; record the exact source URLs and raw output through /bounty-tools. If unsafe or unavailable, record a skipped receipt. Do not repeat Recon-Ry archive producers.",
+               "Raw Katana run manifest and source-attributed endpoint candidates or explicit skip reason"),
+        packet("api-mapping", "/api-surface-mapping", ["js-url-acquisition", "katana-endpoints"],
+               "Reconcile JS/source-declared routes with authorized runtime observations as separate evidence classes; map methods, auth context, and unknowns without testing operations.",
+               "API operation map and bounded evidence-linked handoffs"),
+    ]
+    if include_docs:
+        stages.append(packet("public-docs", "/recon-docs → /docs", [],
+                             "Explicit full-only discovery of bounded public program/product/developer documentation from provider-compliant sources. Public docs are source claims, not target scope or observed behavior; quarantine third-party and out-of-scope links; do not crawl indiscriminately.",
+                             "Source-attributed public docs list and candidate Program Docs topics or skip reason"))
+    sources = ["full-recon", "js-url-acquisition", "katana-endpoints", "api-mapping"]
+    if include_docs:
+        sources.append("public-docs")
+    stages.extend([
+        packet("recon-bus-promotion", "/recon-corpus-write-policy + Recon Bus", sources,
+               "Review raw producer receipts, filter each candidate against saved scope, retain rejected candidates in quarantine, and promote attributed reusable evidence through Recon Bus only; never hand-edit aggregates or duplicate Recon-Ry completion promotion.",
+               "Recon Bus promotion receipts and quarantined candidate references"),
+        packet("url-ingest-review", "/url-ingest", ["recon-bus-promotion"],
+               "Ingest promoted URL sets into a review queue, inspect prior per-lane coverage, and hand off bounded next packets; do not mark URLs tested by collection alone.",
+               "URL Ingest queue/coverage receipt and pending review gaps"),
+    ])
+    return {"schema_version": 1, "program": program, "mode": "full",
+            "execution_boundary": "plan-only; this CLI does not spawn Hermes subagents or make target requests",
+            "scope": scope,
+            "gates": ["Read published program scope and rules, saved scope and permitted rate budget before dispatch.",
+                      "Apply general-security-testing-policy, program-testing-policy and live-testing-policy before traffic; owning skills govern accounts, browsers, tools and writes.",
+                      "A wildcard, shared IP, archive result or public doc is not authorization. Restricted origin/path grants require request-level enforcement; defer active broad scans if unresolved.",
+                      "Stop on challenge, repeated 429, instability, scope ambiguity or unavailable rate authorization."],
+            "completion_rule": "All selected receipts, scope-filtered promotion and URL review queue required; every stage remains pending until an agent records evidence.",
+            "stages": stages}
+
 
 def initialize_program(
     program: str,
@@ -153,21 +203,46 @@ def initialize_program(
     platform: str | None,
     skip_scope: bool,
     dry_run: bool,
+    mode: str = "basic",
+    include_docs: bool | None = None,
 ) -> dict[str, object]:
     slug = canonical_program_slug(program) if platform else normalize_program(program)
     if platform and skip_scope:
         raise ValueError("--platform and --skip-scope cannot be used together")
     if not platform and not skip_scope:
         raise ValueError("scope is required: provide --platform or explicitly use --skip-scope")
+    if mode not in {"basic", "full"}:
+        raise ValueError("mode must be basic or full")
+    if include_docs and mode != "full":
+        raise ValueError("--include-docs requires --mode full")
+    if include_docs is None:
+        include_docs = mode == "full"
+    if mode == "full" and (skip_scope or not platform):
+        raise ValueError("full mode requires --platform and saved scope; --skip-scope is not eligible")
+    if mode == "full" and not any(lane in {"web", "api"} for lane in lanes):
+        raise ValueError("full mode requires a web or api lane")
+    # pull_scope and ScopeManager both use ~/Shared/scopes. Reject an alternate
+    # layout before the network pull rather than claiming its scope is aligned.
+    if mode == "full" and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
+        raise ValueError("--shared-root is not supported with full initialization: scope pull and reads use ~/Shared/scopes")
 
     if platform and not dry_run:
         pulled_scope = pull_scope(program, platform)
         if pulled_scope is None:
             raise RuntimeError("scope pull failed; no program layout was created")
 
-    scope_state = "skipped" if skip_scope else ("pulled" if platform else "unknown")
+    scope_state = "skipped" if skip_scope else "pulled" if platform else "unknown"
+    if mode == "full" and dry_run:
+        scope_state = "saved"
     domains, urls = _read_scope(slug) if not dry_run else (set(), set())
+    if mode == "full" and dry_run:
+        # Dry runs do not pull scope, but must still have an existing saved grant.
+        domains, urls = _read_scope(slug)
+    if mode == "full" and not (domains or urls):
+        raise ValueError("full mode requires non-empty saved scope; no layout or handoff created")
+    handoff = _full_handoff(slug, domains, urls, include_docs=include_docs) if mode == "full" else None
     created: list[str] = []
+    refreshed: list[str] = []
     shared_lanes: dict[str, str] = {}
 
     for lane in lanes:
@@ -220,7 +295,22 @@ def initialize_program(
         ):
             created.append(str(artifact_map))
 
-    return {
+    handoff_path = None
+    if handoff is not None:
+        handoff_lane = "web" if "web" in lanes else "api"
+        handoff_root = shared_root / WEB_FAMILY / slug / handoff_lane / "recon" / "_meta"
+        handoff_path = handoff_root / "full-recon-handoff.json"
+        body = json.dumps(handoff, indent=2, sort_keys=True) + "\n"
+        if not handoff_path.exists():
+            if not dry_run:
+                handoff_path.write_text(body, encoding="utf-8")
+            created.append(str(handoff_path))
+        elif handoff_path.read_text(encoding="utf-8") != body:
+            if not dry_run:
+                handoff_path.write_text(body, encoding="utf-8")
+            refreshed.append(str(handoff_path))
+
+    result = {
         "program": slug,
         "lanes": shared_lanes,
         "artifact_root": str(artifact_root / slug),
@@ -228,8 +318,14 @@ def initialize_program(
         "scope_domains": len(domains),
         "scope_urls": len(urls),
         "created": created,
+        "refreshed": refreshed,
         "dry_run": dry_run,
     }
+    if handoff is not None:
+        result["mode"] = "full"
+        result["handoff_path"] = str(handoff_path)
+        result["handoff"] = handoff
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -239,6 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--platform", choices=["hackerone", "bugcrowd", "intigriti"], help="Pull published scope from this platform")
     scope.add_argument("--skip-scope", action="store_true", help="Initialize only and record that a manual scope source is still required")
     parser.add_argument("--lane", dest="lanes", choices=sorted(LANE_FAMILIES), action="append", help="Initialize a surface lane (repeatable; defaults to web)")
+    parser.add_argument("--mode", choices=["basic", "full"], default="basic", help="Basic bootstrap (default) or full agent-facing handoff (CLI does not dispatch)")
+    parser.add_argument("--include-docs", action="store_true", default=None, help="Compatibility option; bounded public docs are included in full by default")
     parser.add_argument("--shared-root", type=Path, default=Path.home() / "Shared", help="Shared base root (default: ~/Shared)")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT, help="Mounted non-secret artifact root (default: /mnt/bounty)")
     parser.add_argument("--dry-run", action="store_true", help="Show the initialization plan without creating files")
@@ -257,6 +355,8 @@ def main(argv: list[str] | None = None) -> int:
             platform=args.platform,
             skip_scope=args.skip_scope,
             dry_run=args.dry_run,
+            mode=args.mode,
+            include_docs=args.include_docs,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}")
@@ -268,7 +368,11 @@ def main(argv: list[str] | None = None) -> int:
         for lane, path in result["lanes"].items():
             print(f"  Shared {lane}: {path}")
         print(f"  Mounted artifacts: {result['artifact_root']}")
-        print(f"  Created: {len(result['created'])} path(s)")
+        label = "Planned" if result["dry_run"] else "Created"
+        print(f"  {label}: {len(result['created'])} path(s)")
+        print(f"  {'Would refresh' if result['dry_run'] else 'Refreshed'}: {len(result['refreshed'])} path(s)")
+        if result.get("handoff_path"):
+            print(f"  Pending full-recon handoff: {result['handoff_path']}")
     return 0
 
 

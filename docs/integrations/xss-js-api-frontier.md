@@ -23,7 +23,7 @@ The XSS router lists three checks; source-acquisition owns the Katana reuse/fetc
 
 - `python3 -m pytest -q agents/test_xss_skill_clarity.py`: 8 passed.
 - `git diff --check`: clean.
-- Independent review: pending.
+- Independent review of `f70dba3` requested correction: existing relevant crawl with incomplete map must be reconciled, not rerun; map adequacy must be selected-cluster-based. Both corrected in working tree; re-review pending.
 - Bounded broad suite `python3 -m pytest -q agents/test_xss_skill_clarity.py tests --tb=no`: 317 passed, 1 skipped, 18 failed (safety incident CLI requires checkout-local `.venv`, unrelated `stack-to-program` index/launcher and `upload-surface` assertion). No changed XSS test failed; not a green receipt. Root `python3 -m pytest -q` previously failed collection on missing `bac_checks`.
 - Alignment: universal live-testing and BBH entry unchanged; XSS owns class-specific checkpoint and points to owners for acquisition and operation interpretation.
 

@@ -65,12 +65,17 @@ For XSS breadth, inspect the existing API operation inventory
 (`api-surface-mapping` run artifacts and selected `analyze-endpoint` contracts),
 Recon Bus URL/parameter artifacts, and prior scoped Katana tool-run manifests.
 Count a prior JS crawl only if its target host/flow, scope, freshness, JS-parsing
-mode, and observed output cover the selected route cluster. A generic Katana
-invocation, a large URL count, or a JS bundle list does not establish an API
-operation map. If a suitable map and crawl exist, reuse them and target the
-unmapped requests/fields; otherwise load `bounty-tools` and run a bounded,
-scope-checked Katana crawl of the selected in-scope page/flow with JS endpoint
-parsing enabled (`-jc`, after checking the installed version's help). Seed it
+mode, and observed output cover the selected route cluster. Assess the map on
+that same cluster: does it tie discovered routes/operations to their method
+where known, page/action, source reference, auth context, and observed or
+unresolved request fields? Missing links are map gaps even if the raw URL list
+is large. A generic Katana invocation, a large URL count, or a JS bundle list
+does not establish an API operation map. If a suitable crawl exists, reuse its
+output first; reconcile missing map links with JS request builders and browser
+requests, not another crawl. Only if the selected flow lacks a relevant crawl,
+load `bounty-tools` and run a bounded, scope-checked Katana crawl of the
+selected in-scope page/flow with JS endpoint parsing enabled (`-jc`, after
+checking the installed version's help). Seed it
 from the scoped page/flow that loads the inventory's scripts; do not assume
 Katana accepts the local JS packet files as a live crawl seed. Explicitly
 constrain hosts and excluded paths to the published program scope, and set

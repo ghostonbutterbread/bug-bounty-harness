@@ -65,6 +65,9 @@ def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() ->
                    "source-attributed API operation/route", "relevant scoped Katana JS-crawl run",
                    "load `parameter-mining` and expand", "Revisit mining when it runs out"):
         assert phrase in normalized
+    assert "If the crawl is missing" in normalized
+    assert "If the crawl exists but the map is incomplete" in normalized
+    assert "do not repeat it just because the map is thin" in normalized
     assert "not a `params.txt` size threshold" in reference
     assert "unreviewed frontier" in reference
     assert "Otherwise, work the current unreviewed pool first" in reference
@@ -82,6 +85,9 @@ def test_xss_katana_gap_is_scoped_and_not_a_false_api_map() -> None:
                    "authenticated headers", "source-declared, crawled, and runtime-observed",
                    "body/GraphQL fields", "recon-corpus-write-policy", "parameter-mining"):
         assert phrase in section
+    assert "If a suitable crawl exists, reuse its\noutput first" in section
+    assert "Only if the selected flow lacks a relevant crawl" in section
+    assert "page/action, source reference, auth context" in section
 
 
 def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> None:

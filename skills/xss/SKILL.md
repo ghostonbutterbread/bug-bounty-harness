@@ -39,10 +39,12 @@ gate on probing.
    before broad payload or parameter screening. Reuse a suitable current
    inventory; browser-loaded/lazy chunks still need the running-app check below.
 2. Check whether this flow already has a source-attributed API operation/route
-   map and a relevant scoped Katana JS-crawl run. If not, use
-   `references/source-acquisition.md` to collect scoped JS-derived endpoint
-   candidates with Katana and reconcile them with browser requests and the
-   existing API map. A raw URL list is not an extensive API map.
+   map and a relevant scoped Katana JS-crawl run. If the crawl is missing,
+   use `references/source-acquisition.md` to collect scoped JS-derived endpoint
+   candidates with Katana. If the crawl exists but the map is incomplete,
+   reconcile its output with browser requests and the API map first; do not
+   repeat it just because the map is thin. A raw URL list is not an extensive
+   API map.
 3. Compare route-and-field candidates with prior parameter-specific review.
    If the selected flow lacks names, body/GraphQL/form writers, or linked
    routes, load `parameter-mining` and expand the source-attributed pool; if a

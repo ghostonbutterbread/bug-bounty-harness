@@ -92,12 +92,26 @@ checkout-local interpreter.
   non-secret mounted-artifact lane before first work or a stale-program refresh.
 - **Inputs:** Program slug, required `--platform` for a scope pull or explicit
   `--skip-scope`; optional repeatable `--lane`; optional Shared/artifact roots.
+  `--mode basic` is the default. `--mode full` requires `--platform`, non-empty
+  saved scope, and web/api lane; `--include-docs` adds explicit public docs discovery.
 - **Outputs:** Shared program layout/context, scope-derived web recon seeds,
   initialization manifest, artifact pointer, and mounted artifact directories.
+  Full also writes deterministic pending stage packets to
+  `<Shared>/web_bounty/<program>/<web|api>/recon/_meta/full-recon-handoff.json`.
 - **Mutates:** Creates missing directories and front-door metadata only; never
-  deletes or overwrites existing program files.
+  deletes or overwrites existing program files in basic mode. Full refreshes
+  only its own handoff packet on reinitialization; receipts belong in producer
+  run capsules, not in the generated packet. Platform scope pull may contact
+  the platform, but no mode makes target requests or launches subagents.
 - **Example:** `scripts/bbh scripts/program_init.py example --platform bugcrowd --lane web --lane apk`
 - **Preview:** `scripts/bbh scripts/program_init.py example --skip-scope --dry-run --json`
+- **Full preview:** `scripts/bbh scripts/program_init.py example --platform bugcrowd --mode full --include-docs --dry-run --json` (requires already saved scope; does not pull it).
+- **Full workflow:** The owning agent reads the packet, checks published program
+  rules and saved scope/rate budget, then dispatches independent `/recon` and
+  `/js-pull` collection. Wait for JS receipt before scoped Katana extraction;
+  map API operations, optionally collect bounded public docs, promote attributed
+  candidates through Recon Bus, then create URL Ingest review queues. All are
+  pending until owner receipts exist; the CLI does not spawn Hermes subagents.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_program_init.py -q`
 - **Owner/scope:** Bug Bounty Harness / cross-program bootstrap.
 - **Dependencies:** Python 3 and the checkout-local Bounty Core environment;

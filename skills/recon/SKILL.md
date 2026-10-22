@@ -99,6 +99,12 @@ lanes. Retrieve either only when a concrete endpoint, technology, integration,
 or observed behavior creates a named mapping or live-testing comparison
 question.
 
+An explicit `scripts/program_init.py --mode full --include-docs` request is a
+separate, bounded public-documentation **discovery** lane, not a license to
+fetch vendor code or to treat linked assets as in scope. `/recon-docs` owns
+source-attributed candidate collection; `/docs` reviews only justified Program
+Doc topics. Without `--include-docs`, keep the default evidence-question gate.
+
 ## Full-recon lane plan
 
 `agents/recon_full.py` is a **plan-only** coordinator receipt. It records the
@@ -365,3 +371,23 @@ rules, CAPTCHA/lockout escalation, testing third-party/archive-discovered hosts
 outside saved scope, non-owned data access, destructive actions, or use of new
 credentials. Recon output is surface evidence, not a confirmed finding and not
 a license to launch vulnerability testing.
+
+## Program initializer handoff
+
+`bbh scripts/program_init.py <program> --platform <platform> --mode full`
+creates a deterministic, pending handoff at the web (or API) lane's
+`recon/_meta/full-recon-handoff.json` alongside the normal basic bootstrap.
+Add `--include-docs` only when explicit public documentation discovery is
+requested. It rejects `--skip-scope` and empty saved scope. A dry run requires
+scope already saved because it does not contact the platform.
+
+The owning agent reads the packets and verifies program rules, allowed target
+origins/paths, rate budget, and policy chain before dispatching work. The
+`full-recon` and `js-url-acquisition` packets are independent collection work;
+the Katana endpoint packet waits for the JS receipt, API mapping reconciles
+source and runtime evidence, and Recon Bus promotion plus URL Ingest review wait
+for attributed source receipts. Each owner writes its normal run receipt, not a
+made-up completion flag in the generated handoff. This CLI does **not** spawn
+Hermes subagents or run target traffic; `agents/recon_full.py` is also plan-only.
+Recon-Ry remains the owner of scanner stages and archive promotion. The packet
+can be regenerated after scope changes; do not store worker progress in it.

@@ -64,6 +64,8 @@ def test_xss_routes_optional_new_surface_lens_without_a_startup_gate() -> None:
     assert "No inventory is a\nprerequisite to begin XSS" in router
     assert "XSS breadth discovery checkpoint" not in router
     assert "API/endpoint breadth checkpoint" not in reference
+    assert "if JS evidence is the chosen lens" in router
+    assert "use `js` for the paired JS inventory" not in router
     assert "When a JS corpus is the chosen XSS discovery lens" in router
     assert "If new JS is\nneeded, load `js` → `js-pull`" in router
     assert "When new JS is needed, feed scoped observed JS URLs" in reference

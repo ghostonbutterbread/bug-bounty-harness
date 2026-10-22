@@ -55,7 +55,7 @@ and a reflected value may become dangerous only after client-side parsing.
 | Evidence or decision | Load |
 | --- | --- |
 | Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
-| Need to discover named inputs and render sites in loaded JS, a live route, or the observed stack | `references/source-acquisition.md`; use `js` for the paired JS inventory and `browser-session-policy` for browser-mediated flows. A known strong path need not wait for a census. |
+| Need to discover named inputs and render sites on a live route or the observed stack | `references/source-acquisition.md`; if JS evidence is the chosen lens, use `js` for paired source/sink review. Use `browser-session-policy` for browser-mediated flows. A known strong path need not wait for a census. |
 | A plausible sink/renderer is known but its claimed consumer does not mount, or a vector is about to be parked as gated | `references/consumer-reach.md` to distinguish reachability from defense and policy stops; load `assumption-testing` for a UI/client prerequisite claim |
 | Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
 | Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `xss-payload-engineering` → `references/mechanism-ideation.md` inside that skill; select a causal branch rather than a larger payload list |

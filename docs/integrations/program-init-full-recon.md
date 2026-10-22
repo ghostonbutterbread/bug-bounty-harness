@@ -6,8 +6,8 @@
 - **Base commit:** `95c073603582732f520c59d94d8f3b03a76dcedd` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** none yet; commit pending
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `331caa65f21737c89604b616a22f8fb06abbe775`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`
 - **Inspiration / canonical references:** `scripts/program_init.py`, `agents/recon/full.py`, `skills/recon/SKILL.md`, `scripts/README.md`
 
 ## Intent
@@ -36,9 +36,9 @@ Preserve the basic initializer's create-only behavior and add an opt-in full pla
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/program-init-full-recon`
-- **Latest immutable recovery checkpoint:** none yet; commit pending
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review tests and packet against policy, commit this coherent change, hand off SHA.
+- **Latest immutable recovery checkpoint:** `331caa65f21737c89604b616a22f8fb06abbe775`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`
+- **Exact resume point:** parent independently reviews tests and packet against policy; integrate only after a separate decision.
 - **Working-tree state at handoff:** clean after commit expected.
 
 ## Decision gates

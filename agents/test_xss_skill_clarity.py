@@ -58,12 +58,13 @@ def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() ->
     router = XSS.read_text(encoding="utf-8")
     reference = SOURCE.read_text(encoding="utf-8")
     entry = router.split("## Entry and lane selection", 1)[1].split("## Next-question overlays", 1)[0]
-    assert "js` → `js-pull` now" in entry
-    assert "retained\nbodies and page/flow provenance" in entry
-    assert "manifest and fetch gaps" in entry
-    assert "explicitly limits the work to a known\nvector" in entry
-    assert "warm/hot controlled path is already actionable" in entry
-    assert "A large `params.txt` alone" in entry
+    normalized = " ".join(entry.replace("**", "").split())
+    for phrase in ("switch to `js` → `js-pull` now", "retained bodies and page/flow provenance",
+                   "manifest and fetch gaps", "An explicitly narrow known-vector task or an actionable warm/hot controlled",
+                   "scope, auth, tool availability, or rate limits", "The size of `params.txt` is not a skip criterion",
+                   "source-attributed API operation/route", "relevant scoped Katana JS-crawl run",
+                   "load `parameter-mining` and expand", "Revisit mining when it runs out"):
+        assert phrase in normalized
     assert "not a `params.txt` size threshold" in reference
     assert "unreviewed frontier" in reference
     assert "Otherwise, work the current unreviewed pool first" in reference
@@ -71,6 +72,16 @@ def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() ->
     assert "warm/hot controlled path never waits" in reference
     assert "bare names" in reference and "body/GraphQL/form" in reference
     assert "Coverage brief" in reference and "missing lazy chunks" in reference
+
+def test_xss_katana_gap_is_scoped_and_not_a_false_api_map() -> None:
+    reference = SOURCE.read_text(encoding="utf-8")
+    section = reference.split("## API/endpoint breadth checkpoint", 1)[1].split("## ", 1)[0]
+    for phrase in ("api-surface-mapping", "prior scoped Katana tool-run manifests",
+                   "scope, freshness, JS-parsing", "load `bounty-tools`", "(`-jc`",
+                   "default registrable-domain scope", "forbidden siblings",
+                   "authenticated headers", "source-declared, crawled, and runtime-observed",
+                   "body/GraphQL fields", "recon-corpus-write-policy", "parameter-mining"):
+        assert phrase in section
 
 
 def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> None:

@@ -31,21 +31,30 @@ owns cross-run reconciliation and `lead-followup`; `hypothesis-ledger` owns
 stale and reclaimable owner work. This is guidance for run planning, not a
 gate on probing.
 
-**XSS breadth prerequisite — JavaScript evidence.** Before starting a new
-program/flow breadth hunt, check for a usable scoped JS inventory with retained
-bodies and page/flow provenance, not just `jsfiles.txt` or a prior invocation.
-If absent, switch to `js` → `js-pull` now: pull the selected page/flow's scripts
-and inspect its manifest and fetch gaps before broad payload or parameter
-screening. Reuse a suitable current inventory rather than pulling again merely
-to satisfy a run count. If the operator explicitly limits the work to a known
-vector, JS collection is inaccessible under the current scope/auth boundary,
-or a warm/hot controlled path is already actionable, pursue that path and
-record the inventory gap and reopening condition; do not mislabel the missing corpus as XSS
-exhaustion. Browser-loaded/lazy chunks still need the running-app check below.
-For parameter discovery, use `references/source-acquisition.md` to compare
-route-attributed candidates with prior review; load `parameter-mining` when the
-next question is missing input names or writers. A large `params.txt` alone
-does not establish route, freshness, or tested coverage.
+**XSS breadth discovery checkpoint.** For a new program/flow breadth hunt:
+
+1. Check for a usable scoped JS inventory with retained bodies and page/flow
+   provenance, not just `jsfiles.txt` or a prior invocation. **If missing,
+   switch to `js` → `js-pull` now** and inspect the manifest and fetch gaps
+   before broad payload or parameter screening. Reuse a suitable current
+   inventory; browser-loaded/lazy chunks still need the running-app check below.
+2. Check whether this flow already has a source-attributed API operation/route
+   map and a relevant scoped Katana JS-crawl run. If not, use
+   `references/source-acquisition.md` to collect scoped JS-derived endpoint
+   candidates with Katana and reconcile them with browser requests and the
+   existing API map. A raw URL list is not an extensive API map.
+3. Compare route-and-field candidates with prior parameter-specific review.
+   If the selected flow lacks names, body/GraphQL/form writers, or linked
+   routes, load `parameter-mining` and expand the source-attributed pool; if a
+   current unreviewed pool already covers that flow, work it first. Revisit
+   mining when it runs out without resolving the source question. The size of
+   `params.txt` is not a skip criterion.
+
+An explicitly narrow known-vector task or an actionable warm/hot controlled
+path proceeds without waiting for breadth collection; record its missing
+inventory/map/parameter edge for the breadth handoff. If acquisition is blocked
+by scope, auth, tool availability, or rate limits, name the prerequisite and
+reopening condition rather than inventing inventory or XSS exhaustion.
 
 Load `injection-testing-policy` when an input, parser, sanitizer, or render sink
 is plausible. Load `waf-live-policy` when filtering, normalization, challenge,

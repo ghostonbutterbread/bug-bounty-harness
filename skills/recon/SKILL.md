@@ -1,6 +1,6 @@
 ---
 name: recon
-description: "Use as the default full-platform reconnaissance orchestrator: establish a broad authorized surface baseline, continuously enrich it with scoped runtime evidence, and produce ranked evidence-backed handoffs for deeper lanes."
+description: "Use when initializing a program fully or running full-platform reconnaissance: establish a scoped baseline, enrich runtime evidence, and hand off ranked surfaces."
 ---
 # Full-Platform Reconnaissance
 
@@ -370,6 +370,16 @@ a license to launch vulnerability testing.
 
 ## Program initializer handoff
 
+When Ryushe says **“init <program> fully”**, **“initialize <program> full”**,
+or **“initialize <program> basic”**, treat that as an owning-agent workflow,
+not merely a CLI request. Resolve the named program/platform and published
+scope/rules, run `bbh scripts/program_init.py` (basic is the default), and for
+full continue through the supervised steps below after initialization succeeds.
+Do not spawn children on a failed/partial initializer. If no program is named,
+ask for it; do not invent a target. A full request never silently downgrades to
+basic when active recon is blocked—report initialization and collection status
+separately.
+
 `bbh scripts/program_init.py <program> --platform <platform> --mode full`
 creates a deterministic, pending handoff at the web (or API) lane's
 `recon/_meta/full-recon-handoff.json` alongside the normal basic bootstrap.
@@ -394,19 +404,27 @@ execute the following after a named program and published rules are available:
    substitute. No budget or scope approval means stop with a blocker, not an
    offline handoff called complete.
 2. Call `delegate_task(tasks=[...])` with two independent bounded children:
-   `full-recon` loads `/recon` and owns approved full-platform collection;
-   `js-url-acquisition` loads `/js-pull` and `/live-map` and owns scoped JS URL
-   acquisition/download evidence. Give each only its exact seeds, scope/rate
-   allocation, policy chain, output root and expected receipt from the packet.
+   `full-recon` loads `/recon` and first checks for a completed comparable
+   baseline and its current freshness/coverage receipt. If one is intact and
+   current, reuse it; otherwise run the eligible baseline-full lanes (or a
+   named delta for a bounded gap). Never start duplicate Recon-Ry producers
+   just because `init full` was invoked. `js-url-acquisition` loads `/js-pull`
+   and `/live-map` and owns scoped JS URL acquisition/download evidence. Give
+   each only its exact seeds, scope/rate allocation, policy chain, output root
+   and expected receipt from the packet.
    Do not start both if aggregate traffic cannot be contained. The parent
    retains rate oversight and stops both on challenge, repeated 429 or scope
    drift. Delegation returns are not evidence by themselves: read the cited
    manifests, hashes, gaps and completion/skip receipts.
 3. **Wait for JS evidence** before assigning `katana-endpoints` to a bounded
-   child via `delegate_task`; pass only approved JS/page inputs. Verify Katana's
-   request-level destination/redirect containment and rate against the shared
-   budget, or record a skipped receipt with the reason. Never repeat Recon-Ry's
-   archive producers. Next dispatch `api-mapping` via `delegate_task` with JS
+   child via `delegate_task`; use only approved page/JS URL inputs from the JS
+   receipt. Katana's documented `-jc` parses/crawls JavaScript endpoints; check
+   the installed `katana -h` before selecting flags, and use memory-intensive
+   `-jsl` only within a verified resource budget. Verify request-level
+   destination/redirect containment and rate against the shared budget, or
+   record a skipped receipt with the reason. Preserve the raw run and source
+   attribution through `/bounty-tools`. Never repeat Recon-Ry's archive
+   producers. Next dispatch `api-mapping` via `delegate_task` with JS
    and Katana evidence; `/api-surface-mapping` must distinguish declared routes
    from observed operations and must not invoke operations to test them.
 4. Dispatch `public-docs` via `delegate_task` to `/recon-docs` then `/docs` for

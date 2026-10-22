@@ -156,13 +156,13 @@ def _full_handoff(program: str, domains: set[str], urls: set[str], *, include_do
 
     stages = [
         packet("full-recon", "/recon", [],
-               "Independently execute the full-platform recon workflow against saved scope; assess each active producer's request-level scope and aggregate rate budget first. Recon-Ry owns its own stages and archive promotion. Do not infer coverage from a plan.",
-               "Full-recon collection manifests, coverage gaps, scope/rate decision and Recon-Ry completion receipt"),
+               "Inspect the completed comparable full-platform baseline and freshness receipt first. If absent, incomplete or materially stale, run /recon at the appropriate baseline-full or explicit full mode against all eligible saved scope; otherwise reuse its evidence or run a targeted delta for a named gap. Assess each active producer's request-level scope and aggregate rate budget. Recon-Ry owns its own stages and archive promotion. Do not infer coverage from a plan.",
+               "Full-recon collection manifests or verified baseline reuse/delta receipt, coverage gaps, scope/rate decision and Recon-Ry completion receipt when launched"),
         packet("js-url-acquisition", "/js-pull + /live-map", [],
                "Comprehensively collect scoped JavaScript URL candidates from canonical aggregate, authorized runtime pages/flows, and source-attributed history; dedupe, preserve provenance and fetch only after live-policy approval. Do not silently treat a URL list as downloaded JS or deep review.",
                "JS URL inventory, content hashes, source/page provenance, failures and coverage gaps"),
         packet("katana-endpoints", "/bounty-tools + /focused-recon", ["js-url-acquisition"],
-               "Only after the JS collection receipt, evaluate a bounded, scoped Katana endpoint extraction pass using the approved JS/page inputs. Validate request-level destinations and rate; if unsafe, record a skipped receipt. Do not repeat Recon-Ry archive producers.",
+               "Only after the JS collection receipt, run a bounded, scoped Katana endpoint pass over approved page/JS URL inputs with JavaScript parsing (-jc; consider -jsl only within memory budget). Verify local Katana help and request-level scope/redirect containment and rate first; record the exact source URLs and raw output through /bounty-tools. If unsafe or unavailable, record a skipped receipt. Do not repeat Recon-Ry archive producers.",
                "Raw Katana run manifest and source-attributed endpoint candidates or explicit skip reason"),
         packet("api-mapping", "/api-surface-mapping", ["js-url-acquisition", "katana-endpoints"],
                "Reconcile JS/source-declared routes with authorized runtime observations as separate evidence classes; map methods, auth context, and unknowns without testing operations.",

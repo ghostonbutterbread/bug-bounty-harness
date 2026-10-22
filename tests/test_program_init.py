@@ -175,6 +175,8 @@ def test_full_handoff_is_deterministic_and_pending(tmp_path: Path) -> None:
     assert list(stages) == ["full-recon", "js-url-acquisition", "katana-endpoints", "api-mapping",
                             "public-docs", "recon-bus-promotion", "url-ingest-review"]
     assert stages["katana-endpoints"]["depends_on"] == ["js-url-acquisition"]
+    assert "-jc" in stages["katana-endpoints"]["task"]
+    assert "completed comparable" in stages["full-recon"]["task"]
     assert stages["recon-bus-promotion"]["status"] == "pending-prerequisites"
     assert all(stage["status"].startswith("pending-") for stage in stages.values())
     assert "does not spawn Hermes subagents" in data["execution_boundary"]

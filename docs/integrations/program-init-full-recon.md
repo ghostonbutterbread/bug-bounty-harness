@@ -31,7 +31,7 @@ Preserve basic create-only initialization and add an opt-in full agent-facing ha
 - **Command / fixture:** authorized program and its published rules, saved scope, approved rate budget and agent ownership receipts.
 - **Trigger:** separate operator-approved live campaign after beta integration and policy review.
 - **Why:** prevents claiming collection or promotion from an offline handoff.
-- **Next step:** parent independently reviews diff/tests and determines integration; on an approved target the owning agent executes the skill workflow and verifies producer receipts.
+- **Next step:** parent independently reviews diff/tests and integrates into beta if accepted; on an approved named program the owning agent executes the skill workflow and verifies producer receipts. Ryushe chose conversational `init <program> fully` dispatch after basic initialization, not a standalone CLI launcher. The recon child must reuse a comparable current completed baseline rather than duplicate it; Katana's JS endpoint pass follows JS receipt.
 
 ## Interruption / resume handoff
 

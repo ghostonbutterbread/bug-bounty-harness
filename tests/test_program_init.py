@@ -5,12 +5,17 @@ import json
 import sys
 from typing import Any
 from unittest.mock import patch
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import program_init
+
+@pytest.fixture(autouse=True)
+def local_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(program_init.Path, "home", lambda: tmp_path)
 
 
 def test_initialize_program_creates_shared_and_mounted_lanes(tmp_path: Path) -> None:
@@ -162,10 +167,13 @@ def test_full_handoff_is_deterministic_and_pending(tmp_path: Path) -> None:
         second = program_init.initialize_program("demo", **kwargs)
     assert path.read_bytes() == original
     assert second["handoff"] == first["handoff"]
+    assert str(path) in first["created"]
+    assert str(path) not in second["created"]
+    assert second["refreshed"] == []
     data = json.loads(original)
     stages = {stage["id"]: stage for stage in data["stages"]}
     assert list(stages) == ["full-recon", "js-url-acquisition", "katana-endpoints", "api-mapping",
-                            "recon-bus-promotion", "url-ingest-review"]
+                            "public-docs", "recon-bus-promotion", "url-ingest-review"]
     assert stages["katana-endpoints"]["depends_on"] == ["js-url-acquisition"]
     assert stages["recon-bus-promotion"]["status"] == "pending-prerequisites"
     assert all(stage["status"].startswith("pending-") for stage in stages.values())
@@ -208,3 +216,33 @@ def test_full_rejects_missing_scope_and_skip_before_layout(tmp_path: Path) -> No
             pass
         else:
             raise AssertionError(f"expected invalid full options: {changes}")
+
+def test_full_handoff_refresh_not_created_and_dry_run_preview(tmp_path: Path) -> None:
+    kwargs = dict(lanes=["web"], shared_root=tmp_path / "Shared", artifact_root=tmp_path / "artifacts",
+                  platform="bugcrowd", skip_scope=False, mode="full")
+    with patch.object(program_init, "pull_scope", return_value=object()), patch.object(
+        program_init, "_read_scope", return_value=({"demo.test"}, set())
+    ) as read_scope:
+        first = program_init.initialize_program("demo", **kwargs, dry_run=False)
+        handoff = Path(first["handoff_path"])
+        read_scope.return_value = ({"other.demo.test"}, set())
+        preview = program_init.initialize_program("demo", **kwargs, dry_run=True)
+        assert preview["refreshed"] == [str(handoff)]
+        assert handoff.read_bytes() == json.dumps(first["handoff"], indent=2, sort_keys=True).encode() + b"\n"
+        second = program_init.initialize_program("demo", **kwargs, dry_run=False)
+    assert second["refreshed"] == [str(handoff)]
+    assert str(handoff) not in second["created"]
+    assert json.loads(handoff.read_text())["scope"]["domains"] == ["other.demo.test"]
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("mode", ["basic", "full"])
+def test_platform_rejects_custom_root_before_pull_or_layout(tmp_path: Path, dry_run: bool, mode: str) -> None:
+    with patch.object(program_init, "pull_scope") as pull, patch.object(program_init, "_read_scope") as read:
+        with pytest.raises(ValueError, match="--shared-root is not supported"):
+            program_init.initialize_program("demo", lanes=["web"], shared_root=tmp_path / "custom",
+                                            artifact_root=tmp_path / "artifacts", platform="bugcrowd",
+                                            skip_scope=False, dry_run=dry_run, mode=mode)
+    pull.assert_not_called()
+    read.assert_not_called()
+    assert not (tmp_path / "custom").exists()
+    assert not (tmp_path / "artifacts").exists()

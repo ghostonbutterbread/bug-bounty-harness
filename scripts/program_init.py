@@ -204,7 +204,7 @@ def initialize_program(
     skip_scope: bool,
     dry_run: bool,
     mode: str = "basic",
-    include_docs: bool = False,
+    include_docs: bool | None = None,
 ) -> dict[str, object]:
     slug = canonical_program_slug(program) if platform else normalize_program(program)
     if platform and skip_scope:
@@ -215,10 +215,16 @@ def initialize_program(
         raise ValueError("mode must be basic or full")
     if include_docs and mode != "full":
         raise ValueError("--include-docs requires --mode full")
+    if include_docs is None:
+        include_docs = mode == "full"
     if mode == "full" and (skip_scope or not platform):
         raise ValueError("full mode requires --platform and saved scope; --skip-scope is not eligible")
     if mode == "full" and not any(lane in {"web", "api"} for lane in lanes):
         raise ValueError("full mode requires a web or api lane")
+    # pull_scope and ScopeManager both use ~/Shared/scopes. Reject an alternate
+    # layout before the network pull rather than claiming its scope is aligned.
+    if platform and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
+        raise ValueError("--shared-root is not supported with --platform: scope pull and reads use ~/Shared/scopes")
 
     if platform and not dry_run:
         pulled_scope = pull_scope(program, platform)
@@ -234,6 +240,7 @@ def initialize_program(
         raise ValueError("full mode requires non-empty saved scope; no layout or handoff created")
     handoff = _full_handoff(slug, domains, urls, include_docs=include_docs) if mode == "full" else None
     created: list[str] = []
+    refreshed: list[str] = []
     shared_lanes: dict[str, str] = {}
 
     for lane in lanes:
@@ -291,9 +298,15 @@ def initialize_program(
         handoff_lane = "web" if "web" in lanes else "api"
         handoff_root = shared_root / WEB_FAMILY / slug / handoff_lane / "recon" / "_meta"
         handoff_path = handoff_root / "full-recon-handoff.json"
-        if not dry_run:
-            handoff_path.write_text(json.dumps(handoff, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        created.append(str(handoff_path))
+        body = json.dumps(handoff, indent=2, sort_keys=True) + "\n"
+        if not handoff_path.exists():
+            if not dry_run:
+                handoff_path.write_text(body, encoding="utf-8")
+            created.append(str(handoff_path))
+        elif handoff_path.read_text(encoding="utf-8") != body:
+            if not dry_run:
+                handoff_path.write_text(body, encoding="utf-8")
+            refreshed.append(str(handoff_path))
 
     result = {
         "program": slug,
@@ -303,6 +316,7 @@ def initialize_program(
         "scope_domains": len(domains),
         "scope_urls": len(urls),
         "created": created,
+        "refreshed": refreshed,
         "dry_run": dry_run,
     }
     if handoff is not None:
@@ -319,8 +333,8 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--platform", choices=["hackerone", "bugcrowd", "intigriti"], help="Pull published scope from this platform")
     scope.add_argument("--skip-scope", action="store_true", help="Initialize only and record that a manual scope source is still required")
     parser.add_argument("--lane", dest="lanes", choices=sorted(LANE_FAMILIES), action="append", help="Initialize a surface lane (repeatable; defaults to web)")
-    parser.add_argument("--mode", choices=["basic", "full"], default="basic", help="Basic bootstrap (default) or full plan-only agent handoff")
-    parser.add_argument("--include-docs", action="store_true", help="Explicit bounded public docs discovery packet (full mode only)")
+    parser.add_argument("--mode", choices=["basic", "full"], default="basic", help="Basic bootstrap (default) or full agent-facing handoff (CLI does not dispatch)")
+    parser.add_argument("--include-docs", action="store_true", default=None, help="Compatibility option; bounded public docs are included in full by default")
     parser.add_argument("--shared-root", type=Path, default=Path.home() / "Shared", help="Shared base root (default: ~/Shared)")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT, help="Mounted non-secret artifact root (default: /mnt/bounty)")
     parser.add_argument("--dry-run", action="store_true", help="Show the initialization plan without creating files")
@@ -352,7 +366,9 @@ def main(argv: list[str] | None = None) -> int:
         for lane, path in result["lanes"].items():
             print(f"  Shared {lane}: {path}")
         print(f"  Mounted artifacts: {result['artifact_root']}")
-        print(f"  Created: {len(result['created'])} path(s)")
+        label = "Planned" if result["dry_run"] else "Created"
+        print(f"  {label}: {len(result['created'])} path(s)")
+        print(f"  {'Would refresh' if result['dry_run'] else 'Refreshed'}: {len(result['refreshed'])} path(s)")
         if result.get("handoff_path"):
             print(f"  Pending full-recon handoff: {result['handoff_path']}")
     return 0

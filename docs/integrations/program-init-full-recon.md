@@ -6,40 +6,40 @@
 - **Base commit:** `95c073603582732f520c59d94d8f3b03a76dcedd` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** `331caa65f21737c89604b616a22f8fb06abbe775`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`
+- **Latest immutable recovery checkpoint:** `663bfe7b52a6a132de6f20d054ae885a63c55804`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`; review repair commit pending
 - **Inspiration / canonical references:** `scripts/program_init.py`, `agents/recon/full.py`, `skills/recon/SKILL.md`, `scripts/README.md`
 
 ## Intent
 
-Preserve the basic initializer's create-only behavior and add an opt-in full plan-only handoff for independent collection, ordered JS→Katana endpoint extraction, API mapping, optional explicitly requested public docs, Recon Bus promotion and URL Ingest review. No target traffic or CLI subagent spawn.
+Preserve basic create-only initialization and add an opt-in full agent-facing handoff for independent collection, ordered JS→Katana endpoint extraction, API mapping, default bounded public docs, Recon Bus promotion and URL Ingest review. No target traffic or CLI subagent spawn.
 
 ## Implemented contract
 
-`--mode basic` remains default. `--mode full` requires a platform scope source, nonempty saved scope and a web/API lane. `--include-docs` is full-only. Full writes a deterministic pending JSON packet to the selected lane's `recon/_meta/full-recon-handoff.json`, refreshing only that generated packet on rerun. Dry-run requires pre-existing saved scope and writes nothing. All stages require agent policy/scope/rate decisions and producer receipts; the packet is not a completion ledger. Recon-Ry remains owner of its stages and archive promotion; `agents/recon_full.py` remains plan-only.
+`--mode basic` remains default. `--mode full` requires a platform scope source, nonempty saved scope and a web/API lane. Bounded public docs discovery is included by default; `--include-docs` remains a compatibility spelling. Platform pull rejects alternate `--shared-root` before I/O because the puller and ScopeManager use `~/Shared/scopes`. Full writes a deterministic pending JSON packet to the selected lane's `recon/_meta/full-recon-handoff.json`, refreshing only changed content on rerun and reporting creation separately from refresh. Dry-run requires pre-existing saved scope and writes nothing. The owning agent follows `skills/recon/SKILL.md`: approves request-level scope and aggregate rate first; calls `delegate_task` for independent recon and JS acquisition; waits for JS receipt before Katana, then API mapping; collects bounded public docs, awaits all source receipts, promotes via Recon Bus and queues via URL Ingest. Failed/pending work holds dependencies. The packet is not a completion ledger. Recon-Ry remains owner of its stages and archive promotion; `agents/recon_full.py` remains plan-only.
 
 ## Evidence and review
 
-- Tests: `python3 -m pytest tests/test_program_init.py tests/test_full_recon.py tests/test_recon_docs.py tests/test_recon_ry_snap_default.py -q` — 20 passed, 2026-10-22; `git diff --check` passed. CLI offline rejection of `--skip-scope --mode full --dry-run` returned the expected error.
-- Independent review: pending parent review; no merge or push authorized by this task.
-- Fixture: mocked platform pull and saved scope; deterministic rerun, docs opt-in, pending statuses, dependency order, missing scope and dry-run no-write checks.
+- Tests: `python3 -m pytest tests/test_program_init.py tests/test_full_recon.py tests/test_recon_docs.py tests/test_recon_ry_snap_default.py -q` — 25 passed, 2026-10-22; `git diff --check` passed. Offline basic CLI dry-run JSON returned `scope_state=skipped`, `refreshed=[]`, `dry_run=true`.
+- Independent review: original review identified lack of dispatch, optional docs, custom-root mismatch and rerun receipt; fixes pending parent review. No merge or push authorized.
+- Fixture: mocked pull and saved scope; deterministic rerun, docs default, pending statuses, dependency order, missing scope, dry-run no-write and created/refresh, pre-pull custom-root rejection.
 - Merge/ancestry: branch created at the fetched `origin/beta` base; integration intentionally deferred.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** No live target execution, platform scope pull or subagent dispatch tested (intentionally forbidden for this task).
+- **Missing evidence:** No live target execution, platform scope pull or subagent dispatch tested (no target or approved rate budget). Literal CLI-spawning remains unimplemented: the CLI has no approved delegated policy/aggregate-rate enforcement; only a live owning agent can call `delegate_task`.
 - **Command / fixture:** authorized program and its published rules, saved scope, approved rate budget and agent ownership receipts.
 - **Trigger:** separate operator-approved live campaign after beta integration and policy review.
 - **Why:** prevents claiming collection or promotion from an offline handoff.
-- **Next step:** parent independently reviews diff/tests and determines integration.
+- **Next step:** parent independently reviews diff/tests and determines integration; on an approved target the owning agent executes the skill workflow and verifies producer receipts.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/program-init-full-recon`
-- **Latest immutable recovery checkpoint:** `331caa65f21737c89604b616a22f8fb06abbe775`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`
-- **Exact resume point:** parent independently reviews tests and packet against policy; integrate only after a separate decision.
-- **Working-tree state at handoff:** clean after commit expected.
+- **Latest immutable recovery checkpoint:** `663bfe7b52a6a132de6f20d054ae885a63c55804`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`; review repair commit pending
+- **Exact resume point:** parent independently reviews revised tests and workflow against policy; integrate only after a separate decision.
+- **Working-tree state at handoff:** clean after repair commit expected.
 
 ## Decision gates
 
@@ -49,4 +49,4 @@ Preserve the basic initializer's create-only behavior and add an opt-in full pla
 
 ## Decision record
 
-- 2026-10-22 — created feature handoff and offline test receipt; review pending.
+- 2026-10-22 — repaired review findings on owning feature branch; literal CLI-spawning remains a deliberate boundary.

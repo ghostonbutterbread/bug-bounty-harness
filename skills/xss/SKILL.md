@@ -39,8 +39,8 @@ and inspect its manifest and fetch gaps before broad payload or parameter
 screening. Reuse a suitable current inventory rather than pulling again merely
 to satisfy a run count. If the operator explicitly limits the work to a known
 vector, JS collection is inaccessible under the current scope/auth boundary,
-or a hot path is already actionable, pursue that path and record the inventory
-gap and reopening condition; do not mislabel the missing corpus as XSS
+or a warm/hot controlled path is already actionable, pursue that path and
+record the inventory gap and reopening condition; do not mislabel the missing corpus as XSS
 exhaustion. Browser-loaded/lazy chunks still need the running-app check below.
 For parameter discovery, use `references/source-acquisition.md` to compare
 route-attributed candidates with prior review; load `parameter-mining` when the

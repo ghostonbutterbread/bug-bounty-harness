@@ -22,7 +22,7 @@ The XSS router checks a usable scoped JS inventory with retained bodies and page
 ## Evidence and review
 
 - Focused: `python3 -m pytest -q agents/test_xss_skill_clarity.py` → 7 passed.
-- Independent review: pending.
+- Independent review of `bfc4693`: changes requested (warm controlled paths also must continue; earlier unconditional parameter-mining route contradicted archive-first skip). Both corrected in working tree; re-review pending.
 - Broad `python3 -m pytest -q` failed collection on pre-existing root `test_catalog.py` missing `bac_checks`.
 - Bounded `python3 -m pytest -q agents/test_xss_skill_clarity.py tests` → 316 passed, 1 skipped, 18 failed (safety incident CLI requires checkout-local `.venv`, unrelated `stack-to-program` script-index/launcher assertions, and unrelated `upload-surface` phrase assertion). No failures in changed XSS guidance tests. `git diff --check` clean.
 - Repository has no policy-lint helper; manually checked frontmatter and linked skill/reference names against current beta. Existing shared papercut records missing policy-lint guide.

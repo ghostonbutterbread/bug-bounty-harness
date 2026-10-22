@@ -95,8 +95,7 @@ bundle is a seed; a browser breakpoint, populated field, or emitted request
 adds reachability evidence, but neither alone proves a controllable
 source-to-executable-consumer path.
 
-Load `parameter-mining` for observed request/body/GraphQL/form fields and the
-existing proxy/JS handoff. Resolve the aggregate with
+Resolve the aggregate with
 `bbh scripts/recon_bus.py query <program> --artifact params --format path`;
 inspect its shape before use. Some `params.txt` files contain parameterized
 URLs (preserve scoped host, route, and key); others contain **name-only** entries
@@ -106,6 +105,10 @@ source. Correlate JS names with the relevant route/request builder and
 parameter artifacts by provenance, not a global string intersection. Follow
 stored/API response fields back to their writable endpoint or object field;
 a query parameter is only one possible writer.
+
+When the selected flow lacks source-attributed request/body/GraphQL/form fields
+or writers, load `parameter-mining` to combine the existing proxy/JS handoff
+with additional candidates. Otherwise, work the current unreviewed pool first.
 
 Decide whether to expand the parameter pool from the **selected flow's gap**,
 not a `params.txt` size threshold. If a substantial, current archive already
@@ -120,7 +123,7 @@ mapped XSS route/action/input/consumer questions with the Coverage brief and
 the JS/parameter inventories: distinguish unexamined paths from reviewed
 negatives, missing lazy chunks, and blocked owned prerequisites. Record the
 remaining frontier and wake condition rather than calling the whole program
-exhausted. A hot controlled path never waits for archive sizing or mining.
+exhausted. A warm/hot controlled path never waits for archive sizing or mining.
 
 Diff the route-and-field candidates against prior parameter-specific test
 coverage (`url-ingest`) before selecting untested named inputs. Use an inert

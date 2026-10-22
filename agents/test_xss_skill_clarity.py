@@ -62,10 +62,13 @@ def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() ->
     assert "retained\nbodies and page/flow provenance" in entry
     assert "manifest and fetch gaps" in entry
     assert "explicitly limits the work to a known\nvector" in entry
-    assert "hot path is already actionable" in entry
+    assert "warm/hot controlled path is already actionable" in entry
     assert "A large `params.txt` alone" in entry
     assert "not a `params.txt` size threshold" in reference
     assert "unreviewed frontier" in reference
+    assert "Otherwise, work the current unreviewed pool first" in reference
+    assert "When the selected flow lacks source-attributed" in reference
+    assert "warm/hot controlled path never waits" in reference
     assert "bare names" in reference and "body/GraphQL/form" in reference
     assert "Coverage brief" in reference and "missing lazy chunks" in reference
 

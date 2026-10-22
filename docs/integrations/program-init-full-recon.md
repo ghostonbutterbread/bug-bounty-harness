@@ -6,8 +6,8 @@
 - **Base commit:** `95c073603582732f520c59d94d8f3b03a76dcedd` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** `c55148d42cfe8b79b4bf45805002a3fee814ec08`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`
+- **Latest immutable recovery checkpoint:** `924ac3da919ac12ab4e165625fbae489d83e852b`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`, `5b4955a`, `a732d24`, `924ac3da919ac12ab4e165625fbae489d83e852b`
 - **Inspiration / canonical references:** `scripts/program_init.py`, `agents/recon/full.py`, `skills/recon/SKILL.md`, `scripts/README.md`
 
 ## Intent
@@ -21,7 +21,7 @@ Preserve basic create-only initialization and add an opt-in full agent-facing ha
 ## Evidence and review
 
 - Tests: `python3 -m pytest tests/test_program_init.py tests/test_full_recon.py tests/test_recon_docs.py tests/test_recon_ry_snap_default.py -q` — 24 passed on revised tip, 2026-10-22; `git diff --check` passed. Offline basic CLI dry-run JSON returned `scope_state=skipped`, `refreshed=[]`, `dry_run=true`.
-- Independent review: reconciled tip review found one P2 dry-run provenance defect; corrected `scope_state` to `saved` and handoff source to neutral `saved platform scope`, with an unchanged-preview regression. The CLI still does not dispatch; conversational Hermes does after successful initialization. No live program supplied.
+- Independent review: reconciled tip review found one P2 dry-run provenance defect; corrected `scope_state` to `saved` and handoff source to neutral `saved platform scope`, with an unchanged-preview regression. Fresh narrow re-review accepted tip `924ac3d`: 24/24 tests, diff check and basic CLI dry-run. The CLI still does not dispatch; conversational Hermes does after successful initialization. No live program supplied.
 - Fixture: mocked pull and saved scope; deterministic rerun, docs default, pending statuses, dependency order, missing scope, dry-run no-write and created/refresh, pre-pull custom-root rejection.
 - Merge/ancestry: branch created at the fetched `origin/beta` base; integration intentionally deferred.
 
@@ -36,15 +36,15 @@ Preserve basic create-only initialization and add an opt-in full agent-facing ha
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/program-init-full-recon`
-- **Latest immutable recovery checkpoint:** `c55148d42cfe8b79b4bf45805002a3fee814ec08`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`
+- **Latest immutable recovery checkpoint:** `924ac3da919ac12ab4e165625fbae489d83e852b`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`, `5b4955a`, `a732d24`, `924ac3da919ac12ab4e165625fbae489d83e852b`
 - **Exact resume point:** parent independently reviews revised tests and workflow against policy; integrate only after a separate decision.
 - **Working-tree state at handoff:** clean after repair commit expected.
 
 ## Decision gates
 
-- **Integration gate:** independent review plus focused offline tests on current beta; no merge requested here.
-- **Activation / cohort gate:** no target traffic or runtime activation in this change.
+- **Integration gate:** accepted independent re-review at `924ac3d` and 24 focused tests; beta merge authorized under the repository's normal lane workflow. Retire this dossier from beta during integration.
+- **Activation / cohort gate:** no target traffic or runtime activation in this change. Deferred live test: `init <named-program> fully` with published scope/rate rules; verify each agent run manifest, Katana output, Recon Bus promotion and URL Ingest queue before calling the campaign complete.
 - **Promotion gate:** explicit owner decision, not implied by beta integration.
 
 ## Decision record

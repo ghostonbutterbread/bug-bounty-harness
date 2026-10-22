@@ -31,6 +31,22 @@ owns cross-run reconciliation and `lead-followup`; `hypothesis-ledger` owns
 stale and reclaimable owner work. This is guidance for run planning, not a
 gate on probing.
 
+**XSS breadth prerequisite — JavaScript evidence.** Before starting a new
+program/flow breadth hunt, check for a usable scoped JS inventory with retained
+bodies and page/flow provenance, not just `jsfiles.txt` or a prior invocation.
+If absent, switch to `js` → `js-pull` now: pull the selected page/flow's scripts
+and inspect its manifest and fetch gaps before broad payload or parameter
+screening. Reuse a suitable current inventory rather than pulling again merely
+to satisfy a run count. If the operator explicitly limits the work to a known
+vector, JS collection is inaccessible under the current scope/auth boundary,
+or a hot path is already actionable, pursue that path and record the inventory
+gap and reopening condition; do not mislabel the missing corpus as XSS
+exhaustion. Browser-loaded/lazy chunks still need the running-app check below.
+For parameter discovery, use `references/source-acquisition.md` to compare
+route-attributed candidates with prior review; load `parameter-mining` when the
+next question is missing input names or writers. A large `params.txt` alone
+does not establish route, freshness, or tested coverage.
+
 Load `injection-testing-policy` when an input, parser, sanitizer, or render sink
 is plausible. Load `waf-live-policy` when filtering, normalization, challenge,
 or an edge/origin difference becomes the next question.
@@ -139,8 +155,10 @@ census. Probe actual named fields on name-keyed renderers rather than declaring
 coverage from random canary parameter names. A source/sink match by name, file,
 or proximity is a review lead; trace the value through its caller, request,
 response, and transforms before claiming an edge. Load `parameter-mining` for
-source-attributed candidates and `references/source-acquisition.md` for the
-paired inventory and scoped exhaustion decision.
+source-attributed candidates when the current pool lacks route/field context or
+the coverage frontier shows unexamined inputs; load
+`references/source-acquisition.md` for the paired inventory and scoped
+exhaustion decision.
 
 For browser-mediated or stateful paths, ground the JS corpus in the **running
 application**, not just a static URL list: load `browser-session-policy` and

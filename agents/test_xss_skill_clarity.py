@@ -54,6 +54,21 @@ def test_xss_pairs_named_inputs_and_sinks_without_rigid_census_gate() -> None:
     assert "xss_source_sites.py" in script_map
     assert "Do not delay investigation of an existing source-to-sink path" in router
 
+def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() -> None:
+    router = XSS.read_text(encoding="utf-8")
+    reference = SOURCE.read_text(encoding="utf-8")
+    entry = router.split("## Entry and lane selection", 1)[1].split("## Next-question overlays", 1)[0]
+    assert "js` → `js-pull` now" in entry
+    assert "retained\nbodies and page/flow provenance" in entry
+    assert "manifest and fetch gaps" in entry
+    assert "explicitly limits the work to a known\nvector" in entry
+    assert "hot path is already actionable" in entry
+    assert "A large `params.txt` alone" in entry
+    assert "not a `params.txt` size threshold" in reference
+    assert "unreviewed frontier" in reference
+    assert "bare names" in reference and "body/GraphQL/form" in reference
+    assert "Coverage brief" in reference and "missing lazy chunks" in reference
+
 
 def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> None:
     router = XSS.read_text(encoding="utf-8")

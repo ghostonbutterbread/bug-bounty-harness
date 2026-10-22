@@ -107,6 +107,21 @@ parameter artifacts by provenance, not a global string intersection. Follow
 stored/API response fields back to their writable endpoint or object field;
 a query parameter is only one possible writer.
 
+Decide whether to expand the parameter pool from the **selected flow's gap**,
+not a `params.txt` size threshold. If a substantial, current archive already
+has scoped route-and-field pairs, associated request/JS provenance, and an
+unreviewed frontier, first work those candidates; a new mining pass can wait.
+If it contains only bare names, stale or unrelated URLs, lacks body/GraphQL/form
+writers, or the relevant named candidates are reviewed without reaching the
+missing source, load `parameter-mining` and combine browser requests, the JS
+inventory, proxy evidence and aggregate recon into source-attributed candidates.
+If that discovery does not produce another plausible path, compare the exact
+mapped XSS route/action/input/consumer questions with the Coverage brief and
+the JS/parameter inventories: distinguish unexamined paths from reviewed
+negatives, missing lazy chunks, and blocked owned prerequisites. Record the
+remaining frontier and wake condition rather than calling the whole program
+exhausted. A hot controlled path never waits for archive sizing or mining.
+
 Diff the route-and-field candidates against prior parameter-specific test
 coverage (`url-ingest`) before selecting untested named inputs. Use an inert
 canary on the actual name and observe the response/browser consumer. A shared

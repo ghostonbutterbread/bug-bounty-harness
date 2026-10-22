@@ -1,14 +1,15 @@
 # Deserialization teaching and discovery integration dossier
 
-- **Status:** review-ready (independent review pending)
+- **Status:** accepted for beta integration; local activation pending.
 - **Owner:** Hermes, Kanban `t_581dd63e`
 - **Branch / owning ref:** `feat/deserialization-depth`
 - **Worktree:** Kanban-managed isolated project worktree for this task.
 - **Base commit:** `2f5a204d5342911b5c2f5e2d59150afecc0c031b`
 - **Intended integration target:** `beta`; no stable promotion.
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** `3909a59d547746218c9c83b6982af39ccab7a263`.
-- **Feature implementation commits:** `3909a59d547746218c9c83b6982af39ccab7a263`.
+- **Latest immutable recovery checkpoint:** `f1b0cc37ba1198a6fda96c01022b7580e1ae901a`.
+- **Feature implementation commits:** `3909a59d547746218c9c83b6982af39ccab7a263`,
+  `f1b0cc37ba1198a6fda96c01022b7580e1ae901a`.
   The branch tip includes a later dossier-only handoff commit.
 - **Inspiration:** Ryu, Discord thread 1562883062767947837, message
   1562889915627348019; existing deserialization session-object packet.
@@ -54,7 +55,11 @@ URLs, capture pointers and hashes; they are not target vulnerability evidence.
   external report `deserialization-depth-review.md` in the Hermes review store;
   all six read-only semantic scenarios passed and eleven source capture hashes
   independently verified. Follow-up tightens the pre-existing signature/control
-  sentence and reconciles the focused-test count; narrow re-review pending.
+  sentence and reconciles the focused-test count. Narrow independent re-review
+  ACCEPT for `f1b0cc37ba1198a6fda96c01022b7580e1ae901a` with 22 passes and
+  10 subtests; report `deserialization-depth-rereview.md` in the same store.
+  Corrected candidate broad rerun again returned 311 passed, 1 skipped,
+  3 baseline deselections and 182 subtests passed.
 
 ## Blockers and deferred work
 
@@ -65,10 +70,10 @@ local security-profile activation slice.
 
 ## Interruption / resume handoff
 
-Commit the implementation, record its immutable SHA here in a handoff-only
-commit, and obtain a read-only independent review. Fix/re-review blockers; then
-publish the feature, transfer its ref to the canonical integration clone if
-necessary, merge into clean/current beta, remove this dossier from beta, rerun
+Implementation and follow-up are committed and independently accepted. This
+final dossier-only commit records the verdict without changing reviewed skill
+content. Publish the feature, transfer its ref to the canonical integration
+clone, merge into clean/current beta, remove this dossier from beta, rerun
 checks, push beta, read back the remote and apply focused security projection.
 
 ## Decision gates

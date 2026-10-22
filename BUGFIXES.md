@@ -1,5 +1,20 @@
 # Known defects awaiting their own task
 
+## Stack-to-program script index and upload assertion drift
+
+**Location:** `skills/stack-to-program/scripts/README.md:11`, its script record,
+and `tests/test_upload_surface_skill.py:34`.
+
+**Evidence:** unchanged beta `2f5a204` reproduces the command-lane check's
+rejection of a direct checkout invocation, the script-index check's missing
+`**Outputs:**` / `**Mutates:**` fields, and the upload test's obsolete
+`Before even a baseline upload` expectation (the skill says `Before a baseline
+upload`). Deserialization-depth focused checks do not touch those paths.
+
+**Impact:** three documentation/contract assertions prevent an unfiltered green
+`tests/` run. Repair under their owners in a separate bounded task; do not
+weaken the lane or script-index checks to release an unrelated skill change.
+
 ## Legacy report-layout assertions fail against stable FID packets
 
 **Location:** two tests in `agents/test_sync_reports.py`, one in `agents/test_base_team_ledger_writes.py`, one in `agents/test_base_team_review.py`.

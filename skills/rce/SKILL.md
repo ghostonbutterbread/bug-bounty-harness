@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [security, rce, command-execution, code-execution]
-    related_skills: [rce-exploration, rce-surface-mapping, rce-lifecycle, rce-validation, rce-technology-research]
+    related_skills: [rce-exploration, rce-surface-mapping, rce-deserialization, rce-lifecycle, rce-validation, rce-technology-research]
 ---
 
 # Remote Code Execution

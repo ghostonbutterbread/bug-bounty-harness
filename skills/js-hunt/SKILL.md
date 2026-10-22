@@ -164,6 +164,9 @@ Output three bounded sections:
 
 A concrete request goes to `/analyze-endpoint`; object/role decisions to
 `/idor` or `/access-control`; source-to-rendering flows to `/dom-xss` or `/xss`;
+encoded round-tripped state, type-selected reconstruction, or a behavior-capable
+object-loader lead to `rce-deserialization` (its JavaScript Lens owns the
+discovery cues; client encoding alone does not prove a backend loader);
 workflow invariants to `/business-logic`; usable credentials to
 `/credential-exposure-validation`. Load the owning skill only for a supported
 lead. Live validation is a **separate** policy-governed step on scoped, owned

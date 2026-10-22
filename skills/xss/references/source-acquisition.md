@@ -26,21 +26,21 @@ reopening condition instead of repeating a larger census.
 
 ## Pair input locations with consumers
 
-For a route cluster or corpus breadth pass, collect both sides without imposing
-a source-first or sink-first order. Reuse current JS inventory for known content,
-but compare it with scripts actually loaded on the selected flow before deciding
-what needs fetching. For browser-mediated routes, load `browser-session-policy` and
-`chromium-test` to navigate the authorized app and trigger normal, relevant
-interactions. Inspect Network requests and loaded scripts, Sources/call stacks
-and DOM/form/hydration state (or equivalent browser observations); a lazy chunk,
-hidden field or client-side request builder may appear only after a route,
-click, form, or state transition. Retain page/flow, JS URL, initiator, and
-associated request/field provenance. Feed the scoped observed JS URLs to
-`js` → `js-pull` (`bbh agents/js_analyzer.py inventory <program> --input
-<scoped-js-url-list> --target-host <in-scope-host>`), then use `js-hunt` to
-trace selected functions. `inventory --page` fetches HTML script URLs and bounded
-inline scripts from an HTTP page; it does **not** drive the browser or capture
-lazy-loaded chunks.
+If a route cluster's missing input or consumer is being investigated through
+JS, inspect both ends without imposing a source-first or sink-first order.
+Reuse current JS inventory where relevant; compare it with scripts actually
+loaded on the selected flow before deciding what needs fetching. For a
+browser-mediated JS question, load `browser-session-policy` and `chromium-test`
+to navigate the authorized app and trigger relevant interactions. Inspect
+Network requests and loaded scripts, Sources/call stacks and DOM/form/hydration
+state (or equivalent observations); a lazy chunk, hidden field or client-side
+request builder may appear only after a route, click, form, or state transition.
+Retain page/flow, JS URL, initiator, and associated request/field provenance.
+When new JS is needed, feed scoped observed JS URLs to `js` → `js-pull`
+(`bbh agents/js_analyzer.py inventory <program> --input <scoped-js-url-list>
+--target-host <in-scope-host>`); use `js-hunt` when selected functions need
+tracing. `inventory --page` fetches HTML script URLs and bounded inline scripts
+from an HTTP page; it does **not** drive the browser or capture lazy-loaded chunks.
 The analyzer's `--input` list accepts `.js`, `.mjs`, `.cjs`, and extensionless
 URLs directly. For a browser-loaded `chunk.php` (or another non-JS suffix),
 also supply `--provenance-input <observed-scripts.jsonl>` with a row keyed by
@@ -106,24 +106,16 @@ parameter artifacts by provenance, not a global string intersection. Follow
 stored/API response fields back to their writable endpoint or object field;
 a query parameter is only one possible writer.
 
-When the selected flow lacks source-attributed request/body/GraphQL/form fields
-or writers, load `parameter-mining` to combine the existing proxy/JS handoff
-with additional candidates. Otherwise, work the current unreviewed pool first.
-
-Decide whether to expand the parameter pool from the **selected flow's gap**,
-not a `params.txt` size threshold. If a substantial, current archive already
-has scoped route-and-field pairs, associated request/JS provenance, and an
-unreviewed frontier, first work those candidates; a new mining pass can wait.
-If it contains only bare names, stale or unrelated URLs, lacks body/GraphQL/form
-writers, or the relevant named candidates are reviewed without reaching the
-missing source, load `parameter-mining` and combine browser requests, the JS
-inventory, proxy evidence and aggregate recon into source-attributed candidates.
-If that discovery does not produce another plausible path, compare the exact
-mapped XSS route/action/input/consumer questions with the Coverage brief and
-the JS/parameter inventories: distinguish unexamined paths from reviewed
-negatives, missing lazy chunks, and blocked owned prerequisites. Record the
-remaining frontier and wake condition rather than calling the whole program
-exhausted. A warm/hot controlled path never waits for archive sizing or mining.
+When source-attributed fields or writers are missing, `parameter-mining` can
+combine browser requests, JS inventory, proxy evidence and aggregate recon.
+A large `params.txt` may still lack body/GraphQL/form fields or route links;
+work relevant unreviewed candidates when present. For a broader pivot, load
+`surface-expansion` rather than treating an archive size or tool run as an
+exhaustion threshold. Before a scoped negative, compare mapped XSS
+route/action/input/consumer questions with the Coverage brief and JS/parameter
+inventories; distinguish unexamined paths, missing chunks, and blocked owned
+prerequisites. Record the remaining frontier and wake condition instead of
+calling the whole program exhausted.
 
 Diff the route-and-field candidates against prior parameter-specific test
 coverage (`url-ingest`) before selecting untested named inputs. Use an inert

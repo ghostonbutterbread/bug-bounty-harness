@@ -54,23 +54,28 @@ def test_xss_pairs_named_inputs_and_sinks_without_rigid_census_gate() -> None:
     assert "xss_source_sites.py" in script_map
     assert "Do not delay investigation of an existing source-to-sink path" in router
 
-def test_xss_breadth_requires_usable_js_and_evidence_led_parameter_frontier() -> None:
+def test_xss_routes_optional_new_surface_lens_without_a_startup_gate() -> None:
     router = XSS.read_text(encoding="utf-8")
     reference = SOURCE.read_text(encoding="utf-8")
+    lens = (ROOT / "skills/surface-expansion/SKILL.md").read_text(encoding="utf-8")
     entry = router.split("## Entry and lane selection", 1)[1].split("## Next-question overlays", 1)[0]
-    assert "js` → `js-pull` now" in entry
-    assert "retained\nbodies and page/flow provenance" in entry
-    assert "manifest and fetch gaps" in entry
-    assert "explicitly limits the work to a known\nvector" in entry
-    assert "warm/hot controlled path is already actionable" in entry
-    assert "A large `params.txt` alone" in entry
-    assert "not a `params.txt` size threshold" in reference
-    assert "unreviewed frontier" in reference
-    assert "Otherwise, work the current unreviewed pool first" in reference
-    assert "When the selected flow lacks source-attributed" in reference
-    assert "warm/hot controlled path never waits" in reference
-    assert "bare names" in reference and "body/GraphQL/form" in reference
-    assert "Coverage brief" in reference and "missing lazy chunks" in reference
+    assert "load `surface-expansion`" in entry
+    assert "not a preflight" in entry
+    assert "No inventory is a\nprerequisite to begin XSS" in router
+    assert "XSS breadth discovery checkpoint" not in router
+    assert "API/endpoint breadth checkpoint" not in reference
+    assert "if JS evidence is the chosen lens" in router
+    assert "use `js` for the paired JS inventory" not in router
+    assert "When a JS corpus is the chosen XSS discovery lens" in router
+    assert "If new JS is\nneeded, load `js` → `js-pull`" in router
+    assert "When new JS is needed, feed scoped observed JS URLs" in reference
+    assert "Coverage brief" in reference and "missing chunks" in reference
+    for route in ("Another consumer", "Another input", "Another endpoint from JavaScript",
+                  "Another JavaScript", "Another app area or scoped host"):
+        assert route in lens
+    assert "`jsluice` for *offline* local-file URL" in lens
+    assert "`-jc` crawl for offline extraction" in lens
+    assert "not a startup sequence" in lens
 
 
 def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> None:

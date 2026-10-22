@@ -7,8 +7,9 @@
 - **Base commit:** `2f5a204d5342911b5c2f5e2d59150afecc0c031b`
 - **Intended integration target:** `beta`; no stable promotion.
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** initial implementation commit pending.
-- **Feature implementation commits:** initial implementation commit pending.
+- **Latest immutable recovery checkpoint:** `3909a59d547746218c9c83b6982af39ccab7a263`.
+- **Feature implementation commits:** `3909a59d547746218c9c83b6982af39ccab7a263`.
+  The branch tip includes a later dossier-only handoff commit.
 - **Inspiration:** Ryu, Discord thread 1562883062767947837, message
   1562889915627348019; existing deserialization session-object packet.
 

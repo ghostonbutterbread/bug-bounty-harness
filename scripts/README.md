@@ -94,8 +94,9 @@ checkout-local interpreter.
   `--skip-scope`; optional repeatable `--lane`; optional Shared/artifact roots.
   `--mode basic` is the default. `--mode full` requires `--platform`, non-empty
   saved scope, and web/api lane; bounded public docs discovery is included by
-  default (`--include-docs` is a compatibility option). Platform pulls reject
-  custom `--shared-root` because pull and scope reads use `~/Shared/scopes`.
+  default (`--include-docs` is a compatibility option). Full-mode platform pulls
+  reject custom `--shared-root` because pull and scope reads use `~/Shared/scopes`;
+  basic mode retains its existing custom-root behavior.
 - **Outputs:** Shared program layout/context, scope-derived web recon seeds,
   initialization manifest, artifact pointer, and mounted artifact directories.
   Full also writes deterministic pending stage packets to

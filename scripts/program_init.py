@@ -223,8 +223,8 @@ def initialize_program(
         raise ValueError("full mode requires a web or api lane")
     # pull_scope and ScopeManager both use ~/Shared/scopes. Reject an alternate
     # layout before the network pull rather than claiming its scope is aligned.
-    if platform and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
-        raise ValueError("--shared-root is not supported with --platform: scope pull and reads use ~/Shared/scopes")
+    if mode == "full" and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
+        raise ValueError("--shared-root is not supported with full initialization: scope pull and reads use ~/Shared/scopes")
 
     if platform and not dry_run:
         pulled_scope = pull_scope(program, platform)

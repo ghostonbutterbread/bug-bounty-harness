@@ -235,8 +235,8 @@ def test_full_handoff_refresh_not_created_and_dry_run_preview(tmp_path: Path) ->
     assert json.loads(handoff.read_text())["scope"]["domains"] == ["other.demo.test"]
 
 @pytest.mark.parametrize("dry_run", [True, False])
-@pytest.mark.parametrize("mode", ["basic", "full"])
-def test_platform_rejects_custom_root_before_pull_or_layout(tmp_path: Path, dry_run: bool, mode: str) -> None:
+def test_full_rejects_custom_root_before_pull_or_layout(tmp_path: Path, dry_run: bool) -> None:
+    mode = "full"
     with patch.object(program_init, "pull_scope") as pull, patch.object(program_init, "_read_scope") as read:
         with pytest.raises(ValueError, match="--shared-root is not supported"):
             program_init.initialize_program("demo", lanes=["web"], shared_root=tmp_path / "custom",
@@ -246,3 +246,16 @@ def test_platform_rejects_custom_root_before_pull_or_layout(tmp_path: Path, dry_
     read.assert_not_called()
     assert not (tmp_path / "custom").exists()
     assert not (tmp_path / "artifacts").exists()
+
+
+def test_basic_platform_retains_custom_root(tmp_path: Path) -> None:
+    with patch.object(program_init, "pull_scope", return_value=object()), patch.object(
+        program_init, "_read_scope", return_value=({"demo.test"}, set())
+    ):
+        result = program_init.initialize_program(
+            "demo", lanes=["web"], shared_root=tmp_path / "custom",
+            artifact_root=tmp_path / "artifacts", platform="bugcrowd",
+            skip_scope=False, dry_run=False,
+        )
+    assert isinstance(result["lanes"], dict)
+    assert str(result["lanes"]["web"]).startswith(str(tmp_path / "custom"))

@@ -374,8 +374,9 @@ a license to launch vulnerability testing.
 creates a deterministic, pending handoff at the web (or API) lane's
 `recon/_meta/full-recon-handoff.json` alongside the normal basic bootstrap.
 Public docs discovery is included by default (`--include-docs` remains a
-compatibility spelling). Platform pulls use `~/Shared/scopes`, so `--platform`
-rejects any alternate `--shared-root` before contacting the platform. It rejects
+compatibility spelling). Full-mode platform pulls use `~/Shared/scopes`, so
+full mode rejects any alternate `--shared-root` before contacting the platform;
+basic mode retains its existing behavior. Full rejects
 `--skip-scope` and empty saved scope. A dry run requires scope already saved
 because it does not contact the platform.
 

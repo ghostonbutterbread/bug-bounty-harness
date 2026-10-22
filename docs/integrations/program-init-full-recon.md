@@ -6,8 +6,8 @@
 - **Base commit:** `95c073603582732f520c59d94d8f3b03a76dcedd` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-22
-- **Latest immutable recovery checkpoint:** `663bfe7b52a6a132de6f20d054ae885a63c55804`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`; review repair commit pending
+- **Latest immutable recovery checkpoint:** `c55148d42cfe8b79b4bf45805002a3fee814ec08`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`
 - **Inspiration / canonical references:** `scripts/program_init.py`, `agents/recon/full.py`, `skills/recon/SKILL.md`, `scripts/README.md`
 
 ## Intent
@@ -36,8 +36,8 @@ Preserve basic create-only initialization and add an opt-in full agent-facing ha
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/program-init-full-recon`
-- **Latest immutable recovery checkpoint:** `663bfe7b52a6a132de6f20d054ae885a63c55804`
-- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`; review repair commit pending
+- **Latest immutable recovery checkpoint:** `c55148d42cfe8b79b4bf45805002a3fee814ec08`
+- **Feature implementation commit(s):** `331caa65f21737c89604b616a22f8fb06abbe775`, `c55148d42cfe8b79b4bf45805002a3fee814ec08`
 - **Exact resume point:** parent independently reviews revised tests and workflow against policy; integrate only after a separate decision.
 - **Working-tree state at handoff:** clean after repair commit expected.
 

@@ -21,7 +21,7 @@ Preserve basic create-only initialization and add an opt-in full agent-facing ha
 ## Evidence and review
 
 - Tests: `python3 -m pytest tests/test_program_init.py tests/test_full_recon.py tests/test_recon_docs.py tests/test_recon_ry_snap_default.py -q` — 24 passed on revised tip, 2026-10-22; `git diff --check` passed. Offline basic CLI dry-run JSON returned `scope_state=skipped`, `refreshed=[]`, `dry_run=true`.
-- Independent review: original review identified lack of dispatch, optional docs, custom-root mismatch and rerun receipt; fixes pending parent review. No merge or push authorized.
+- Independent review: reconciled tip review found one P2 dry-run provenance defect; corrected `scope_state` to `saved` and handoff source to neutral `saved platform scope`, with an unchanged-preview regression. The CLI still does not dispatch; conversational Hermes does after successful initialization. No live program supplied.
 - Fixture: mocked pull and saved scope; deterministic rerun, docs default, pending statuses, dependency order, missing scope, dry-run no-write and created/refresh, pre-pull custom-root rejection.
 - Merge/ancestry: branch created at the fetched `origin/beta` base; integration intentionally deferred.
 

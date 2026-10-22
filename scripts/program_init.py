@@ -146,7 +146,7 @@ def _seed_recon_files(recon_root: Path, domains: set[str], urls: set[str], *, dr
 def _full_handoff(program: str, domains: set[str], urls: set[str], *, include_docs: bool) -> dict[str, object]:
     """Stable packets for an agent coordinator, not runnable scanner commands."""
     seeds, wildcards = recon_seed_lines(domains, urls)
-    scope = {"source": "platform-pulled saved scope", "domains": sorted(domains),
+    scope = {"source": "saved platform scope", "domains": sorted(domains),
              "urls": sorted(urls), "url_seeds": seeds, "wildcard_seeds": wildcards}
 
     def packet(key: str, owner: str, depends_on: list[str], task: str, output: str) -> dict[str, object]:
@@ -231,7 +231,9 @@ def initialize_program(
         if pulled_scope is None:
             raise RuntimeError("scope pull failed; no program layout was created")
 
-    scope_state = "skipped" if skip_scope else ("pulled" if platform else "unknown")
+    scope_state = "skipped" if skip_scope else "pulled" if platform else "unknown"
+    if mode == "full" and dry_run:
+        scope_state = "saved"
     domains, urls = _read_scope(slug) if not dry_run else (set(), set())
     if mode == "full" and dry_run:
         # Dry runs do not pull scope, but must still have an existing saved grant.

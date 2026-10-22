@@ -165,7 +165,12 @@ def test_full_handoff_is_deterministic_and_pending(tmp_path: Path) -> None:
         path = Path(first["handoff_path"])
         original = path.read_bytes()
         second = program_init.initialize_program("demo", **kwargs)
+        preview_kwargs: dict[str, Any] = dict(kwargs)
+        preview_kwargs["dry_run"] = True
+        preview = program_init.initialize_program("demo", **preview_kwargs)
     assert path.read_bytes() == original
+    assert preview["scope_state"] == "saved"
+    assert preview["refreshed"] == []
     assert second["handoff"] == first["handoff"]
     assert str(path) in first["created"]
     assert str(path) not in second["created"]
@@ -189,8 +194,12 @@ def test_full_docs_explicit_and_basic_unchanged(tmp_path: Path) -> None:
             "demo", lanes=["api"], shared_root=tmp_path / "Shared",
             artifact_root=tmp_path / "artifacts", platform="hackerone", skip_scope=False,
             dry_run=True, mode="full", include_docs=True)
-    stages = {stage["id"]: stage for stage in result["handoff"]["stages"]}
+    handoff = result["handoff"]
+    assert isinstance(handoff, dict)
+    stages = {stage["id"]: stage for stage in handoff["stages"]}
     assert "public-docs" in stages
+    assert result["scope_state"] == "saved"
+    assert handoff["scope"]["source"] == "saved platform scope"
     assert "public-docs" in stages["recon-bus-promotion"]["depends_on"]
     assert not (tmp_path / "Shared").exists()
     assert program_init.build_parser().parse_args(["demo", "--skip-scope"]).mode == "basic"

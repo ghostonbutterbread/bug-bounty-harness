@@ -61,9 +61,12 @@ def test_xss_routes_optional_new_surface_lens_without_a_startup_gate() -> None:
     entry = router.split("## Entry and lane selection", 1)[1].split("## Next-question overlays", 1)[0]
     assert "load `surface-expansion`" in entry
     assert "not a preflight" in entry
-    assert "no inventory is a prerequisite to begin XSS" in router
+    assert "No inventory is a\nprerequisite to begin XSS" in router
     assert "XSS breadth discovery checkpoint" not in router
     assert "API/endpoint breadth checkpoint" not in reference
+    assert "When a JS corpus is the chosen XSS discovery lens" in router
+    assert "If new JS is\nneeded, load `js` → `js-pull`" in router
+    assert "When new JS is needed, feed scoped observed JS URLs" in reference
     assert "Coverage brief" in reference and "missing chunks" in reference
     for route in ("Another consumer", "Another input", "Another endpoint from JavaScript",
                   "Another JavaScript", "Another app area or scoped host"):

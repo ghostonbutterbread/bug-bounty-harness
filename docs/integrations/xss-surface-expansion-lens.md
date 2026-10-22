@@ -23,7 +23,7 @@ XSS entry links `surface-expansion` only when looking for a new source/writer/co
 
 - `python3 -m pytest -q agents/test_xss_skill_clarity.py`: 7 passed.
 - `git diff --check`: clean.
-- Independent review: pending.
+- Independent review of `27d4625`: changes requested because broad XSS and browser-mediated paragraphs still mandated JS acquisition. Both now conditional on a selected JS question; re-review pending.
 - Bounded broad suite `python3 -m pytest -q agents/test_xss_skill_clarity.py tests --tb=no`: 316 passed, 1 skipped, 18 unrelated failures (safety incident CLI missing checkout-local `.venv`, stack-to-program index/launcher, upload-surface phrase); no green receipt. Root `python3 -m pytest -q` previously failed collection on missing `bac_checks`.
 - Alignment: `js`/`js-pull` own inventory, `jsluice` owns offline URL extraction, `parameter-mining` fields, `api-surface-mapping` operation context, `focused-recon` corpus prioritization, and `hypothesis-expansion-policy` mechanism continuation. New skill owns only cross-class new-surface idea selection.
 

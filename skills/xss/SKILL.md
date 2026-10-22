@@ -136,31 +136,31 @@ sink label is a lead, not a taint trace or browser proof. Do not mark a route
 complete from raw HTTP when browser routing, challenge behavior, or framework
 rendering matters.
 
-For a breadth pass, inventory **both** named input locations/fields and render
-sites in the same JS corpus (`source_sites` and `sink_sites`), and reconcile the
-program's parameter artifacts with the relevant route or writer. Start with the
-stronger observed end; do not delay an existing controlled path for a full
-census. Probe actual named fields on name-keyed renderers rather than declaring
-coverage from random canary parameter names. A source/sink match by name, file,
-or proximity is a review lead; trace the value through its caller, request,
-response, and transforms before claiming an edge. Load `parameter-mining` for
-source-attributed candidates when the current pool lacks route/field context;
-load `references/source-acquisition.md` for the paired inventory and scoped
-exhaustion decision. `surface-expansion` offers other directions when the
-selected path or corpus is thin; no inventory is a prerequisite to begin XSS.
+When a JS corpus is the chosen XSS discovery lens, review **both** named input
+locations/fields and render sites in that corpus (`source_sites` and
+`sink_sites`); reconcile relevant parameter artifacts with the selected route
+or writer. Start with the stronger observed end; do not delay an existing
+controlled path for a full census. Probe actual named fields on name-keyed
+renderers rather than declaring coverage from random canary parameter names. A
+source/sink match by name, file, or proximity is a review lead; trace the value
+through its caller, request, response, and transforms before claiming an edge.
+Load `parameter-mining` when source-attributed candidates would resolve a
+missing route/field; load `references/source-acquisition.md` for the paired
+inventory's limits and scoped exhaustion judgment. No inventory is a
+prerequisite to begin XSS.
 
-For browser-mediated or stateful paths, ground the JS corpus in the **running
-application**, not just a static URL list: load `browser-session-policy` and
-`chromium-test` for an authorized task browser, exercise relevant UI routes and
-interactions, and inspect Network/Sources/DOM (or equivalent browser
-observations) for lazy-loaded JS, actual request fields, forms, hidden inputs,
-bootstrap state, and render consumers. Keep each script and input tied to the
-page/flow that exposed it. Load `js` → `js-pull` to reuse or inventory scoped
-browser-observed scripts and source maps, then `js-hunt` for function-level
-source-to-sink tracing; the static `--page` fetch alone does not execute client
-navigation or capture lazy chunks. Match the observed stack to its request
-builders and rendering APIs through `dom-xss` and
-`references/source-acquisition.md`, including paths the signature pass misses.
+When a browser-mediated or stateful question calls for JS evidence, ground the
+selected corpus in the **running application**, not just a static URL list:
+load `browser-session-policy` and `chromium-test` for an authorized task
+browser, exercise relevant UI routes and interactions, and inspect
+Network/Sources/DOM (or equivalent observations) for lazy-loaded JS, actual
+request fields, forms, hidden inputs, bootstrap state, and render consumers.
+Keep each script and input tied to the page/flow that exposed it. If new JS is
+needed, load `js` → `js-pull` to reuse or inventory scoped browser-observed
+scripts and source maps; use `js-hunt` when function-level tracing answers the
+question. The static `--page` fetch alone does not execute client navigation
+or capture lazy chunks. Match observed stack-specific request builders and
+rendering APIs through `dom-xss` or `references/source-acquisition.md` as needed.
 
 **Pressure state:** `cold` means a context-appropriate discovery pass has not
 established a plausible XSS path; `warm` means controlled input reflects,

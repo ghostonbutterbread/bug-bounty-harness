@@ -61,7 +61,7 @@ live WAF comparison; use `waf`'s controlled path and `waf-live-policy`.
 - `redirect`: open redirect allowlist bypass, parser confusion, fragments, userinfo, encodings, and same-site redirect chains.
 - `idor`: identifier mutation, tenant/account boundary checks, header tricks, and role/object ownership validation.
 - `race`: concurrency and duplicate-action bypasses when the target workflow is safe to replay.
-- `cors`, `sql`, `xss`, `rce`, `xxe`, `proto`: planned technique families. Use the playbook and specialist skills until the harness modules are implemented.
+- `cors`, `sql`, `xss`, `rce`, `xxe`, `proto`: planned harness technique families. Specialist guidance remains available; for XSS use the selected XSS lane.
 - `auto`: choose a likely family from URL/parameter/response clues, then apply focused probes.
 
 ## Expanding
@@ -73,3 +73,7 @@ New bypass types should:
 3. Add the type to dispatch.
 4. Add focused tests before broad live use.
 5. Document the type here and in the playbook.
+
+## CSP reference
+
+When CSP is the apparent blocker on a plausible XSS path, load `csp-bypass` (`skills/csp-bypass/SKILL.md`) for a research-led guide to effective policy, browser behavior, allowlist and trusted-script gadgets, nonce/hash and `strict-dynamic` paths, and evidence standards. Then return to the selected XSS lane for source-to-sink tracing and browser proof; a weak policy alone is not confirmed XSS.

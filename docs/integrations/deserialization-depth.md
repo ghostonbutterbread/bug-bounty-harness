@@ -34,8 +34,9 @@ URLs, capture pointers and hashes; they are not target vulnerability evidence.
 - New packaging/route tests first returned two failures and two missing-reference
   errors; after implementation all five pass. Existing five deserialization
   tests also pass, preserving the historical case and safety distinctions.
-- Focused deserialization, promotion-route and JS-hunt checks: 23 passed;
-  the additional command-lane check reproduced an unrelated baseline failure.
+- Four focused deserialization, promotion-route and JS-hunt files: 22 passed,
+  10 subtests passed. The earlier five-file batch had 23 passes (including one
+  passing command-lane test) and one reproduced baseline command-lane failure.
 - Broader `tests/` run after checkout-local environment setup: 311 passed,
   1 skipped, 3 explicitly deselected, 182 subtests passed. Deselections are
   script-index completeness, direct-checkout command guidance, and upload
@@ -49,7 +50,11 @@ URLs, capture pointers and hashes; they are not target vulnerability evidence.
   rce-surface-mapping, rce-exploration, rce-validation, rce-lifecycle, js-hunt,
   and the repository RAG template. This specialist owns reconstruction reasoning;
   no duplicate allow/ask/stop matrix, evidence store, or validation ladder.
-- Independent review: pending exact committed candidate and semantic scenarios.
+- Independent review: ACCEPT for `a9ac1903651efa33f4b28909672117402439f6f3`,
+  external report `deserialization-depth-review.md` in the Hermes review store;
+  all six read-only semantic scenarios passed and eleven source capture hashes
+  independently verified. Follow-up tightens the pre-existing signature/control
+  sentence and reconciles the focused-test count; narrow re-review pending.
 
 ## Blockers and deferred work
 

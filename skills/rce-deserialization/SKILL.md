@@ -139,7 +139,9 @@ its packaged CLI; this packet does not provide a live-cookie adapter.
 - Default Flask session handling is not evidence of pickle use; an application
   may embed an object inside a data-only container or use a custom backend.
 - A decoded class name supports a format lead, not server-side reachability.
-  A valid signature or accepted field demonstrates control, not RCE by itself.
+  Possessing a valid signed sample does not establish modification control.
+  An accepted actor-authored change demonstrates only that field's control,
+  not RCE by itself.
 - A rejection closes only the tested representation, gate, consumer, and trigger;
   a missing observation channel is not a global negative.
 

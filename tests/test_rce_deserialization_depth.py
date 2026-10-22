@@ -15,6 +15,8 @@ class DeserializationDepthTest(unittest.TestCase):
         for reference in ("technology-mechanisms.md", "investigation-ideas.md"):
             self.assertIn(f"`references/{reference}`", text)
         self.assertIn("not a new analyzer mode", text)
+        self.assertIn("Possessing a valid signed sample does not establish modification control.", text)
+        self.assertIn("An accepted actor-authored change", text)
 
     def test_discovery_routes_name_specialist(self):
         for name in ("rce", "js-hunt"):

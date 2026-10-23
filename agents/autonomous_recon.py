@@ -538,6 +538,8 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
 
     browser = None
     pw_context = None
+    route_failure: list[str] = []
+    navigation_redirect: list[str] = []
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
         pw_context = sync_playwright()
@@ -560,14 +562,35 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                 _g_limiter.wait()
             route.connect_to_server()
         context.route_web_socket("**/*", guard_ws)
+        def permitted(u):
+            return (urllib.parse.urlsplit(u).scheme in ("http", "https")
+                    and _same_host(u, result.target_host) and is_in_scope(u, scope))
         def guard(route):
             u = route.request.url
-            if not _same_host(u, result.target_host) or not is_in_scope(u, scope):
+            if not permitted(u):
                 route.abort()
                 return
-            if _g_limiter is not None:
-                _g_limiter.wait()
-            route.continue_()
+            try:
+                if _g_limiter is not None:
+                    _g_limiter.wait()
+                # continue_() lets Chromium follow a 30x without another route
+                # callback. Fetch one response only, before the browser sees it.
+                response = route.fetch(max_redirects=0)
+                if response.status in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location")
+                    destination = urllib.parse.urljoin(u, location) if location else None
+                    route.abort()
+                    if destination and permitted(destination) and route.request.is_navigation_request():
+                        # urllib validates and rates every hop; browser navigation
+                        # cannot safely follow a fulfilled redirect either.
+                        navigation_redirect.append(u)
+                    else:
+                        route_failure.append(f"Browser redirect not followed: {u} -> {destination or 'missing Location'}")
+                    return
+                route.fulfill(response=response)
+            except Exception as exc:
+                route_failure.append(f"Browser route failed: {u}: {type(exc).__name__}")
+                route.abort()
         context.route("**/*", guard)
         page = context.new_page()
         def on_request(req):
@@ -594,6 +617,7 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
         _log("Playwright unavailable — using urllib crawler")
 
     attempted = 0
+    current_page = None
     try:
         while pending and attempted < CRAWL_PAGE_BUDGET:
             try:
@@ -603,6 +627,7 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                 save()
                 break
             url = pending.popleft()
+            current_page = url
             if not _same_host(url, result.target_host) or not is_in_scope(url, scope):
                 raise ValueError(f"Checkpoint page is no longer authorized by current scope: {url}")
             if url in visited and url not in failed:
@@ -612,18 +637,33 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
             attempted += 1
             _log(f"  Crawling: {url[:80]}")
             if browser is not None:
+                navigation_redirect.clear()
                 try:
                     page.goto(url, timeout=15000, wait_until="domcontentloaded")
                     if not _same_host(page.url, result.target_host) or not is_in_scope(page.url, scope):
                         raise ValueError("Browser navigation left saved scope")
                     page.wait_for_timeout(1000)
+                    if route_failure:
+                        raise RuntimeError("; ".join(route_failure))
                     text = page.content()
                     links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
                     scripts = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
                 except Exception as exc:
-                    result.errors.append(f"Crawl page failed (retryable): {url}: {type(exc).__name__}")
-                    failed.add(url)
-                    text, links, scripts = "", [], []
+                    if navigation_redirect and not route_failure:
+                        # The browser must not follow its own redirect; urllib's
+                        # scoped redirect handler safely obtains the document.
+                        body, _ = _http_get(url, timeout=10)
+                        if body:
+                            text = body.decode(errors="ignore")
+                            links, scripts = HREF_RE.findall(text), SRC_RE.findall(text)
+                        else:
+                            result.errors.append(f"Redirected crawl page failed (retryable): {url}")
+                            failed.add(url)
+                            text, links, scripts = "", [], []
+                    else:
+                        result.errors.append(f"Crawl page failed (retryable): {url}: {type(exc).__name__}; {'; '.join(route_failure)}")
+                        failed.add(url)
+                        text, links, scripts = "", [], []
             else:
                 body, _ = _http_get(url, timeout=10)
                 if not body:
@@ -671,6 +711,12 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
             browser.close()
         if pw_context is not None:
             pw_context.__exit__(None, None, None)
+        if route_failure:
+            result.pause_reason = "Browser request guard failed; retry after reviewing crawl errors"
+            result.errors.extend(error for error in route_failure if error not in result.errors)
+            failed.add(current_page or result.target)
+            succeeded.discard(current_page or result.target)
+            save()
         result.urls = sorted(all_urls)
         result.params = sorted(all_params)
         result.js_files = sorted(all_js)

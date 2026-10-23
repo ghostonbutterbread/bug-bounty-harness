@@ -230,13 +230,58 @@ def test_urllib_redirect_hops_validate_scope_and_rate(monkeypatch):
     assert limiter.calls == 1
 
 
+def test_urllib_local_redirect_fixture_blocks_excluded_hop_and_rates_allowed(monkeypatch):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    hits = []
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            if self.path in ("/out-redirect", "/in-redirect"):
+                self.send_response(302)
+                self.send_header("Location", "/private-redirect" if self.path == "/out-redirect" else "/allowed")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"allowed")
+        def log_message(self, format, *args): pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        monkeypatch.setattr(autonomous_recon, "_g_target_host", origin.removeprefix("http://"))
+        monkeypatch.setattr(autonomous_recon, "_g_scope", type("Scope", (), {
+            "is_in_scope": lambda self, url: "/private" not in url})())
+        class Limiter:
+            calls = 0
+            def wait(self): self.calls += 1
+        limiter = Limiter()
+        monkeypatch.setattr(autonomous_recon, "_g_limiter", limiter)
+        assert autonomous_recon._http_get(origin + "/out-redirect")[0] == b""
+        assert hits == ["/out-redirect"]
+        assert limiter.calls == 1
+        assert autonomous_recon._http_get(origin + "/in-redirect")[0] == b"allowed"
+        assert hits == ["/out-redirect", "/in-redirect", "/allowed"]
+        assert limiter.calls == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 def test_browser_route_blocks_redirects_and_subrequests_and_retries(monkeypatch):
     import sys, types
     calls = []
     class Route:
-        def __init__(self, url): self.request = types.SimpleNamespace(url=url)
+        def __init__(self, url): self.request = types.SimpleNamespace(url=url, is_navigation_request=lambda: url == "https://example.com")
         def abort(self): calls.append((self.request.url, "abort"))
-        def continue_(self): calls.append((self.request.url, "continue"))
+        def fetch(self, *, max_redirects):
+            assert max_redirects == 0
+            calls.append((self.request.url, "fetch"))
+            return types.SimpleNamespace(status=200, headers={})
+        def fulfill(self, *, response): calls.append((self.request.url, "fulfill"))
     class Page:
         url = "https://example.com"
         def on(self, *_): pass
@@ -245,7 +290,7 @@ def test_browser_route_blocks_redirects_and_subrequests_and_retries(monkeypatch)
             context.route_handler(Route("https://example.com/allowed.js"))
             context.route_handler(Route("https://example.com/private.js"))
             context.route_handler(Route("https://outside.example/redirect"))
-            if len([x for x in calls if x == (url, "continue")]) == 1:
+            if len([x for x in calls if x == (url, "fulfill")]) == 1:
                 raise RuntimeError("navigation interrupted")
             self.url = url
         def wait_for_timeout(self, *_): pass
@@ -277,7 +322,7 @@ def test_browser_route_blocks_redirects_and_subrequests_and_retries(monkeypatch)
     assert second.crawl_status == "complete"
     assert ("https://example.com/private.js", "abort") in calls
     assert ("https://outside.example/redirect", "abort") in calls
-    assert ("https://example.com/allowed.js", "continue") in calls
+    assert ("https://example.com/allowed.js", "fulfill") in calls
     class WS:
         def __init__(self, url): self.url = url
         def close(self): calls.append((self.url, "close"))
@@ -288,6 +333,55 @@ def test_browser_route_blocks_redirects_and_subrequests_and_retries(monkeypatch)
     assert ("wss://outside.example/stream", "close") in calls
     assert ("wss://example.com/private/socket", "close") in calls
     assert ("wss://example.com/allowed", "connect") in calls
+
+def test_browser_redirects_pause_excluded_hop_and_urllib_resumes_allowed_navigation(monkeypatch):
+    import sys, types, json
+    calls = []
+    class Route:
+        def __init__(self, url):
+            self.request = types.SimpleNamespace(url=url, is_navigation_request=lambda: url.endswith("/start"))
+        def fetch(self, *, max_redirects):
+            assert max_redirects == 0
+            calls.append(("fetch", self.request.url))
+            location = "/allowed" if self.request.url.endswith("/start") else "/private-redirect"
+            return types.SimpleNamespace(status=302, headers={"location": location})
+        def abort(self): calls.append(("abort", self.request.url))
+        def fulfill(self, **_): pytest.fail("redirect fulfilled to Chromium")
+    class Page:
+        url = "https://example.com/start"
+        def on(self, *_): pass
+        def goto(self, url, **_):
+            context.handler(Route(url))
+            if url.endswith("/start"):
+                raise RuntimeError("navigation aborted")
+            context.handler(Route("https://example.com/script.js"))
+        def wait_for_timeout(self, *_): pass
+        def content(self): return "ok"
+        def eval_on_selector_all(self, *_): return []
+    class Context:
+        def route(self, _, handler): self.handler = handler
+        def route_web_socket(self, *_): pass
+        def new_page(self): return Page()
+    context = Context()
+    class Browser:
+        def new_context(self, **_): return context
+        def close(self): pass
+    class Manager:
+        def __enter__(self): return types.SimpleNamespace(chromium=types.SimpleNamespace(launch=lambda **_: Browser()))
+        def __exit__(self, *_): pass
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace(sync_playwright=lambda: Manager()))
+    monkeypatch.setattr(autonomous_recon, "CRAWL_PAGE_BUDGET", 2)
+    scope = type("Scope", (), {"is_in_scope": lambda self, u: "/private" not in u})()
+    monkeypatch.setattr(autonomous_recon, "_http_get", lambda url, timeout=10: (b'<a href="/second">next</a>', {}))
+    result = ReconResult("demo", "https://example.com/start", "example.com")
+    autonomous_recon.phase_crawl(result, scope)
+    assert result.crawl_status == "paused"
+    assert ("fetch", "https://example.com/start") in calls
+    assert ("abort", "https://example.com/start") in calls
+    assert ("abort", "https://example.com/script.js") in calls
+    assert ("fetch", "https://example.com/private-redirect") not in calls
+    assert "https://example.com/second" in json.loads((autonomous_recon._output_dir(result) / "crawl_checkpoint.json").read_text())["retryable_failed"]
+    assert any("Browser redirect not followed" in error for error in result.errors)
 
 
 def test_analysis_resume_and_publication_checkpoint(monkeypatch):

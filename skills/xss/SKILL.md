@@ -271,6 +271,15 @@ replace the XSS lane's execution and delivery proof.
 - `False positive`: the claimed path is evidenced inert or unreachable in the
   tested context. Do not extend that negative to untested consumers.
 
+For a stored value, even when representative probes and the parser/consumer
+boundary justify closing a tested path as inert, that negative applies only to
+that source-to-consumer path in its tested context—not the writable field or
+its unexamined consumers. Record the tested paths, remaining consumer frontier,
+and a concrete retest trigger (such as a newly observed render view).
+Absence of CSP or Trusted Types alone does not establish XSS; do not leave an
+executing payload planted merely to monitor for a future consumer. Follow the
+selected stored or blind lane's ownership, status, and cleanup rules.
+
 ## Scripts map
 
 - [`scripts/README.md`](scripts/README.md) — maintained XSS helper records and

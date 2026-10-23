@@ -39,8 +39,11 @@ of silently substituting models/providers or reducing effort.
   executable found in PATH/known local bins and no Grok CLI auth file. One
   bounded Hoster inspection found no Grok executable/auth file; no remote
   source/runtime changes or agent launches performed.
-- Independent review: pending; review neighboring `bunny-collaborative`,
-  `bunny-multi`, ordinary worker-selection rules and selected provider semantics.
+- Independent review `sa-0-a2002bdb` passed skill routing, neighboring
+  `bunny-collaborative`/`bunny-multi` contracts, the complete composite scenario
+  walk, 12 focused tests and real GLM session read-back. Its only blocker was
+  the initial dossier's stale “pending first commit” fields, corrected in
+  `5f972ca`; narrow dossier/recovery-checkpoint re-review is pending.
 - Full `tests/` after the repository installer provisioned checkout-local
   dependencies: 325 passed, 1 skipped, 196 subtests passed, 3 unrelated failures.
   Those failures (stack-to-program missing index fields, its direct-checkout

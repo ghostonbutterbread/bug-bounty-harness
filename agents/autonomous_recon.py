@@ -21,6 +21,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,7 +63,30 @@ except ImportError:  # pragma: no cover
 
 # Module-level rate limiter (initialized in run_recon)
 _g_limiter = None
+_g_scope = None
 _RECON_LOGGER = None
+
+class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        destination = urllib.parse.urljoin(req.full_url, newurl)
+        if not _authorized(destination):
+            raise ValueError(f"HTTP redirect outside saved scope: {destination}")
+        if _g_limiter is not None:
+            _g_limiter.wait()
+        return super().redirect_request(req, fp, code, msg, headers, destination)
+
+_scoped_opener = urllib.request.build_opener(_ScopedRedirect())
+
+def _authorized(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+    return parsed.scheme in ("http", "https") and _same_host(url, _g_target_host) and is_in_scope(url, _g_scope)
+
+_g_target_host = ""
+
+def _open_scoped(req, timeout):
+    if not _authorized(req.full_url):
+        raise ValueError(f"HTTP request outside saved scope: {req.full_url}")
+    return _scoped_opener.open(req, timeout=timeout)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Regex helpers
@@ -150,6 +175,17 @@ class ReconResult:
     # Meta
     errors: list[str] = field(default_factory=list)
     end_time: str = ""
+    crawl_pages_attempted: int = 0
+    crawl_pages_pending: int = 0
+    crawl_frontier_overflow: int = 0
+    crawl_status: str = "not_started"
+    js_files_scoped: int = 0
+    js_files_attempted: int = 0
+    js_files_failed: int = 0
+    analysis_status: str = "not_started"
+    discovery_status: str = "complete"
+    pause_reason: str = ""
+    run_id: str = ""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -171,7 +207,7 @@ def _safe_log_span(**fields) -> None:
         pass
 
 
-def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
+def _http_get(url: str, timeout: int = 15, *, effective_url: list[str] | None = None) -> tuple[bytes, dict]:
     """Simple HTTP GET, returns (body_bytes, headers_dict)."""
     if _g_limiter is not None:
         _g_limiter.wait()
@@ -185,8 +221,10 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
     )
     start = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open_scoped(req, timeout=timeout) as resp:
             body = resp.read()
+            if effective_url is not None:
+                effective_url.append(resp.geturl())
             _safe_log_span(
                 span_type="tool",
                 level="STEP",
@@ -202,6 +240,8 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
             return body, dict(resp.headers)
     except urllib.error.HTTPError as e:
         body = e.read()
+        if effective_url is not None:
+            effective_url.append(e.geturl())
         _safe_log_span(
             span_type="tool",
             level="STEP",
@@ -256,6 +296,9 @@ def _run_cmd(cmd: list[str], timeout: int = 120) -> str:
         )
         return result.stdout
     except subprocess.TimeoutExpired:
+        if _g_result is not None:
+            _g_result.discovery_status = "partial"
+            _g_result.errors.append(f"Discovery tool timed out (retryable): {cmd[0]}")
         _safe_log_span(
             span_type="tool",
             level="STEP",
@@ -272,6 +315,8 @@ def _run_cmd(cmd: list[str], timeout: int = 120) -> str:
         return ""
     except Exception:
         return ""
+
+_g_result = None
 
 
 def _normalize_url(url: str, base: str) -> Optional[str]:
@@ -416,139 +461,287 @@ def _detect_waf(body: bytes, headers: dict, result: ReconResult) -> None:
 # Phase 2 — CRAWL
 # ──────────────────────────────────────────────────────────────────────────────
 
-def phase_crawl(result: ReconResult) -> None:
-    _log("=== Phase 2: CRAWL ===", "INFO")
-    crawled_urls: set[str] = set()
-    pending: list[str] = [result.target]
-    all_urls: set[str] = set()
-    all_params: set[str] = set()
-    all_js: set[str] = set()
-    depth = 0
-    max_depth = 2
-    max_pages = 60
+CRAWL_PAGE_BUDGET = 60
+CRAWL_URL_LIMIT = 10000  # explicit stop boundary for generated/infinite paths
+MIN_OUTPUT_FREE_BYTES = 5 * 1024 ** 3
 
-    # Try playwright first
-    playwright_ok = _try_playwright_crawl(result, all_urls, all_params, all_js)
-    if playwright_ok:
-        _log(f"Playwright crawl found {len(all_urls)} URLs, {len(all_js)} JS files", "OK")
+
+def _output_dir(result: ReconResult) -> Path:
+    return Path.home() / "Shared" / "bounty_recon" / result.program / "agent_shared" / "findings" / "recon"
+
+
+def _require_output_space(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(path).free
+    if free < MIN_OUTPUT_FREE_BYTES:
+        raise DiskFloorPause(f"Recon output paused: available disk below 5 GiB at {path} ({free} bytes free)")
+
+class DiskFloorPause(OSError):
+    pass
+
+def _save_checkpoint(path: Path, state: dict) -> None:
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(state))
+    temp.replace(path)
+
+
+def phase_crawl(result: ReconResult, scope=None) -> None:
+    """BFS in bounded invocations, retaining the full frontier between runs."""
+    _log("=== Phase 2: CRAWL ===")
+    out_dir = _output_dir(result)
+    checkpoint = out_dir / "crawl_checkpoint.json"
+    overflow_path = out_dir / "crawl_overflow.txt"
+    if checkpoint.exists():
+        saved = json.loads(checkpoint.read_text())
+        if saved.get("target") != result.target or saved.get("program") != result.program:
+            raise ValueError(f"Crawl checkpoint belongs to another target: {checkpoint}")
+        result.run_id = saved.get("run_id") or secrets.token_hex(12)
+        pending = deque(saved["pending"])
+        visited = set(saved["visited"])
+        failed = set(saved.get("retryable_failed", []))
+        succeeded = set(saved.get("succeeded", []))
+        all_urls = set(saved["urls"])
+        all_params = set(saved["params"])
+        all_js = set(saved["js_files"])
+        for restored in set(pending) | visited | failed | succeeded | all_urls | all_js:
+            if not _same_host(restored, result.target_host) or not is_in_scope(restored, scope):
+                raise ValueError(f"Checkpoint URL is no longer authorized by current scope: {restored}")
+        result.forms = saved["forms"]
+        overflow = saved.get("frontier_overflow", 0)
+        _log(f"Resuming crawl: {len(visited)} attempted, {len(pending)} pending")
     else:
-        _log("Playwright unavailable — using curl/urllib crawler", "INFO")
-        # Simple BFS crawler
-        while pending and len(crawled_urls) < max_pages and depth <= max_depth:
-            current_batch = pending[:10]
-            pending = pending[10:]
-            depth += 1
-            for url in current_batch:
-                if url in crawled_urls:
-                    continue
-                crawled_urls.add(url)
-                _log(f"  Crawling: {url[:80]}")
-                body, headers = _http_get(url, timeout=10)
-                if not body:
-                    continue
-                text = body.decode(errors="ignore")
-                # Extract URLs from HTML
-                for m in HREF_RE.finditer(text):
-                    u = _normalize_url(m.group(1), url)
-                    if u and _same_host(u, result.target_host):
-                        all_urls.add(u)
-                        if u not in crawled_urls:
-                            pending.append(u)
-                # Extract JS files
-                for m in SRC_RE.finditer(text):
-                    u = _normalize_url(m.group(1), url)
-                    if u and _same_host(u, result.target_host):
-                        all_js.add(u)
-                # Extract all URLs from body text
-                for m in URL_RE.finditer(text):
-                    u = m.group(0).rstrip('.,;)')
-                    if _same_host(u, result.target_host):
-                        all_urls.add(u)
-                # Extract params
-                for m in PARAM_RE.finditer(url):
-                    all_params.add(m.group(1))
-                # Extract form data
-                _extract_forms(text, url, result)
+        result.run_id = secrets.token_hex(12)
+        pending = deque([result.target])
+        visited = set()
+        failed, succeeded = set(), set()
+        overflow = 0
+        all_urls, all_params, all_js = set(), set(), set()
+    def spill(url: str) -> None:
+        # Preserve identities beyond the in-memory discovery boundary for operator replay.
+        try:
+            _require_output_space(out_dir)
+        except DiskFloorPause as exc:
+            result.pause_reason = str(exc)
+            pending.append(url)
+            return
+        with overflow_path.open("a") as stream:
+            stream.write(url + "\n")
 
-    # Collect params from all discovered URLs
-    for u in all_urls:
-        for m in PARAM_RE.finditer(u):
-            all_params.add(m.group(1))
+    queued = set(pending) | visited
+    # Failed requests are retried once per invocation, not silently treated as done.
+    pending.extend(sorted(failed))
+    queued.update(failed)
 
-    result.urls = sorted(all_urls)
-    result.params = sorted(all_params)
-    result.js_files = sorted(all_js)
+    def save() -> None:
+        _save_checkpoint(checkpoint, {"program": result.program, "target": result.target,
+            "run_id": result.run_id,
+            "pending": list(pending), "visited": sorted(visited),
+            "succeeded": sorted(succeeded), "retryable_failed": sorted(failed),
+            "frontier_overflow": overflow, "urls": sorted(all_urls),
+            "params": sorted(all_params), "js_files": sorted(all_js), "forms": result.forms})
 
-    _log(f"Crawl complete: {len(result.urls)} URLs, {len(result.params)} params, {len(result.js_files)} JS files", "OK")
-
-
-def _try_playwright_crawl(
-    result: ReconResult,
-    all_urls: set[str],
-    all_params: set[str],
-    all_js: set[str],
-) -> bool:
-    """Attempt playwright-based crawl. Returns True if successful."""
+    browser = None
+    pw_context = None
+    route_failure: list[str] = []
+    navigation_redirect: list[str] = []
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
-    except ImportError:
-        return False
-
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
-            )
-            page = context.new_page()
-
-            visited: set[str] = set()
-            queue: list[str] = [result.target]
-            max_pages = 50
-
-            # Intercept network requests to grab all URLs / JS files
-            def on_request(req):
-                u = req.url
-                if _same_host(u, result.target_host):
-                    all_urls.add(u)
-                    for m in PARAM_RE.finditer(u):
-                        all_params.add(m.group(1))
-                if (u.endswith(".js") or ".js?" in u) and _same_host(u, result.target_host):
+        pw_context = sync_playwright()
+        pw = pw_context.__enter__()
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(service_workers="block")
+        # Older Playwright releases cannot intercept WebSocket handshakes.
+        # Prefer the HTTP-only urllib crawler over an unguarded browser.
+        if not hasattr(context, "route_web_socket"):
+            raise RuntimeError("Playwright WebSocket interception unavailable")
+        def guard_ws(route):
+            u = route.url
+            parsed = urllib.parse.urlsplit(u)
+            equivalent = urllib.parse.urlunsplit(("https" if parsed.scheme == "wss" else "http",
+                parsed.netloc, parsed.path, parsed.query, parsed.fragment))
+            if parsed.scheme not in ("ws", "wss") or not _same_host(equivalent, result.target_host) or not is_in_scope(equivalent, scope):
+                route.close()
+                return
+            if _g_limiter is not None:
+                _g_limiter.wait()
+            route.connect_to_server()
+        context.route_web_socket("**/*", guard_ws)
+        def permitted(u):
+            return (urllib.parse.urlsplit(u).scheme in ("http", "https")
+                    and _same_host(u, result.target_host) and is_in_scope(u, scope))
+        def guard(route):
+            u = route.request.url
+            if not permitted(u):
+                route.abort()
+                return
+            try:
+                if _g_limiter is not None:
+                    _g_limiter.wait()
+                # continue_() lets Chromium follow a 30x without another route
+                # callback. Fetch one response only, before the browser sees it.
+                response = route.fetch(max_redirects=0)
+                if response.status in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location")
+                    destination = urllib.parse.urljoin(u, location) if location else None
+                    route.abort()
+                    if destination and permitted(destination) and route.request.is_navigation_request():
+                        # urllib validates and rates every hop; browser navigation
+                        # cannot safely follow a fulfilled redirect either.
+                        navigation_redirect.append(u)
+                    else:
+                        route_failure.append(f"Browser redirect not followed: {u} -> {destination or 'missing Location'}")
+                    return
+                route.fulfill(response=response)
+            except Exception as exc:
+                route_failure.append(f"Browser route failed: {u}: {type(exc).__name__}")
+                route.abort()
+        context.route("**/*", guard)
+        page = context.new_page()
+        def on_request(req):
+            nonlocal overflow
+            u = req.url
+            if _same_host(u, result.target_host) and is_in_scope(u, scope):
+                if u not in all_urls and len(all_urls) >= CRAWL_URL_LIMIT:
+                    overflow += 1
+                    spill(u)
+                    return
+                all_urls.add(u)
+                for param in PARAM_RE.finditer(u):
+                    all_params.add(param.group(1))
+                if u.endswith(".js") or ".js?" in u:
                     all_js.add(u)
+        page.on("request", on_request)
+    except Exception:
+        if browser is not None:
+            browser.close()
+        browser = None
+        if pw_context is not None:
+            pw_context.__exit__(None, None, None)
+            pw_context = None
+        _log("Playwright unavailable — using urllib crawler")
 
-            page.on("request", on_request)
-
-            while queue and len(visited) < max_pages:
-                url = queue.pop(0)
-                if url in visited:
-                    continue
-                visited.add(url)
+    attempted = 0
+    current_page = None
+    try:
+        while pending and attempted < CRAWL_PAGE_BUDGET:
+            try:
+                _require_output_space(out_dir)
+            except DiskFloorPause as exc:
+                result.pause_reason = str(exc)
+                save()
+                break
+            url = pending.popleft()
+            current_page = url
+            if not _same_host(url, result.target_host) or not is_in_scope(url, scope):
+                raise ValueError(f"Checkpoint page is no longer authorized by current scope: {url}")
+            if url in visited and url not in failed:
+                continue
+            visited.add(url)
+            failed.discard(url)
+            attempted += 1
+            _log(f"  Crawling: {url[:80]}")
+            if browser is not None:
+                navigation_redirect.clear()
+                document_url = url
                 try:
                     page.goto(url, timeout=15000, wait_until="domcontentloaded")
+                    if not _same_host(page.url, result.target_host) or not is_in_scope(page.url, scope):
+                        raise ValueError("Browser navigation left saved scope")
                     page.wait_for_timeout(1000)
-                    html = page.content()
-                    # Grab links
+                    if navigation_redirect:
+                        raise RuntimeError("Scoped browser navigation redirect requires urllib fallback")
+                    if route_failure:
+                        raise RuntimeError("; ".join(route_failure))
+                    text = page.content()
+                    document_url = page.url
                     links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-                    for link in links:
-                        n = _normalize_url(link, url)
-                        if n and _same_host(n, result.target_host) and n not in visited:
-                            queue.append(n)
-                    # Grab JS src
                     scripts = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
-                    for s in scripts:
-                        n = _normalize_url(s, url)
-                        if n and _same_host(n, result.target_host):
-                            all_js.add(n)
-                    # Extract forms
-                    _extract_forms(html, url, result)
-                except Exception:
-                    pass
-
+                except Exception as exc:
+                    if navigation_redirect and not route_failure:
+                        # The browser must not follow its own redirect; urllib's
+                        # scoped redirect handler safely obtains the document.
+                        final_urls: list[str] = []
+                        body, _ = _http_get(url, timeout=10, effective_url=final_urls)
+                        if body and final_urls:
+                            document_url = final_urls[0]
+                            text = body.decode(errors="ignore")
+                            links, scripts = HREF_RE.findall(text), SRC_RE.findall(text)
+                        else:
+                            result.errors.append(f"Redirected crawl page failed (retryable): {url}")
+                            failed.add(url)
+                            text, links, scripts = "", [], []
+                    else:
+                        result.errors.append(f"Crawl page failed (retryable): {url}: {type(exc).__name__}; {'; '.join(route_failure)}")
+                        failed.add(url)
+                        text, links, scripts = "", [], []
+            else:
+                final_urls = []
+                body, _ = _http_get(url, timeout=10, effective_url=final_urls)
+                document_url = final_urls[0] if final_urls else url
+                if not body or not final_urls:
+                    result.errors.append(f"Crawl page returned no body or effective URL (retryable): {url}")
+                    failed.add(url)
+                text = body.decode(errors="ignore") if url not in failed else ""
+                links = HREF_RE.findall(text)
+                scripts = SRC_RE.findall(text)
+            if url not in failed:
+                succeeded.add(url)
+            for link in links:
+                u = _normalize_url(link, document_url)
+                if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    if u not in queued:
+                        if len(queued) < CRAWL_URL_LIMIT:
+                            pending.append(u)
+                            queued.add(u)
+                        else:
+                            overflow += 1
+                            spill(u)
+                            continue
+                    all_urls.add(u)
+                    for param in PARAM_RE.finditer(u):
+                        all_params.add(param.group(1))
+            for script in scripts:
+                u = _normalize_url(script, document_url)
+                if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    all_js.add(u)
+            for m in URL_RE.finditer(text):
+                u = m.group(0).rstrip('.,;)')
+                if _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    if u not in all_urls and len(all_urls) >= CRAWL_URL_LIMIT:
+                        overflow += 1
+                        spill(u)
+                        continue
+                    all_urls.add(u)
+                    for param in PARAM_RE.finditer(u):
+                        all_params.add(param.group(1))
+            _extract_forms(text, document_url, result)
+            for m in PARAM_RE.finditer(url):
+                all_params.add(m.group(1))
+            save()
+    finally:
+        if browser is not None:
             browser.close()
-        return True
-    except Exception:
-        return False
+        if pw_context is not None:
+            pw_context.__exit__(None, None, None)
+        if route_failure:
+            result.pause_reason = "Browser request guard failed; retry after reviewing crawl errors"
+            result.errors.extend(error for error in route_failure if error not in result.errors)
+            failed.add(current_page or result.target)
+            succeeded.discard(current_page or result.target)
+            save()
+        result.urls = sorted(all_urls)
+        result.params = sorted(all_params)
+        result.js_files = sorted(all_js)
+        result.crawl_pages_attempted = len(visited)
+        result.crawl_pages_pending = len(pending) + len(failed)
+        result.crawl_frontier_overflow = overflow
+        result.crawl_status = "paused" if pending or failed or overflow or result.pause_reason else "complete"
+        if len(queued) >= CRAWL_URL_LIMIT or overflow:
+            result.errors.append(f"Crawl frontier limit {CRAWL_URL_LIMIT} reached; paused for operator review")
 
+    _log(f"Crawl {result.crawl_status}: {len(visited)} attempted, {len(succeeded)} succeeded, "
+         f"{len(pending)} pending, {len(failed)} retryable failed, {overflow} frontier overflow, "
+         f"{len(result.urls)} URLs, {len(result.js_files)} JS files")
 
 def _extract_forms(html: str, base_url: str, result: ReconResult) -> None:
     for form_html in FORM_BLOCK_RE.findall(html):
@@ -567,7 +760,7 @@ def _extract_forms(html: str, base_url: str, result: ReconResult) -> None:
 # Phase 3 — ANALYZE
 # ──────────────────────────────────────────────────────────────────────────────
 
-def phase_analyze(result: ReconResult) -> None:
+def phase_analyze(result: ReconResult, scope=None) -> None:
     _log("=== Phase 3: ANALYZE ===", "INFO")
 
     # Scan JS files for secrets and API endpoints
@@ -578,10 +771,33 @@ def phase_analyze(result: ReconResult) -> None:
     )
     endpoint_set: set[str] = set()
 
-    scoped_js_urls = [js_url for js_url in result.js_files if _same_host(js_url, result.target_host)]
-    for js_url in scoped_js_urls[:80]:  # cap at 80 JS files
+    active_scope = scope if scope is not None else _g_scope
+    scoped_js_urls = sorted({js_url for js_url in result.js_files
+                             if _same_host(js_url, result.target_host) and is_in_scope(js_url, active_scope)})
+    result.js_files_scoped = len(scoped_js_urls)
+    checkpoint = _output_dir(result) / "analysis_checkpoint.json"
+    saved = json.loads(checkpoint.read_text()) if checkpoint.exists() else {}
+    if saved and (saved.get("target") != result.target or saved.get("program") != result.program):
+        raise ValueError("Analysis checkpoint belongs to another target")
+    for restored in saved.get("done", []):
+        if not _same_host(restored, result.target_host) or not is_in_scope(restored, active_scope):
+            raise ValueError(f"Analysis checkpoint URL is no longer authorized by current scope: {restored}")
+    done = set(saved.get("done", [])) & set(scoped_js_urls)
+    endpoint_set.update(u for u in saved.get("endpoints", [])
+                        if _same_host(u, result.target_host) and is_in_scope(u, active_scope))
+    result.secrets_found = [finding for finding in saved.get("secrets", []) if finding.get("source") in scoped_js_urls]
+    def save_analysis():
+        _save_checkpoint(checkpoint, {"target": result.target, "program": result.program,
+            "done": sorted(done), "endpoints": sorted(endpoint_set), "secrets": result.secrets_found})
+    for js_url in scoped_js_urls:
+        if js_url in done:
+            continue
+        _require_output_space(_output_dir(result))
         body, _ = _http_get(js_url, timeout=10)
+        result.js_files_attempted += 1
         if not body:
+            result.js_files_failed += 1
+            result.errors.append(f"JS fetch returned no body: {js_url}")
             continue
         text = body.decode(errors="ignore")
 
@@ -606,27 +822,37 @@ def phase_analyze(result: ReconResult) -> None:
         for m in api_endpoint_re.finditer(text):
             path = m.group("path")
             full = urllib.parse.urljoin(result.target, path)
-            endpoint_set.add(full)
+            if _same_host(full, result.target_host) and is_in_scope(full, active_scope):
+                endpoint_set.add(full)
 
         # Generic URL extraction from JS
         for m in URL_RE.finditer(text):
             u = m.group(0).rstrip('.,;)')
-            if _same_host(u, result.target_host):
+            if _same_host(u, result.target_host) and is_in_scope(u, active_scope):
                 endpoint_set.add(u)
+        done.add(js_url)
+        save_analysis()
 
+    result.js_files_attempted = len(done) + result.js_files_failed
+    result.analysis_status = "partial" if result.js_files_failed else "complete"
     result.api_endpoints = sorted(endpoint_set)
 
     # Probe interesting paths
     _log("Probing interesting paths …")
     for path in INTERESTING_PATHS:
         url = urllib.parse.urljoin(result.target, path)
+        if not _same_host(url, result.target_host) or not is_in_scope(url, active_scope):
+            continue
+        _require_output_space(_output_dir(result))
         probe_start = time.time()
         try:
+            if _g_limiter is not None:
+                _g_limiter.wait()
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; BountyRecon/1.0)"},
             )
-            with urllib.request.urlopen(req, timeout=6) as resp:
+            with _open_scoped(req, timeout=6) as resp:
                 body = resp.read()
                 _safe_log_span(
                     span_type="tool",
@@ -676,41 +902,40 @@ def phase_analyze(result: ReconResult) -> None:
 def phase_organize(result: ReconResult) -> Path:
     _log("=== Phase 4: ORGANIZE ===", "INFO")
 
-    out_dir = (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / result.program
-        / "agent_shared"
-        / "findings"
-        / "recon"
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _output_dir(result)
+    if not result.pause_reason:
+        _require_output_space(out_dir)
 
     # Deduplicate and write urls.txt
     urls = sorted(set(result.urls + result.api_endpoints))
-    (out_dir / "urls.txt").write_text("\n".join(urls) + "\n")
+    if not result.pause_reason:
+        (out_dir / "urls.txt").write_text("\n".join(urls) + "\n")
 
     # params.txt
     params = sorted(set(result.params))
-    (out_dir / "params.txt").write_text("\n".join(params) + "\n")
+    if not result.pause_reason:
+        (out_dir / "params.txt").write_text("\n".join(params) + "\n")
 
     # js_files.txt
     js_files = sorted(set(result.js_files))
-    (out_dir / "js_files.txt").write_text("\n".join(js_files) + "\n")
+    if not result.pause_reason:
+        (out_dir / "js_files.txt").write_text("\n".join(js_files) + "\n")
 
     # tech_stack.txt
     tech = sorted(set(result.tech_stack))
     lines = [f"WAF: {result.waf_detected}" if result.waf_detected else "WAF: None detected"]
     lines += tech
-    (out_dir / "tech_stack.txt").write_text("\n".join(lines) + "\n")
+    if not result.pause_reason:
+        (out_dir / "tech_stack.txt").write_text("\n".join(lines) + "\n")
 
     # summary.json
+    prior = json.loads((out_dir / "summary.json").read_text()) if (out_dir / "summary.json").exists() else {}
     result.end_time = datetime.now(timezone.utc).isoformat()
     summary = {
         "program": result.program,
         "target": result.target,
         "generated": result.end_time,
+        "run_id": result.run_id,
         "open_ports": result.open_ports,
         "services": {str(k): v for k, v in result.services.items()},
         "waf": result.waf_detected,
@@ -718,19 +943,37 @@ def phase_organize(result: ReconResult) -> Path:
         "urls_total": len(urls),
         "params_total": len(params),
         "js_files_total": len(js_files),
+        "crawl_status": result.crawl_status,
+        "discovery_status": result.discovery_status,
+        "pause_reason": result.pause_reason,
+        "crawl_pages_attempted": result.crawl_pages_attempted,
+        "crawl_pages_pending": result.crawl_pages_pending,
+        "crawl_frontier_overflow": result.crawl_frontier_overflow,
+        "crawl_checkpoint": str(out_dir / "crawl_checkpoint.json") if (out_dir / "crawl_checkpoint.json").exists() else None,
+        "analysis_status": result.analysis_status,
+        "js_files_scoped": result.js_files_scoped,
+        "js_files_attempted": result.js_files_attempted,
+        "js_files_failed": result.js_files_failed,
         "secrets_found": len(result.secrets_found),
         "api_endpoints": len(result.api_endpoints),
         "interesting_paths": result.interesting_paths_found,
         "secrets": result.secrets_found,
         "errors": result.errors,
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    _save_checkpoint(out_dir / "summary.json", summary)
 
-    if record_recon_artifacts is not None:
+    complete = (result.crawl_status == "complete" and result.analysis_status == "complete"
+                and result.discovery_status == "complete" and not result.pause_reason)
+    previous_manifest = prior.get("canonical_manifest") if prior.get("run_id") == result.run_id else None
+    if complete and previous_manifest and Path(previous_manifest).is_file():
+        summary["canonical_manifest"] = previous_manifest
+        _save_checkpoint(out_dir / "summary.json", summary)
+    elif record_recon_artifacts is not None and complete:
         manifest_path = record_recon_artifacts(
             program=result.program,
             target=result.target_host or result.target,
             tool="autonomous-recon",
+            run_id=result.run_id or None,
             source_paths=[
                 out_dir / "urls.txt",
                 out_dir / "params.txt",
@@ -744,7 +987,15 @@ def phase_organize(result: ReconResult) -> Path:
             extra_manifest={"legacy_output_dir": str(out_dir)},
         )
         summary["canonical_manifest"] = str(manifest_path)
-        (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+        summary["crawl_checkpoint"] = None
+        _save_checkpoint(out_dir / "summary.json", summary)
+
+    if complete:
+        (out_dir / "crawl_checkpoint.json").unlink(missing_ok=True)
+        (out_dir / "analysis_checkpoint.json").unlink(missing_ok=True)
+        (out_dir / "crawl_overflow.txt").unlink(missing_ok=True)
+        summary["crawl_checkpoint"] = None
+        _save_checkpoint(out_dir / "summary.json", summary)
 
     _log(f"Output saved to: {out_dir}", "OK")
     return out_dir
@@ -762,7 +1013,7 @@ def is_in_scope(url: str, scope) -> bool:
 
 
 def run_recon(program: str, target: str) -> ReconResult:
-    global _g_limiter, _RECON_LOGGER
+    global _g_limiter, _RECON_LOGGER, _g_scope, _g_target_host, _g_result
 
     # Normalise target
     if not target.startswith("http"):
@@ -784,6 +1035,8 @@ def run_recon(program: str, target: str) -> ReconResult:
     scope = None
     if program and ScopeValidator is not None:
         scope = ScopeValidator(program)
+    _g_scope = scope
+    _g_target_host = host
 
     # Initialize rate limiter
     if RateLimiter is not None:
@@ -794,16 +1047,30 @@ def run_recon(program: str, target: str) -> ReconResult:
         return ReconResult(program=program, target=target, target_host=host)
 
     result = ReconResult(program=program, target=target, target_host=host)
+    _g_result = result
 
     phase_discover(result)
-    phase_crawl(result)
-    phase_analyze(result)
-    out_dir = phase_organize(result)
+    phase_crawl(result, scope=scope)
+    if result.crawl_status == "complete":
+        try:
+            phase_analyze(result, scope=scope)
+        except DiskFloorPause as exc:
+            result.pause_reason = str(exc)
+            result.analysis_status = "paused_disk_floor"
+            result.api_endpoints = []  # resume reads the analysis checkpoint
+    else:
+        result.analysis_status = "pending_crawl"
+        _log(f"Crawl paused with {result.crawl_pages_pending} pages outstanding; rerun the same target to resume", "WARN")
+    try:
+        out_dir = phase_organize(result)
+    except DiskFloorPause as exc:
+        result.pause_reason = str(exc)
+        out_dir = phase_organize(result)  # small atomic summary only; checkpoints stay intact
 
     # Final report
     print()
     print("=" * 60)
-    print(" RECON COMPLETE")
+    print(" RECON COMPLETE" if recon_complete(result) else " RECON PARTIAL / PAUSED")
     print("=" * 60)
     print(f"  Target        : {target}")
     print(f"  Open ports    : {result.open_ports or 'none found'}")
@@ -815,10 +1082,17 @@ def run_recon(program: str, target: str) -> ReconResult:
     print(f"  Secrets found : {len(result.secrets_found)}")
     print(f"  API endpoints : {len(result.api_endpoints)}")
     print(f"  Interesting   : {len(result.interesting_paths_found)}")
+    print(f"  Crawl         : {result.crawl_status} ({result.crawl_pages_attempted} attempted, {result.crawl_pages_pending} outstanding)")
+    print(f"  JS analysis   : {result.analysis_status} ({result.js_files_attempted}/{result.js_files_scoped} attempted, {result.js_files_failed} failed)")
     print(f"  Output dir    : {out_dir}")
     print("=" * 60)
 
     return result
+
+
+def recon_complete(result: ReconResult) -> bool:
+    return (result.crawl_status == "complete" and result.analysis_status == "complete"
+            and result.discovery_status == "complete" and not result.pause_reason)
 
 
 def main() -> None:
@@ -841,7 +1115,9 @@ def main() -> None:
         )
         program = parsed.netloc.lstrip("www.").split(".")[0] or "unknown"
 
-    run_recon(program=program, target=args.target)
+    result = run_recon(program=program, target=args.target)
+    if not recon_complete(result):
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

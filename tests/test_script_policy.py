@@ -116,16 +116,14 @@ def test_bug_bounty_script_policy_loads_with_skill_and_bounds_output() -> None:
     assert "name: bb-script-rules" in policy
     assert "description: use when running or adapting a bbh script for target testing" in policy
     assert "load `/bb-script-rules` alongside the relevant bbh skill before running a bug-bounty script" in policy
-    assert "zero matches and successful execution do not establish exhaustion" in policy
-    assert "agent owns the stack-specific investigation" in policy
-    assert "compiled-framework binding conventions" in policy
-    assert "while a longer script runs" in policy
-    assert "agents may create or extend a reusable bbh script" in policy
-    assert "load `script-manager` and follow bbh `script_policy.md`" in policy
-    assert "check false positives" in policy
-    assert "false false positives" not in policy
-    assert "script may completely process a declared corpus" in policy
-    assert "does not make its security conclusions exhaustive" in policy
+    assert "run the documented script as a baseline" in policy
+    assert "independently inspect the application's actual stack and flows" in policy
+    assert "while it runs (or after a short run), run deterministic, stack-specific checks" in policy
+    assert "write a task-local script when useful" in policy
+    assert "reconcile both passes before judging coverage" in policy
+    assert "only its checked inputs and rules, not exhaustion" in policy
+    assert "route its promotion through `script-manager` and bbh `script_policy.md`" in policy
+    assert "lifecycle does not delay the current hunt" in policy
     assert "before running a bug-bounty script to investigate a target, load `/bb-script-rules`" in router
     assert "find runnable scripts in that skill and its index" in router
     assert "vulnerability hunt" not in policy

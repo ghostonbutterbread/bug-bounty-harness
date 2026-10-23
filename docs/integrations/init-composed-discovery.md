@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `feat/init-composed-recon-js-api-params`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `eec4db59e14f13ac30ad8d96d485b3f6415b6c1f`
+- **Feature implementation commit(s):** `eec4db59e14f13ac30ad8d96d485b3f6415b6c1f`
 - **Inspiration / canonical references:** Discord init discussion; `skills/recon/SKILL.md`, `scripts/program_init.py`, `/recon-corpus-write-policy`
 
 ## Intent
@@ -24,7 +24,7 @@ Make full initialization collect JS, API and parameters after the appropriate de
 - Tests and commands: `python3 -m pytest tests/test_program_init.py tests/test_recon_bus.py -q` (51 passed after fixes), `git diff --check`, `python3 scripts/program_init.py --help`, `python3 scripts/recon_bus.py append --help`.
 - Independent review: three concrete findings (broad recon gate, docs ordering, probe-rate accounting); patched and clean narrow re-review (20 focused tests, diff check and Recon Bus flags independently verified).
 - Replay/cohort/fixture evidence: local mocked scope-pull tests exercise deterministic pending handoffs, idempotence, refresh and empty-scope rejection. No live target run requested.
-- Merge/ancestry evidence: pending fetched-beta recheck.
+- Merge/ancestry evidence: fetched `origin/beta` remained `dd45b128dd61e9a1df91345803cd9924ddb1fa70`; feature has one unique implementation commit. Final integration still pending.
 
 ## Blockers and deferred work
 
@@ -33,10 +33,10 @@ Make full initialization collect JS, API and parameters after the appropriate de
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/init-composed-recon-js-api-params`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** Commit reviewed feature, recheck fetched beta, integrate into beta and verify projection.
-- **Working-tree state at handoff:** intentionally uncommitted pending review/commit.
+- **Latest immutable recovery checkpoint:** `eec4db59e14f13ac30ad8d96d485b3f6415b6c1f`
+- **Feature implementation commit(s):** `eec4db59e14f13ac30ad8d96d485b3f6415b6c1f`
+- **Exact resume point:** Commit this review receipt, integrate into beta from the clean integration worktree and verify projection.
+- **Working-tree state at handoff:** review receipt pending commit; implementation recoverable at checkpoint above.
 
 ## Decision gates
 

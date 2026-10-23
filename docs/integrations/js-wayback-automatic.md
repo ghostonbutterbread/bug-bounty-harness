@@ -5,7 +5,8 @@
 - Branch: `fix/js-wayback-automatic`.
 - Worktree: `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_1f629ac7`.
 - Base: `720e3e2ca8960837d891c3bfdc44396c63c139ef`; target: `beta` only.
-- Status: locally implemented/exercised; fresh independent release gate pending. The immutable implementation checkpoint is pinned in a later dossier-only handoff before dispatch.
+- Status: locally implemented/exercised; fresh independent release gate pending.
+- Immutable implementation checkpoint: `16cf3d0bbb75d2d2035da037864fc970fc5c9f87`. The current feature tip contains a later dossier-only handoff commit.
 
 ## Implemented contract
 

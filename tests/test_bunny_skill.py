@@ -150,6 +150,76 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("final bounded result", text)
         self.assertIn("never choose it as the default", text)
 
+    def test_grok_coordinator_preset_is_explicit_and_keeps_worker_alias(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        for phrase in (
+            "bunny grok w/ glm <objective>",
+            "Grok 4.6 high as coordinator",
+            "GLM-5.3-Flash max as workers",
+            "bunny model grok <objective>",
+            "retains the worker-model meaning",
+            "Outside the explicit Grok coordinator preset",
+            "does not resolve the `multi` + offhand conflict",
+        ):
+            self.assertIn(phrase, router)
+        reference = SKILLS / "bunny" / "references" / "grok-coordinator.md"
+        self.assertIn("(references/grok-coordinator.md)", router)
+        self.assertTrue(reference.is_file())
+
+    def test_grok_transport_and_mixed_worker_route_contract(self):
+        text = (SKILLS / "bunny" / "references" / "grok-coordinator.md").read_text(
+            encoding="utf-8"
+        )
+        for phrase in (
+            "bunny grok with glm <objective>",
+            "bunny multi grok w/ glm <objective>",
+            "grok-4.6` / high",
+            "glm-5.3-flash` / max",
+            "not an invented model ID",
+            "hermes auth status xai-oauth",
+            "hermes auth status xai",
+            "Hermes xAI auth is not Grok",
+            "try the other eligible",
+            "read-only model call",
+            "not a second\ncampaign coordinator",
+            "--provider xai-oauth --model grok-4.6 --reasoning high",
+            "--provider zai --model glm-5.3-flash --reasoning max",
+            "model/provider/**effort** override",
+            "cannot enforce this mixed route",
+            "do not mutate global delegation settings",
+            "Do not silently reduce max",
+            "No headless approval bypass",
+            "confirmed process exit",
+        ):
+            self.assertIn(phrase, text)
+
+    def assert_grok_route_resolves(self, skill_dir):
+        router = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("(references/grok-coordinator.md)", router)
+        self.assertTrue(
+            (skill_dir / "references" / "grok-coordinator.md").is_file(),
+            "Grok routing reference missing",
+        )
+
+    def test_grok_reference_link_guard_rejects_a_broken_projection(self):
+        import tempfile
+        import shutil
+
+        self.assert_grok_route_resolves(SKILLS / "bunny")
+        with tempfile.TemporaryDirectory() as directory:
+            projection = Path(directory) / "bunny"
+            shutil.copytree(SKILLS / "bunny", projection)
+            self.assert_grok_route_resolves(projection)
+            router = projection / "SKILL.md"
+            original = router.read_text(encoding="utf-8")
+            router.write_text(original.replace("(references/grok-coordinator.md)", ""))
+            with self.assertRaises(AssertionError):
+                self.assert_grok_route_resolves(projection)
+            router.write_text(original, encoding="utf-8")
+            (projection / "references" / "grok-coordinator.md").unlink()
+            with self.assertRaises(AssertionError):
+                self.assert_grok_route_resolves(projection)
+
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
         for name in ("bunny", "bunny-collaborative", "bunny-multi", "bunny-offhand"):

@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `docs/local-operational-guidance`
-- **Latest immutable recovery checkpoint:** none yet (record at handoff)
-- **Feature implementation commit(s):** none yet (record at handoff)
+- **Latest immutable recovery checkpoint:** `5a31895a93eb1f80fcb455cac0cadca831ae6330`
+- **Feature implementation commit(s):** `5a31895a93eb1f80fcb455cac0cadca831ae6330`
 - **Inspiration / canonical references:** profile-local skills listed in audit below; `agents/index.md`, `skills/recon/`, `skills/js-hunt/`, `skills/coverage/`, `skills/hunter-loop/`.
 
 ## Intent and boundary
@@ -49,10 +49,10 @@ When `/js-hunt` consumes a static signature inventory it routes to an on-demand,
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/local-operational-guidance`
-- **Latest immutable recovery checkpoint:** none yet (fill after commit)
-- **Feature implementation commit(s):** none yet (fill after commit)
+- **Latest immutable recovery checkpoint:** `5a31895a93eb1f80fcb455cac0cadca831ae6330`
+- **Feature implementation commit(s):** `5a31895a93eb1f80fcb455cac0cadca831ae6330`
 - **Exact resume point:** parent review diff, compare current `origin/beta`, integrate without this temporary dossier, rerun focused tests.
-- **Working-tree state at handoff:** to be recorded after commit.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit; check branch tip separately from implementation checkpoint.
 
 ## Decision gates
 

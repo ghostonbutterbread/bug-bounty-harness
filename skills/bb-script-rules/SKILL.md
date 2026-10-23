@@ -24,8 +24,8 @@ judging coverage; a script's clean result closes only its tested question.
 Agents may create or extend a reusable BBH script for repeatable stack-specific
 mechanics, rather than rerunning an undocumented hand pass. Load
 `script-manager` and follow BBH `SCRIPT_POLICY.md` to discover the existing
-owner, place and index the helper, preserve evidence/fixtures, test false
-false positives, and use the authorized review and integration path. A tailored
+owner, place and index the helper, preserve evidence/fixtures, check false
+positives, and use the authorized review and integration path. A tailored
 script may completely process a declared corpus, but that does not make its
 security conclusions exhaustive. The agent retains semantic interpretation and
 live validation under the selected skill's safety rules.

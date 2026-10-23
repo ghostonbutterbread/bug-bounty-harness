@@ -52,7 +52,17 @@ tasks through its native delegation capability.
    run, newly visible `packets/*.md` and
    `source_map_packets/**/*.md` files are complete atomic publications and may
    be reviewed immediately; final JSON/JSONL indexes are available only after
-   inventory finishes.
+   inventory finishes. A long run writes `checkpoint.json` after each URL;
+   `manifest.json` declares `coverage_state.status`, stable `input_id`, succeeded,
+   retryable failures, and pending URLs. `--limit` pauses rather than pretending
+   the truncated list is complete. The default 5 GiB free-space floor pauses
+   before the next URL (`--disk-free-floor-gib` adjusts it). Resume the same
+   run with the original `--input`, `--run-id`, roots and flags plus `--resume`;
+   keep the original input ordering. An interrupted run without a final manifest
+   can also be resumed from its checkpoint. `pending_urls.txt` is a handoff list,
+   not a replacement input for `--resume`. A map comment scan covers the whole
+   bundle by default (large ASTs use a per-parse resource-fenced worker);
+   `--source-map-parse-max-bytes` is an explicit optional coverage limit.
 2. After completion, read the run's `manifest.json`, `metadata.jsonl`,
    `packets.jsonl`, and any `source_map_modules.jsonl`. Group related packet
    paths by page, bundle family, route cluster, or source-map boundary. Keep each

@@ -805,6 +805,92 @@ def test_archived_bundle_parser_budget_is_reported(tmp_path):
     assert any(a['reason'] == 'parse_limit' for a in rows[0]['source_map_history']['attempts'])
 
 
+class WireSocket:
+    """Feed the real stdlib HTTP decoder, without sockets or a live server."""
+
+    def __init__(self, body, missing=0, *, chunked=False):
+        headers = ((b'' if missing is None else f'Content-Length: {len(body) + missing}\r\n'.encode())
+                   + (b'Transfer-Encoding: chunked\r\n' if chunked else b''))
+        payload = (f'{len(body):x}\r\n'.encode() + body + b'\r\n0\r\n\r\n') if chunked else body
+        self.wire = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n' + headers + b'\r\n' + payload
+
+    def makefile(self, *args):
+        return io.BytesIO(self.wire)
+
+
+def wire_response(body, missing=0, *, chunked=False):
+    import http.client
+    response = http.client.HTTPResponse(WireSocket(body, missing, chunked=chunked))  # type: ignore[arg-type]
+    response.begin()
+    return response
+
+
+@pytest.mark.parametrize('missing', [None, 0, 1, 100])
+def test_bounded_fetch_checks_content_length_completion(missing):
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=wire_response(MAP, missing)):
+        result = J.http_get_limited(replay(BUNDLE + '.map'), timeout=1, max_bytes=4096,
+                                    include_program_headers=False)
+    assert result.bytes_read == len(MAP)
+    if missing:
+        assert result[0] == b'' and J.fetch_reason(result) == 'transport'
+    else:
+        assert result[0] == MAP and J.fetch_reason(result) == 'ok'
+
+
+@pytest.mark.parametrize('declared', [False, True])
+def test_bounded_fetch_collects_short_reads_until_complete(declared):
+    class ShortReads(Response):
+        def read(self, size=-1):
+            return super().read(min(size, 3))
+
+    headers = {'Content-Length': str(len(MAP))} if declared else {}
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=ShortReads(MAP, headers=headers)):
+        result = J.http_get_limited(replay(BUNDLE + '.map'), timeout=1, max_bytes=len(MAP))
+    assert result[0] == MAP and J.fetch_reason(result) == 'ok'
+    assert result.bytes_read == len(MAP)
+
+
+def test_chunked_framing_not_conflicting_content_length_controls_completion():
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=wire_response(MAP, 10000, chunked=True)):
+        result = J.http_get_limited(replay(BUNDLE + '.map'), timeout=1, max_bytes=len(MAP))
+    assert result[0] == MAP and J.fetch_reason(result) == 'ok'
+    assert result.bytes_read == len(MAP)
+
+
+@pytest.mark.parametrize('partial_kind', ['map', 'bundle', 'index'])
+def test_incomplete_archive_payload_is_never_published(tmp_path, partial_kind):
+    archived_js = b'const old=true;\n//# sourceMappingURL=app.js.map\n'
+    map_url = BUNDLE + '.map'
+
+    def response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'const current=true;' if partial_kind == 'bundle' else b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            stamps = [STAMP] if partial_kind in {'bundle', 'index'} or original == map_url else []
+            body = cdx(original, *stamps)
+            return wire_response(body, 100) if partial_kind == 'index' else Response(body)
+        if url == replay(BUNDLE):
+            return wire_response(archived_js, 100)
+        assert url == replay(map_url)
+        return wire_response(MAP, 100 if partial_kind == 'map' else 0)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto')
+    history = rows[0]['source_map_history']
+    assert history['status'] == 'not_recovered'
+    assert manifest['historical_source_maps_recovered'] == 0
+    assert not list(tmp_path.rglob('*.map'))
+    assert not list((tmp_path / 'lib' / 'sourcemaps' / 'historical_bundles').glob('*.js'))
+    assert all(not p.get('historical') for p in J.read_jsonl(tmp_path / 'out' / 'packets.jsonl'))
+    ledger = json.loads((tmp_path / 'lib' / 'ledger.json').read_text())
+    assert not ledger.get('historical_source_maps')
+    assert any(a['reason'] == 'transport' for a in history['attempts'])
+
+
 def test_partial_archive_reads_are_charged_to_total_budget(tmp_path):
     import http.client
     args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto',
@@ -835,16 +921,19 @@ def test_partial_archive_reads_are_charged_to_total_budget(tmp_path):
     assert recovery.bytes_read <= args.source_map_wayback_max_total_bytes
 
 
-def test_uncertain_failed_archive_read_reserves_its_read_budget(tmp_path):
+@pytest.mark.parametrize('initial_progress', [False, True])
+def test_uncertain_failed_archive_read_reserves_its_read_budget(tmp_path, initial_progress):
     args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto',
                                       '--source-map-wayback-max-total-bytes', '10'])
     recovery = J.WaybackRecovery(args, ['example.com'], {}, tmp_path)
 
     class ReadTimeout(Response):
         def read(self, size=-1):
+            if initial_progress and self.body.tell() == 0:
+                return super().read(min(size, 3))
             raise TimeoutError('private')
 
-    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=ReadTimeout(b'')) as opened:
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=ReadTimeout(b'abc')) as opened:
         attempts = []
         assert recovery.fetch(replay(BUNDLE), 'map', attempts, 100) is None
         assert recovery.fetch(replay(BUNDLE + '.map'), 'map', attempts, 100) is None

@@ -592,11 +592,32 @@ def http_get_limited(url: str, *, timeout: int, max_bytes: int, include_program_
         with opener.open(req, timeout=timeout) as resp:
             content_type = resp.headers.get("content-type", "")
             content_length = resp.headers.get("content-length")
-            if content_length and content_length.isdigit() and int(content_length) > max_bytes:
+            expected_length = getattr(resp, "length", None)
+            if (expected_length is None and not getattr(resp, "chunked", False)
+                    and content_length and content_length.isdigit()):
+                expected_length = int(content_length)
+            if expected_length is not None and expected_length > max_bytes:
                 return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, True), reason="oversize", bytes_read=0)
             read_started = True
-            body = resp.read(max_bytes + 1)
-            return HttpResult((body[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(body) > max_bytes), map_header=source_map_header(resp.headers), bytes_read=len(body))
+            body = bytearray()
+            while len(body) <= max_bytes:
+                if expected_length is not None and len(body) == expected_length:
+                    break
+                amount = max_bytes + 1 - len(body)
+                if expected_length is not None:
+                    amount = min(amount, expected_length - len(body))
+                chunk = resp.read(amount)
+                if not chunk:
+                    if expected_length is not None and len(body) < expected_length:
+                        # Explicit-amount HTTPResponse.read() may return a short
+                        # Content-Length body without raising IncompleteRead.
+                        return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, False),
+                                          reason="transport", bytes_read=len(body))
+                    break
+                body.extend(chunk)
+            data = bytes(body)
+            del body
+            return HttpResult((data[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(data) > max_bytes), map_header=source_map_header(resp.headers), bytes_read=len(data))
     except urllib.error.HTTPError as exc:
         exc.close()
         return HttpResult((b"", exc.code, "", False), reason=f"http_{exc.code}", bytes_read=0)

@@ -462,7 +462,11 @@ module, packet and expansion caps still apply. Manifest `source_map_wayback`
 records requests, charged payload bytes, limits and the stop reason; exhausted
 budgets leave coverage incomplete. A failed read with unknown consumption
 conservatively charges its full permitted read, discards incomplete bytes and
-cannot bypass the total budget.
+cannot bypass the total budget. Content-Length short EOF is a `transport`
+failure even when the received prefix is valid JSON or JavaScript; it must not
+be published as a recovered map or bundle. Valid short reads are drained within
+the byte cap, and chunked framing follows the HTTP decoder rather than a
+conflicting Content-Length value.
 
 Review `source_map_history` for historical status, acquisition diagnostics,
 original/retrieval URLs, capture timestamps, map hash and archived/current JS

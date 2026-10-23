@@ -1,14 +1,14 @@
 # Default-root BBH drafts and storage shadow audit
 
-- **Status:** feature (review pending)
+- **Status:** review-ready (parent review pending)
 - **Owner:** Hermes BBH migration child; parent card `t_7478b065`
 - **Branch / owning ref:** `docs/default-root-bbh-storage-audit`
 - **Worktree:** `/home/ryushe/worktrees/bbh-default-root-bbh-storage-audit`
 - **Base commit:** `c8f59045c8edbe224a72795216b87e9b5ec052a2` (`origin/beta` after fetch)
 - **Intended integration target:** `beta`; no merge or push authorized for this child
 - **Last updated:** 2026-10-23
-- **Latest immutable recovery checkpoint:** none yet; record in handoff after commit
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `7eada47` (reachable on owning feature branch)
+- **Feature implementation commit(s):** `7eada47`
 - **Inspiration / canonical references:** three default-root trees under `~/.hermes/skills/{security/adaptive-security-testing,security/bounded-bbh-cdp-consumer-comparison,devops/bounty-storage}`; BBH `agents/index.md`, `skills/xss`, `skills/chromium-test`, `skills/bounty-storage`; shared `general-security-testing-policy`, `live-testing-policy`, `browser-session-policy`, `attempt-recording-policy`, `desktop-mobile-amplifier-policy`, and `policies/bug-bounty/bounty-storage.md`.
 
 ## Intent and boundary
@@ -40,7 +40,7 @@ BBH `skills/bounty-storage` now routes non-secret installers/unpacked desktop bu
 - Tests and commands: `python3 -m unittest discover -s tests -p 'test_bounty_storage_skill_contract.py' -v` (1 pass); `python3 -m unittest discover -s tests -p 'test_skill_promotion_routes.py' -v` (7 pass); `git diff --check` (clean). These are static contract tests, not live storage/sync verification.
 - Independent review: parent to review candidate diff and this disposition before integration.
 - Replay/cohort/fixture evidence: not applicable; documentation-only contract test.
-- Merge/ancestry evidence: re-fetch/compare at handoff.
+- Merge/ancestry evidence: re-fetched `origin/beta` at `c8f5904`; ancestor of this branch at implementation commit. No beta merge/push.
 
 ## Blockers and deferred work
 
@@ -50,10 +50,10 @@ BBH `skills/bounty-storage` now routes non-secret installers/unpacked desktop bu
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/default-root-bbh-storage-audit`
-- **Latest immutable recovery checkpoint:** pending commit
-- **Feature implementation commit(s):** pending
-- **Exact resume point:** inspect test receipts and diff, update dossier with actual commit/test evidence, hand off for parent review; do not merge/push.
-- **Working-tree state at handoff:** pending commit.
+- **Latest immutable recovery checkpoint:** `7eada47` (implementation and initial dossier)
+- **Feature implementation commit(s):** `7eada47`
+- **Exact resume point:** parent reviews cumulative diff from `c8f5904`, runs focused tests, and decides beta integration/archival; do not infer active runtime from this branch.
+- **Working-tree state at handoff:** clean after the dossier-only handoff commit.
 
 ## Decision gates
 
@@ -64,3 +64,4 @@ BBH `skills/bounty-storage` now routes non-secret installers/unpacked desktop bu
 ## Decision record
 
 - 2026-10-23 — audited complete source trees and selected only storage symlink/binary mechanics for canonical BBH migration; all other material is duplicate, policy-owned, task-specific, or unsafe as a general rule.
+- 2026-10-23 — implementation checkpoint `7eada47`; eight focused static tests passed, parent review remains.

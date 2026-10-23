@@ -21,8 +21,8 @@ Prevent BBH scripts from silently interpreting per-batch safety budgets as final
 
 ## Evidence and review
 
-- Tests and commands: `git diff --check` pending.
-- Independent review: pending.
+- Tests and commands: `git diff --check` passed after reviewer corrections.
+- Independent review: reviewer identified failed-item completion ambiguity, open-ended crawl boundary, and duplicated ownership; corrected by the canonical-owner split.
 - Merge/ancestry evidence: based on fetched `origin/beta` at `720e3e2`.
 
 ## Blockers and deferred work

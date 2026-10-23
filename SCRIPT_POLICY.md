@@ -120,22 +120,19 @@ exhaustive or correct.
 
 ## Coverage-Preserving Resource Safety
 
-For BBH inventory, crawl, extraction, and analysis scripts, a bounded batch,
-chunk, parser window, packet, or output budget must not silently become a limit
-on the total corpus. Preserve the full discovered input set and evidence, process
-it incrementally, and checkpoint completed, failed, and pending items for a
-reliable resume. Distinguish complete input traversal from heuristic signal
-coverage; no-hit static seeds are never proof that a surface is absent. An
-explicitly requested sample may end early, but its run status and counts must
-say `partial`, never `complete`.
+For BBH inventory, crawl, extraction, and analysis scripts, follow the shared
+`script-manager` coverage contract: define a scoped input snapshot or discovery
+stop condition, preserve discovered and pending work, and report partial runs
+honestly. An open-ended crawl must not expand beyond authorized scope or claim
+completion merely because a depth, page, or JS-count budget stopped discovery.
+Heuristic static seeds remain non-exhaustive even after every discovered item
+is processed.
 
-Bound simultaneous memory/CPU/concurrency, not the amount of authorized work.
-Check free space on the actual output filesystem before large writes and
-periodically during growth; default to a configurable 5 GiB safety floor and
-pause with a durable queue and stop reason rather than clipping artifacts.
-Keep finite per-attempt network timeouts, recoverable failures, and applicable
-scope/rate controls; do not add a whole-run deadline just for speed. If an
-external deadline interrupts work, the remaining queue stays unfinished.
+Apply `resource-safety-policy` to memory, CPU, output-filesystem free space,
+and finite per-attempt network calls. Preserve BBH's applicable scope, rate,
+cleanup, and evidence rules. A resource pause or failed request must leave a
+retryable checkpoint; no batch limit or whole-run speed deadline should silently
+remove a scoped item from the run.
 
 ## Manager and Other-Agent Maintenance Boundary
 

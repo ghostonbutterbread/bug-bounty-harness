@@ -97,7 +97,9 @@ def test_static_signal_review_is_routed_without_a_parallel_scanner() -> None:
     ):
         assert phrase in reference
     assert "not a new scanner" in reference
-    assert "A site count is not a review-depth measure" in reference
+    assert "not in an Attempt or a MapStore status queue" in reference
+    assert "Record an Attempt only for a deliberate target test" in reference
+    assert "A site count is not a review-depth measure" in " ".join(reference.split())
 
 
 def test_hunt_handoff_names_evidence_and_separate_validation() -> None:

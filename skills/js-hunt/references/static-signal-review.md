@@ -35,8 +35,10 @@ a complete sink census.
 
 At handoff, separate the **corpus examined**, **sites observed**, **paths
 investigated**, **still-unexamined sites**, and **unknown runtime/server
-surfaces**. Track selected site status with evidence pointers in existing run
-notes/Attempts/MapStore and the relevant Coverage question; do not create a
-parallel durable queue. Trace a candidate through source → transformations →
-consumer and hand live validation to its class owner under the normal policies.
-A site count is not a review-depth measure or an exploit count.
+surfaces**. Keep unexamined-site status and evidence pointers in run notes and
+the relevant Coverage question, not in an Attempt or a MapStore status queue.
+Record an Attempt only for a deliberate target test, and put supported target
+facts in MapStore under its normal contract. Do not create a parallel durable
+queue. Trace a candidate through source → transformations → consumer and hand
+live validation to its class owner under the normal policies. A site count is
+not a review-depth measure or an exploit count.

@@ -35,7 +35,7 @@ When `/js-hunt` consumes a static signature inventory it routes to an on-demand,
 ## Evidence and review
 
 - Tests: `python3 -m pytest -q tests/test_js_hunt_skill.py tests/test_skill_promotion_routes.py tests/test_skill_triage_routes.py` → 22 passed, 10 subtests passed; `git diff --check` → clean.
-- Independent review: parent will review before beta integration; no self-approval claimed.
+- Independent review: rejected first pass because static-site statuses were routed to Attempts/MapStore without an actual test or supported fact. Corrected the reference to keep unexamined status in run notes/Coverage, reserve Attempts for deliberate target tests and MapStore for supported facts. Parent requests focused re-review before beta integration.
 - Replay/cohort/fixture evidence: prose-route assertions only; no target replay.
 - Merge/ancestry evidence: branch from freshly fetched `origin/beta` at base above; parent to re-fetch/reconcile before integration.
 

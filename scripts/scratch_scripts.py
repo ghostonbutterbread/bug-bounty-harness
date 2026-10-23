@@ -76,6 +76,18 @@ def atomic_text(path: Path, text: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def restore(path: Path, prior: bytes | None) -> None:
+    if prior is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        temporary.write_bytes(prior)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def record_path(root: Path, run_id: str, name: str) -> Path:
     return safe_path(root, homes(root)[1] / f"{slug(run_id).encode().hex()}-{slug(name).encode().hex()}.json")
 
@@ -139,7 +151,11 @@ def create(root: Path, run_id: str, name: str, description: str) -> Path:
     if os.path.lexists(path) or os.path.lexists(record):
         raise ValueError("script or record already exists; edit the original rather than recreating it")
     check_managed(safe_path(root, homes(root)[0] / "SCRATCH.md"))
-    check_managed(safe_path(root, path.parent / "README.md"))
+    run_index = safe_path(root, path.parent / "README.md")
+    check_managed(run_index)
+    scratch_index = safe_path(root, homes(root)[0] / "SCRATCH.md")
+    prior_run = run_index.read_bytes() if run_index.exists() else None
+    prior_scratch = scratch_index.read_bytes() if scratch_index.exists() else None
     path.parent.mkdir(parents=True, exist_ok=True)
     record.parent.mkdir(parents=True, exist_ok=True)
     created_path = False
@@ -160,6 +176,8 @@ def create(root: Path, run_id: str, name: str, description: str) -> Path:
             record.unlink(missing_ok=True)
         if created_path:
             path.unlink(missing_ok=True)
+        restore(run_index, prior_run)
+        restore(scratch_index, prior_scratch)
         raise
     return path
 
@@ -194,7 +212,7 @@ def run(root: Path, run_id: str, name: str, args: list[str]) -> int:
     return returncode
 
 
-def promote(root: Path, run_id: str, name: str, destination: str, review_ref: str | None, verification: str | None) -> str:
+def promote(root: Path, run_id: str, name: str, destination: str, review_ref: str | None, verification: str | None, inputs: str | None, outputs: str | None, mutates: str | None, invocation: str | None, coverage: str | None) -> str:
     record = get_record(root, run_id, name)
     path = script_path(root, run_id, name)
     if not path.is_file() or path.is_symlink():
@@ -206,8 +224,9 @@ def promote(root: Path, run_id: str, name: str, destination: str, review_ref: st
         with proposal.open("x", encoding="utf-8") as out:
             out.write(f"# BBH script proposal\n\nSource: `{path.relative_to(root)}`\nPurpose: {record['description']}\n\nCheck existing owner and choose a class module, skill script, or standalone category through SCRIPT_POLICY.md. Add fixture, review, and integrate on a feature branch; this proposal does not publish code.\n")
         return f"BBH proposal: {proposal}"
-    if not review_ref or not verification or any(x in value for value in (review_ref, verification) for x in ("\n", "\r")):
-        raise ValueError("program promotion requires --review-ref and --verification")
+    details = (review_ref, verification, inputs, outputs, mutates, invocation, coverage)
+    if any(not value or not value.strip() or "\n" in value or "\r" in value for value in details):
+        raise ValueError("program promotion requires review, verification, inputs, outputs, mutates, invocation and coverage details")
     target = safe_path(root, homes(root)[0] / path.name)
     if os.path.lexists(target):
         raise ValueError("maintained program script already exists")
@@ -220,27 +239,35 @@ def promote(root: Path, run_id: str, name: str, destination: str, review_ref: st
     entry = (
         f"\n## `{name}.py`\n\n"
         f"- **Purpose:** {record['description']}\n"
-        f"- **Inputs:** See script help/source; review required before supplying target data.\n"
-        f"- **Outputs:** See script help/source; caller selects output location.\n"
-        f"- **Mutates:** Program-local script; inspect source and invocation before use.\n"
-        f"- **Invocation:** `python3 <resolved-program-lane>/scripts/{name}.py --help`\n"
+        f"- **Inputs:** {inputs}\n"
+        f"- **Outputs:** {outputs}\n"
+        f"- **Mutates:** {mutates}\n"
+        f"- **Invocation:** `{invocation}`\n"
         f"- **Verification:** {verification} (operator-supplied)\n"
         f"- **Owner/scope:** Selected program lane only; review reference: {review_ref} (operator-supplied).\n"
         f"- **Last verified:** {datetime.now(timezone.utc).date()} (operator-supplied receipt).\n"
-        f"- **Coverage:** Unknown until reviewed against actual inputs; not exhaustive.\n"
+        f"- **Coverage:** {coverage}\n"
         f"- **sha256:** `{digest}`\n"
     )
     current = index.read_text(encoding="utf-8") if index.exists() else "# Maintained program scripts\n"
+    record_file = record_path(root, run_id, name)
+    prior_record = record_file.read_bytes()
+    scratch_index = safe_path(root, homes(root)[0] / "SCRATCH.md")
+    prior_scratch = scratch_index.read_bytes() if scratch_index.exists() else None
+    prior_index = index.read_bytes() if index.exists() else None
     with target.open("xb") as out:
         out.write(source_bytes)
     try:
         atomic_text(index, current.rstrip() + "\n" + entry)
+        record.update(status="promoted", review_ref=review_ref, verification=verification, sha256=digest)
+        atomic_text(record_file, json.dumps(record, sort_keys=True) + "\n")
+        refresh(root)
     except Exception:
+        restore(record_file, prior_record)
+        restore(scratch_index, prior_scratch)
+        restore(index, prior_index)
         target.unlink(missing_ok=True)
         raise
-    record.update(status="promoted", review_ref=review_ref, verification=verification, sha256=digest)
-    atomic_text(record_path(root, run_id, name), json.dumps(record, sort_keys=True) + "\n")
-    refresh(root)
     return f"Promoted to {target}"
 
 
@@ -267,6 +294,11 @@ def main(argv: list[str] | None = None) -> int:
     promote_parser.add_argument("--to", choices=("program", "bbh"), required=True)
     promote_parser.add_argument("--review-ref")
     promote_parser.add_argument("--verification")
+    promote_parser.add_argument("--inputs")
+    promote_parser.add_argument("--outputs")
+    promote_parser.add_argument("--mutates")
+    promote_parser.add_argument("--invocation")
+    promote_parser.add_argument("--coverage")
     args = parser.parse_args(argv)
     try:
         root = selected_lane(args.profile)
@@ -282,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
                 refresh(root)
                 print(safe_path(root, homes(root)[0] / "SCRATCH.md").read_text(encoding="utf-8"), end="")
             else:
-                print(promote(root, slug(args.run_id), slug(args.name), args.to, args.review_ref, args.verification))
+                print(promote(root, slug(args.run_id), slug(args.name), args.to, args.review_ref, args.verification, args.inputs, args.outputs, args.mutates, args.invocation, args.coverage))
         return 0
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f"scratch-scripts: {exc}", file=sys.stderr)

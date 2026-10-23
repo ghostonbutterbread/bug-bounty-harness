@@ -77,12 +77,13 @@ checkout-local interpreter.
   `describe` changes a description; `run` executes the selected script and
   records its exit (including failures). `promote --to bbh` writes a proposal
   only; `promote --to program` requires a review reference and verification,
-  then copies to the maintained program home and indexes its hash. No BBH
+  plus reviewed inputs/outputs/mutations/invocation/coverage, then copies to
+  the maintained program home and indexes its hash. No BBH
   repository modification or automatic script approval.
 - **Example:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" create --run-id run-1 --name parse-js --description "Extract named JS fields"`
 - **List:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" list`
 - **Run:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" run --run-id run-1 --name parse-js -- input.json`
-- **Promote:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" promote --run-id run-1 --name parse-js --to bbh` (proposal); for a reviewed program-only helper choose `--to program --review-ref <review-id> --verification <test-receipt>`.
+- **Promote:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" promote --run-id run-1 --name parse-js --to bbh` (proposal); for a reviewed program-only helper choose `--to program --review-ref <review-id> --verification <test-receipt> --inputs <actual-inputs> --outputs <actual-outputs> --mutates <actual-mutations-or-none> --invocation <tested-command> --coverage <limit>`.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_scratch_scripts.py -q`
   (disposable Shared fixture; no target traffic).
 - **Owner/scope:** BBH script manager adapter; selected Shared program/family/lane.

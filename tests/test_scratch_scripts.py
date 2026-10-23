@@ -1,5 +1,6 @@
 """Offline contract for program-lane scratch script management."""
 import json
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,17 @@ def profile(tmp_path):
     path = context / "target_profile.json"
     path.write_text(json.dumps({"program": "example", "family": "web_bounty", "lane": "web", "canonical_root": str(lane)}))
     return path, lane
+
+
+DETAILS = ("--inputs", "Explicit fixture input", "--outputs", "stdout JSON", "--mutates", "No files; stdout only", "--invocation", "python3 <resolved-program-lane>/scripts/helper.py fixture.json", "--coverage", "Only fixture grammar")
+
+
+def module():
+    spec = importlib.util.spec_from_file_location("scratch_scripts", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+    return loaded
 
 
 def test_create_indexes_shared_run_scratch_without_overwriting(tmp_path):
@@ -62,7 +74,7 @@ def test_promotion_requires_review_and_does_not_auto_publish_bbh(tmp_path):
     assert proposed.returncode == 0
     assert "proposal" in proposed.stdout.lower()
     assert not (lane / "scripts" / "helper.py").exists()
-    promoted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke passed")
+    promoted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke passed", *DETAILS)
     assert promoted.returncode == 0, promoted.stderr
     assert (lane / "scripts" / "helper.py").exists()
     assert "review-1" in (lane / "scripts" / "README.md").read_text()
@@ -99,7 +111,7 @@ def test_rejects_symlinked_parent_and_dangling_promotion_target(tmp_path):
     (lane / "working").unlink()
     assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode == 0
     (lane / "scripts" / "helper.py").symlink_to(outside / "victim.py")
-    attempted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke")
+    attempted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
     assert attempted.returncode != 0
     assert not (outside / "victim.py").exists()
 
@@ -110,11 +122,12 @@ def test_promotion_preserves_existing_program_index_and_records_contract(tmp_pat
     index.parent.mkdir(parents=True)
     index.write_text("# Curated program tools\n\nExisting helper remains.\n")
     assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode == 0
-    result = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke")
+    result = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
     assert result.returncode == 0, result.stderr
     text = index.read_text()
     assert "Existing helper remains." in text
     assert all(field in text for field in ("**Purpose:**", "**Inputs:**", "**Outputs:**", "**Mutates:**", "**Verification:**", "**Owner/scope:**", "**Last verified:**", "**Coverage:**"))
+    assert "Explicit fixture input" in text and "stdout JSON" in text and "No files; stdout only" in text
 
 
 def test_failed_index_preflight_does_not_leave_partial_create(tmp_path):
@@ -135,7 +148,7 @@ def test_failed_program_index_preflight_does_not_leave_partial_promotion(tmp_pat
     assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
     index = lane / "scripts" / "README.md"
     index.mkdir()
-    args = ("promote", "--run-id", "one", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke")
+    args = ("promote", "--run-id", "one", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
     assert call(selected, *args).returncode != 0
     assert not (lane / "scripts" / "helper.py").exists()
     index.rmdir()
@@ -148,3 +161,46 @@ def test_record_keys_do_not_collide_for_distinct_run_name_pairs(tmp_path):
         result = call(selected, "create", "--run-id", run_id, "--name", name, "--description", "Fixture")
         assert result.returncode == 0, result.stderr
     assert len(list((lane / "scripts" / "_scratch_records").glob("*.json"))) == 2
+
+
+def test_index_failure_rolls_back_created_script_and_readmes(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "first", "--description", "Fixture").returncode == 0
+    run_index = lane / "working" / "_runs" / "one" / "_scratch" / "scripts" / "README.md"
+    before = run_index.read_bytes()
+    monkeypatch.setattr(helper, "refresh", lambda root: (_ for _ in ()).throw(OSError("injected refresh failure")))
+    try:
+        helper.create(lane, "one", "second", "Fixture")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert run_index.read_bytes() == before
+    assert not (run_index.parent / "second.py").exists()
+    assert not helper.record_path(lane, "one", "second").exists()
+
+
+def test_promotion_record_failure_rolls_back_maintained_index_and_copy(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+    index = lane / "scripts" / "README.md"
+    index.write_text("# Existing\n")
+    record = helper.record_path(lane, "one", "helper")
+    original_record = record.read_bytes()
+    original_write = helper.atomic_text
+
+    def fail_record(path, text):
+        if path == record:
+            raise OSError("injected record failure")
+        return original_write(path, text)
+
+    monkeypatch.setattr(helper, "atomic_text", fail_record)
+    try:
+        helper.promote(lane, "one", "helper", "program", "review-1", "offline smoke", "input", "stdout", "none", "python3 helper.py", "fixture only")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert index.read_text() == "# Existing\n"
+    assert record.read_bytes() == original_record
+    assert not (lane / "scripts" / "helper.py").exists()

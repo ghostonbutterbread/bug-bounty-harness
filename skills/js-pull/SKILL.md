@@ -76,14 +76,25 @@ justifies more AST memory. Response headers bypass comment parsing and its cap.
 Reprocessing existing cached JS uses the repaired detector; omit
 `--skip-cached-processing` when checking map coverage.
 
-When live maps are unavailable and disclosing the scoped asset URLs to Internet
-Archive is permitted, add `--source-map-wayback auto` to the same inventory
-command. Archive traffic is **off by default**; `--source-maps off` also disables
-it. The fallback checks exact declared map URLs, then archived versions of the
-exact bundle for historical declarations. It does not crawl the whole domain.
-It sends no program headers to the archive, retains the normal proxy/TLS
-transport, and stops further archive requests on 429. The default run budget is
-20 requests, with two captures per lookup; read help before raising budgets.
+The inventory automatically tries bounded Wayback recovery when a usable live
+map is unavailable, including 404s, invalid map bodies, and missing declarations.
+Do not wait for a particular number of 404s or ask agents to opt in manually:
+`--source-map-wayback auto` is the default. A valid live or cached map takes
+priority and causes no archive lookup. This sends scoped original asset URLs
+to Internet Archive; use `--source-map-wayback off` where program policy or URL
+confidentiality prohibits that disclosure. `--source-maps off` disables both
+live-map and archive work.
+
+The fallback checks exact declared map URLs, then archived versions of the exact
+bundle for historical declarations. It validates retrieved map bodies and skips
+invalid captures to try other returned snapshots within the existing limits;
+a 200 response alone is not a valid source map. It does not crawl the whole
+domain or prove a historical map matches the current build. It sends no program
+headers to the archive, retains the normal proxy/TLS transport, and stops further
+archive requests on 429. The default run budget is 20 requests, with two captures
+per lookup; read help before raising budgets. Repeated failures that exhaust a
+budget remain an explicit coverage gap, not a reason to disable fallback or
+claim the archive was exhausted.
 
 Read `source_map_history`, manifest `source_map_wayback` diagnostics, and
 `historical_source_maps_*` counters. Historical rows and packets are labelled;

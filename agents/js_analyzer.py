@@ -2932,7 +2932,7 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--source-map-parse-max-bytes", type=int, default=None,
                      help="Optional explicit UTF-8 bundle byte cap; default parses full bundle in a resource-fenced child above 8 MiB; response headers bypass parsing")
     inv.add_argument("--source-map-max-packets", type=int, default=1000, help="Maximum source-map review packets per bundle")
-    inv.add_argument("--source-map-wayback", choices=("off", "auto"), default="off", help="Opt in to bounded historical map/bundle recovery from Internet Archive; sends original asset URLs to archive (default: off; ignored with --source-maps off); program headers are never sent")
+    inv.add_argument("--source-map-wayback", choices=("off", "auto"), default="auto", help="Automatically try bounded historical map/bundle recovery when live source maps are missing, unavailable or invalid (default: auto); sends original asset URLs to Internet Archive without program headers; use off when archive disclosure is prohibited; --source-maps off also disables archive work")
     inv.add_argument("--source-map-wayback-max-requests", type=int, default=20, help="Maximum archive requests for the entire run")
     inv.add_argument("--source-map-wayback-max-captures", type=int, default=2, help="Maximum exact CDX rows per asset lookup; not an exhaustive or latest-capture search")
     inv.add_argument("--source-map-wayback-max-bytes", type=int, default=8 * 1024 * 1024, help="Maximum bytes per archived response (CDX additionally capped at 256 KiB)")

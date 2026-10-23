@@ -442,8 +442,10 @@ with `--source-map-wayback-max-requests`, `--source-map-wayback-max-captures`,
 `--source-map-wayback-max-bytes`, and
 `--source-map-wayback-max-total-bytes`. Timeout/delay and existing map byte,
 module, packet and expansion caps still apply. Manifest `source_map_wayback`
-records requests, bytes, limits and the stop reason; exhausted budgets leave
-coverage incomplete.
+records requests, charged payload bytes, limits and the stop reason; exhausted
+budgets leave coverage incomplete. A failed read with unknown consumption
+conservatively charges its full permitted read, discards incomplete bytes and
+cannot bypass the total budget.
 
 Review `source_map_history` for historical status, acquisition diagnostics,
 original/retrieval URLs, capture timestamps, map hash and archived/current JS
@@ -455,7 +457,12 @@ carry `historical` and `source_map_history`; packet inventory uses
 A map recovered alone has unverified current-byte binding. Equal archived and
 current JS hashes verify those bundle bytes, not the map-to-build association.
 Maps naming sources without `sourcesContent` remain names-only, not recovered
-original text. Preserve these qualifications in every review handoff.
+original text. Preserve these qualifications in every review handoff. When the
+current bundle is unavailable, metadata retains its status/history but has no
+live hash, artifact or ordinary packet. Manifest `js_downloaded` excludes it;
+`js_unavailable` counts unavailable-current records processed for fallback.
+Cached history rechecks current-byte availability on each run rather than
+retaining an earlier verification claim.
 
 Start review from `source_map_modules.jsonl` and `source_map_packets/`; do not
 paste raw maps into an agent prompt. Check `modules_with_content`,

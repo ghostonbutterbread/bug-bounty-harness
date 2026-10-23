@@ -539,11 +539,13 @@ class HttpResult(tuple):
 
     map_header: tuple[str, str]
     reason: str
+    bytes_read: int | None
 
-    def __new__(cls, values: tuple, *, map_header: tuple[str, str] = ("", ""), reason: str = ""):
+    def __new__(cls, values: tuple, *, map_header: tuple[str, str] = ("", ""), reason: str = "", bytes_read: int | None = None):
         result = super().__new__(cls, values)
         result.map_header = map_header
         result.reason = reason
+        result.bytes_read = bytes_read
         return result
 
 
@@ -584,22 +586,27 @@ def http_get_limited(url: str, *, timeout: int, max_bytes: int, include_program_
             "User-Agent": "BBH-source-map-recovery", "Accept": "application/json, */*",
         },
     )
+    read_started = False
     try:
         opener = urllib.request.build_opener(NoRedirectHandler())
         with opener.open(req, timeout=timeout) as resp:
             content_type = resp.headers.get("content-type", "")
             content_length = resp.headers.get("content-length")
             if content_length and content_length.isdigit() and int(content_length) > max_bytes:
-                return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, True), reason="oversize")
+                return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, True), reason="oversize", bytes_read=0)
+            read_started = True
             body = resp.read(max_bytes + 1)
-            return HttpResult((body[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(body) > max_bytes), map_header=source_map_header(resp.headers))
+            return HttpResult((body[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(body) > max_bytes), map_header=source_map_header(resp.headers), bytes_read=len(body))
     except urllib.error.HTTPError as exc:
         exc.close()
-        return HttpResult((b"", exc.code, "", False), reason=f"http_{exc.code}")
+        return HttpResult((b"", exc.code, "", False), reason=f"http_{exc.code}", bytes_read=0)
     except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
         cause = exc.reason if isinstance(exc, urllib.error.URLError) else exc
         reason = "tls" if isinstance(cause, ssl.SSLError) else "timeout" if isinstance(cause, TimeoutError) else "transport"
-        return HttpResult((b"", None, "", False), reason=reason)
+        # Incomplete payloads are not artifacts, but consumed transfer bytes
+        # still count. Reserve the whole permitted read if consumption is unknown.
+        consumed = max_bytes + 1 if read_started else 0
+        return HttpResult((b"", None, "", False), reason=reason, bytes_read=consumed)
 
 
 def fetch_reason(response: tuple) -> str:
@@ -798,6 +805,12 @@ def last_source_map_directive(text: str) -> str:
                 found = directive.group("url")
             i = end if text[i + 1] == "/" or end == len(text) else end + 2
             continue
+        if text.startswith(("++", "--"), i):
+            # Prefix updates keep expecting an operand; postfix updates keep
+            # the preceding expression complete, so a following '/' is division.
+            control_keyword = False
+            i += 2
+            continue
         if char == "/" and regex_allowed:
             i += 1
             in_class = False
@@ -970,7 +983,8 @@ class WaybackRecovery:
             time.sleep(self.args.delay)
         self.requests += 1
         response = http_get_limited(retrieval_url, timeout=self.args.timeout, max_bytes=limit, include_program_headers=False)
-        self.bytes_read += len(response[0]) + int(response[3])
+        consumed = getattr(response, "bytes_read", None)
+        self.bytes_read += consumed if consumed is not None else len(response[0]) + int(response[3])
         reason = fetch_reason(response)
         attempts.append({"operation": operation, "retrieval_url": retrieval_url, "reason": reason, "http_status": response[1]})
         if response[1] == 429:
@@ -1046,9 +1060,10 @@ class WaybackRecovery:
 
     def recover(self, record: JsRecord) -> tuple[dict, bytes | None]:
         attempts: list[dict] = []
+        current_sha = record.sha256 if isinstance(record.status, int) and 200 <= record.status < 300 and record.byte_count else ""
         history: dict = {"status": "not_recovered", "reason": "not_found", "historical": True,
                    "original_bundle_url": record.url,
-                   "current_bundle_sha256": record.sha256 if isinstance(record.status, int) and 200 <= record.status < 300 and record.byte_count else "",
+                   "current_bundle_sha256": current_sha,
                    "archived_bundle_sha256": "", "current_bundle_match_verified": False, "attempts": attempts}
         if self.args.source_map_wayback == "off" or self.args.source_maps == "off":
             history.update(status="disabled", reason="disabled")
@@ -1066,7 +1081,9 @@ class WaybackRecovery:
                 url="historical", source_maps_dir=self.source_maps_dir,
                 max_bytes=min(self.args.source_map_max_bytes, self.args.source_map_wayback_max_bytes))
             if cached:
-                history = dict(previous, attempts=[], status="cached", reason="ok")
+                history = dict(previous, attempts=[], status="cached", reason="ok",
+                               current_bundle_sha256=current_sha,
+                               current_bundle_match_verified=bool(current_sha and previous.get("archived_bundle_sha256") == current_sha))
                 if cached[0] is None:
                     history.update(status="not_recovered", reason="oversize", packet_count=0,
                                    module_count=0, modules_with_content=0, embedded_source_recovered=False)
@@ -1756,6 +1773,9 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
         # large library metadata.jsonl, so it must not be materialised or
         # traversed more than once.
         for row in metadata_rows:
+            if not row.get("sha256"):
+                # Unavailable-current/archive-only metadata has no live file or alias.
+                continue
             db.execute(js_files_sql, (
                 str(row.get("sha256") or ""),
                 str(row.get("artifact_path") or ""),
@@ -2327,15 +2347,27 @@ def command_inventory(args: argparse.Namespace) -> int:
                 map_header = getattr(response, "map_header", ("", ""))
             if not body and (args.source_map_wayback == "off" or args.source_maps == "off"):
                 continue
+        current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
+        if not current_available:
+            # An HTTP error body (or an empty/failed fetch) is not JavaScript.
+            # Retain status/history metadata for archive fallback, not live bytes.
+            if args.source_map_wayback == "off" or args.source_maps == "off":
+                continue
+            body = b""
+            map_header = ("", "")
+            cached = None
+            reused_download = False
         if observed_non_js_suffix:
             if (not isinstance(status, int) or not 200 <= status < 300
                     or not is_js_content_type(content_type)):
                 print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
                 continue
+        digest = ""
+        artifact_path: Path | None = None
         if cached:
             body, digest, artifact_path = cached
             reused_downloads += 1
-        else:
+        elif current_available:
             digest = hashlib.sha256(body).hexdigest()
             artifact_path = downloads_dir / f"{digest}.js"
             if artifact_path.exists():
@@ -2421,14 +2453,20 @@ def command_inventory(args: argparse.Namespace) -> int:
                 if source_map_sha256 and source_map_path and source_map_body is not None:
                     source_map_artifact_path = str(source_map_path)
                     source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
-        chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
-        chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
-            chunks_root=library_chunks_dir,
-            sha256=digest,
-            chunks=chunks,
-            chunk_size=args.chunk_size,
-            chunk_overlap=args.chunk_overlap,
-        )
+        chunks = []
+        chunk_rows = []
+        chunk_set_key = ""
+        chunk_manifest_path = None
+        reused_chunks = False
+        if current_available:
+            chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
+            chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
+                chunks_root=library_chunks_dir,
+                sha256=digest,
+                chunks=chunks,
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+            )
         if reused_chunks:
             reused_chunk_sets += 1
         record = JsRecord(
@@ -2437,7 +2475,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             content_type=content_type,
             byte_count=len(body),
             sha256=digest,
-            artifact_path=str(artifact_path),
+            artifact_path=str(artifact_path) if artifact_path is not None else "",
             reused_download=reused_download,
             reused_chunks=reused_chunks,
             page_context=args.page_context or "",
@@ -2499,7 +2537,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             historical_modules, content_count = parse_source_map(historical_body)
             history.update(module_count=len(historical_modules), modules_with_content=content_count,
                            embedded_source_recovered=content_count > 0)
-            historical_record = replace(record, source_map=history["original_map_url"])
+            historical_record = replace(record, source_map=history["original_map_url"],
+                                        sha256=history.get("archived_bundle_sha256") or record.sha256)
             module_rows, historical_packets, historical_budget = write_source_map_modules(
                 root=root, source_maps_dir=source_maps_dir, record=historical_record,
                 source_map_sha256=historical_sha, modules=historical_modules,
@@ -2544,7 +2583,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 first_seen=now,
                 last_seen=now,
             ))
-        if body and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300):
+        if current_available and artifact_path is not None and chunk_manifest_path is not None:
             update_ledger_for_file(
                 ledger,
                 url=url,
@@ -2579,7 +2618,10 @@ def command_inventory(args: argparse.Namespace) -> int:
             })
         reuse_note = " reused" if reused_download else " downloaded"
         chunk_note = " reused-chunks" if reused_chunks else " chunked"
-        print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
+        if current_available:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
+        else:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> current unavailable ({status}), historical={record.source_map_history.get('status', 'off')}", file=sys.stderr)
 
     save_ledger(ledger_path, ledger)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -2624,7 +2666,8 @@ def command_inventory(args: argparse.Namespace) -> int:
         "config": config_summary,
         "root": str(root),
         "js_urls_seen": len(normalized_urls),
-        "js_downloaded": len(records),
+        "js_downloaded": sum(bool(record.artifact_path) for record in records),
+        "js_unavailable": sum(not record.artifact_path for record in records),
         "cached_urls_skipped": skipped_cached_urls,
         "downloads_reused": reused_downloads,
         "chunk_sets_reused": reused_chunk_sets,

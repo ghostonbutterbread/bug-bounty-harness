@@ -1,6 +1,6 @@
 # JavaScript source-map discovery and Wayback recovery
 
-- **Status:** independent release review BLOCKED by four reproduced correctness defects; not integrated
+- **Status:** four release blockers repaired and locally exercised; fresh independent release review pending; not integrated
 - **Owner / task:** Hermes / t_9b4400cf
 - **Branch / owning feature ref:** fix/js-source-map-discovery-wayback
 - **Worktree:** /home/ryushe/projects/bug_bounty_harness/.worktrees/t_9b4400cf
@@ -10,7 +10,7 @@
 - **Latest immutable recovery checkpoint:** d61afe41070c5f41ed6c9d7ed90355d266401866 (implementation plus parent corrections, guidance and verified receipts)
 - **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a and d61afe41070c5f41ed6c9d7ed90355d266401866; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
-- **Successor:** parent repair of the four independent review blockers below, followed by fresh independent release review. Parent guidance and initial edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
+- **Successor:** fresh independent release review of the corrected checkpoint and current-beta compatibility. Parent guidance and initial edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
 
 ## Defect and implementation
 
@@ -20,7 +20,7 @@ The previous lexer sliced the last 3,000 characters and reset lexical state. A c
 
 Response `SourceMap` takes precedence over legacy `X-SourceMap`, then comments. Invalid or external authoritative headers do not silently select a comment instead. Relative declarations resolve against the original generated-code URL. URL-specific ledger entries retain the selected response-header value and name across cached JS reuse, including identical bytes at different URLs.
 
-The public fetch tuple arities/unpacking/equality remain compatible. `HttpResult`, a tuple subclass, adds only selected map-header metadata and a stable transport reason; it does not retain response cookies/authentication headers. `http_get_limited` adds the explicit `include_program_headers=False` call path used by archive requests. HTTP error bodies are discarded; exceptions are categorized without logging raw error strings.
+The public fetch tuple arities/unpacking/equality remain compatible. `HttpResult`, a tuple subclass, adds selected map-header metadata, a stable transport reason and payload-read budget accounting; it does not retain response cookies/authentication headers. `http_get_limited` adds the explicit `include_program_headers=False` call path used by archive requests. HTTP error bodies are discarded; exceptions are categorized without logging raw error strings.
 
 Source-map module budgets now check projected chunk count, module count and expanded bytes *before* allocating chunk lists. Names remain inventoried when packet/materialization budgets prevent extraction.
 
@@ -36,7 +36,7 @@ Existing `--source-maps auto|off` remains `auto` by default. New inventory flags
 | `--source-map-wayback-max-bytes` | `8388608` | Per-response archive byte cap. CDX has an additional 256 KiB cap; maps also obey `--source-map-max-bytes`. |
 | `--source-map-wayback-max-total-bytes` | `33554432` | Run-wide archive transfer budget, including oversize probes. |
 
-Existing timeout/delay and source-map module/packet/expanded-byte limits also apply to historical acquisition/materialization. Per-response limits can each consume one oversize-probe byte; that byte is reserved inside the total budget. `bytes_read` conservatively charges an oversize probe even when Content-Length permits rejecting without reading it. `--skip-cached-processing` retains its existing meaning: skipped assets have no processing, archive recovery, or new metadata. `--refresh` bypasses successful historical cache reuse as well as existing live caches.
+Existing timeout/delay and source-map module/packet/expanded-byte limits also apply to historical acquisition/materialization. Per-response limits can each consume one oversize-probe byte; that byte is reserved inside the total budget. `bytes_read` counts returned payloads plus consumed probes; Content-Length rejection before a payload read charges zero. Any failed read with uncertain consumption conservatively charges its whole permitted read (including incomplete chunked responses); partial bytes are never accepted as an artifact. `--skip-cached-processing` retains its existing meaning: skipped assets have no processing, archive recovery, or new metadata. `--refresh` bypasses successful historical cache reuse as well as existing live caches.
 
 Archive lookup checks the exact missing declared map URL first, then selected archived snapshots of the exact original bundle URL to recover other declarations. It never performs domain-wide discovery. CDX uses `matchType=exact`, `output=json`, `fl=timestamp,original,statuscode,digest`, `filter=statuscode:200`, and a bounded `limit`. Every returned row must have the exact original URL, status 200, a valid 14-digit calendar timestamp and a base32 digest (or the documented missing-digest marker). Replay URLs are constructed only from the validated timestamp and the previously scoped original, never from a returned arbitrary URL.
 
@@ -139,7 +139,7 @@ Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains th
 
 Resume after the blocked independent review below: parent repairs the four owning boundaries with regression coverage, then requests a fresh independent review. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.
 
-## Independent release gate — BLOCKED
+## Independent release gate — BLOCKED (superseded candidate; repair receipts below)
 
 ### Exact candidate and execution identity
 
@@ -172,3 +172,22 @@ Final result: **4 failed in 1.97s**. All acquisition is intercepted; there are n
 4. **Partial archive reads bypass the new run-wide byte budget** — `http_get_limited` exception handling, approximately lines 594–602, and `WaybackRecovery.fetch` line 973. A native `http.client.HTTPResponse` over an in-memory fake socket receives a valid chunked response containing one complete eight-byte chunk, then EOF before the next chunk size. Its read raises `IncompleteRead` with eight partial bytes; the handler discards those bytes and returns an empty transport failure, which is charged as zero. With total cap 10, two distinct fetch URLs each read eight payload bytes: 16 observed, `bytes_read: 0`, `requests: 2`, read sizes `[10, 10]`. Preserve/count consumed partial bytes separately from artifact validity, or conservatively reserve the permitted read amount on uncertain failed reads; keep the failure category and never accept incomplete bytes as a map. Regression must prove total transfer accounting bounds these failures as well as successful/oversized responses. The existing incomplete-read test checks only non-crashing diagnostics and misses budget accounting.
 
 No implementation, tests, prompts, skills, dependencies, or unrelated files were changed by the reviewer. Only this branch-local dossier is updated for a recoverable blocked handoff. Parent should port the scratch probes into `agents/test_js_analyzer_wayback.py`, repair these four defects, rerun the exact broad command plus the new cases, and obtain a **fresh** independent verdict before any current-beta preflight/integration. The scratch source is convenient but the fixture contracts and observed outputs above are the durable recovery record. No acceptance is implied for unexercised live archive availability or external CDX behavior.
+
+## Parent repair of independent review blockers
+
+All four probes are now maintained in `agents/test_js_analyzer_wayback.py`, with additional unavailable-current, cached-binding and prefix/member/decrement/division variants. The pre-repair selector `unavailable_bundle_has_no or rechecks_current_binding or never_trusts_old_current or postfix_division or partial_archive_reads or uncertain_failed_archive` returned **11 failed, 3 passed, 76 deselected** on the blocked implementation. Unchanged positive variants were not counted as new defects.
+
+Owning-boundary repairs:
+
+- Cache reuse derives `current_bundle_sha256` and `current_bundle_match_verified` from the present successful current retrieval, never from an earlier cached claim.
+- Unavailable current bytes retain status/history metadata with blank live hash/path and zero byte/chunk counts. They create no live CAS artifact, chunk set, packet, URL alias or SQLite live-file entry. Historical packets retain the archived bundle hash. `js_downloaded` counts real live artifacts; additive `js_unavailable` counts unavailable-current records processed for fallback. Console output says unavailable, not downloaded.
+- `++`/`--` preserve prefix/postfix operand context, so valid postfix division cannot swallow the real declaration. Full-body scanning and existing decoy protections remain.
+- `HttpResult.bytes_read` reports payload accounting independently of artifact validity without changing tuple unpacking. Failed reads conservatively charge the whole allowed read because streams may consume more than their exposed partial exception bytes. Native chunked EOF and timeout regressions prove the run cannot issue another full-budget read after consuming its total reservation; incomplete artifacts remain rejected.
+
+Vertical checks after the owning repairs: cached-binding **2 passed**; lexical/directive/decoy subset **31 passed**; read-failure/budget subset **6 passed**; combined maintained review selector **14 passed, 76 deselected in 3.15s**.
+
+Full focused JS suites plus the reviewer's exact original scratch probes, from this feature with its pinned interpreter: `PYTHONPATH="$PWD" .venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py /home/ryushe/.hermes/cache/scratch/test_js_map_release_review.py -q --tb=short --show-capture=no` → **316 passed in 65.70s**. The maintained cases and fixture contracts above do not depend on retaining that scratch file.
+
+The exact unfiltered broader command already recorded above returned **558 passed, 2 failed in 71.10s**. Both failures remain the exact two baseline README nodes, not feature regressions. Parent independently reran them from the unchanged baseline export with this task interpreter: **2 failed in 0.14s**, identical output. No exclusions, skips or weakened assertions were used. The existing `BUGFIXES.md` records these unrelated defects; they remain outside this task. This is not an unfiltered green suite.
+
+`prompts/js-playbook.md` now explains unavailable-current metadata/counts and conservative payload charging. No real archive/program requests, corpus mutations, Hoster/runtime changes or integration occurred. Next: commit the corrected implementation and dossier, pin its immutable checkpoint, then a fresh independent release owner must review the full feature, independently rerun checks, fetch/current-beta preflight and integrate only if accepted. The previous blocked verdict is not approval for these corrections.

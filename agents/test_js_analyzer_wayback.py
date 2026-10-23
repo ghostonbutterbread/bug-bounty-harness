@@ -576,3 +576,143 @@ def test_directive_after_arbitrary_old_tail_boundary(prefix):
 ], ids=['string', 'template', 'regex'])
 def test_long_lexical_decoys_do_not_override_comment(decoy):
     assert J.last_source_map_directive('//@ sourceMappingURL=real.map\n' + decoy) == 'real.map'
+
+
+@pytest.mark.parametrize('failure', ['timeout', 'http_error', 'empty_success'])
+def test_unavailable_bundle_has_no_live_artifact_packet_or_success_count(tmp_path, failure):
+    import sqlite3
+
+    def response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            if failure == 'timeout':
+                raise urllib.error.URLError(TimeoutError())
+            if failure == 'http_error':
+                raise urllib.error.HTTPError(url, 403, '', Message(), io.BytesIO(b'not JavaScript'))
+            return Response(b'')
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        return Response(b'//# sourceMappingURL=app.js.map' if url == replay(BUNDLE) else MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto')
+    assert manifest['js_downloaded'] == 0
+    assert manifest['js_unavailable'] == 1
+    assert manifest['downloads_reused'] == 0
+    assert rows[0]['artifact_path'] == rows[0]['sha256'] == ''
+    assert rows[0]['byte_count'] == rows[0]['chunk_count'] == 0
+    assert not list((tmp_path / 'lib' / 'downloads').glob('*.js'))
+    packets = J.read_jsonl(tmp_path / 'out' / 'packets.jsonl')
+    assert packets and all(p.get('historical') for p in packets)
+    assert rows[0]['source_map_history']['current_bundle_sha256'] == ''
+    assert not rows[0]['source_map_history']['current_bundle_match_verified']
+    assert all(p['sha256'] == rows[0]['source_map_history']['archived_bundle_sha256'] for p in packets)
+    with sqlite3.connect(tmp_path / 'lib' / 'js_info.sqlite') as db:
+        assert db.execute('SELECT count(*) FROM js_files').fetchone()[0] == 0
+        assert db.execute('SELECT count(*) FROM js_url_aliases').fetchone()[0] == 0
+
+
+def test_history_cache_rechecks_current_binding_after_failed_bundle_fetch(tmp_path):
+    body = b'const current = true;'
+
+    def response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            if (tmp_path / 'out' / 'manifest.json').exists():
+                raise urllib.error.HTTPError(url, 403, '', Message(), io.BytesIO(body))
+            return Response(body)
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        if url == replay(BUNDLE):
+            return Response(body, headers={'SourceMap': 'app.js.map'})
+        return Response(MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        first, _ = inventory(tmp_path, '--source-map-wayback', 'auto')
+        assert first[0]['source_map_history']['current_bundle_match_verified']
+        Path(first[0]['artifact_path']).unlink()
+        second, _ = inventory(tmp_path, '--source-map-wayback', 'auto', run='again')
+    history = second[0]['source_map_history']
+    assert history['current_bundle_sha256'] == ''
+    assert history['current_bundle_match_verified'] is False
+    packet = Path(J.read_jsonl(tmp_path / 'again' / 'source_map_modules.jsonl')[0]['packet_paths'][0]).read_text()
+    assert 'Archived bundle matches current bytes (SHA256 verified).' not in packet
+    assert 'not verified' in packet
+
+
+def test_cached_history_never_trusts_old_current_binding_fields(tmp_path):
+    args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto'])
+    record = J.JsRecord(BUNDLE, 403, 'application/javascript', 5, 'a' * 64, '')
+    map_sha = hashlib.sha256(MAP).hexdigest()
+    (tmp_path / f'{map_sha}.map').write_bytes(MAP)
+    previous = {'original_map_url': BUNDLE + '.map', 'map_sha256': map_sha,
+                'current_bundle_sha256': record.sha256, 'archived_bundle_sha256': record.sha256,
+                'current_bundle_match_verified': True}
+    ledger = {'historical_source_maps': {J.WaybackRecovery.cache_key(record): previous}}
+    recovery = J.WaybackRecovery(args, ['example.com'], ledger, tmp_path)
+    with patch.object(J, 'http_get_limited') as fetch:
+        history, body = recovery.recover(record)
+    fetch.assert_not_called()
+    assert body == MAP and history['status'] == 'cached'
+    assert history['current_bundle_sha256'] == ''
+    assert history['current_bundle_match_verified'] is False
+
+
+@pytest.mark.parametrize('expression', [
+    'x++ / y;', 'x-- / y;', '++x / y;', '--x / y;',
+    '({x: 1}).x++ / y;', 'x++ /* separator */ / y;',
+    'x++ + /[/]/.test("/");',
+])
+def test_postfix_division_keeps_trailing_map_declaration(expression):
+    body = 'let x=4, y=2; ' + expression + '\n' + 'var a=1;\n' * 500
+    assert J.last_source_map_directive(body + '//# sourceMappingURL=real.map\n') == 'real.map'
+
+
+def test_partial_archive_reads_are_charged_to_total_budget(tmp_path):
+    import http.client
+    args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto',
+                                      '--source-map-wayback-max-total-bytes', '10'])
+    recovery = J.WaybackRecovery(args, ['example.com'], {}, tmp_path)
+    read_sizes = []
+
+    class FakeSocket:
+        def makefile(self, *args):
+            return io.BytesIO(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\nxxxxxxxx\r\n')
+
+    class PartialResponse(http.client.HTTPResponse):
+        def __init__(self):
+            super().__init__(FakeSocket())
+            self.begin()
+
+        def read(self, amt=None):
+            read_sizes.append(amt)
+            return super().read(amt)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=lambda *a, **k: PartialResponse()):
+        attempts = []
+        assert recovery.fetch(replay(BUNDLE), 'map', attempts, 100) is None
+        assert attempts[0]['reason'] == 'transport'
+        assert recovery.fetch(replay(BUNDLE + '.map'), 'map', attempts, 100) is None
+    assert recovery.bytes_read >= 8
+    assert sum(min(8, size) for size in read_sizes) <= 10
+    assert recovery.bytes_read <= args.source_map_wayback_max_total_bytes
+
+
+def test_uncertain_failed_archive_read_reserves_its_read_budget(tmp_path):
+    args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto',
+                                      '--source-map-wayback-max-total-bytes', '10'])
+    recovery = J.WaybackRecovery(args, ['example.com'], {}, tmp_path)
+
+    class ReadTimeout(Response):
+        def read(self, size=-1):
+            raise TimeoutError('private')
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=ReadTimeout(b'')) as opened:
+        attempts = []
+        assert recovery.fetch(replay(BUNDLE), 'map', attempts, 100) is None
+        assert recovery.fetch(replay(BUNDLE + '.map'), 'map', attempts, 100) is None
+    assert opened.call_count == 1
+    assert attempts[0]['reason'] == 'timeout'
+    assert recovery.bytes_read == 10

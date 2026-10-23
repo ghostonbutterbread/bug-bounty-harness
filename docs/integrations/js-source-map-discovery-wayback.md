@@ -7,8 +7,8 @@
 - **Base commit:** 73d83c730cef6343e0c61d5d0ddcc70a416490d3
 - **Intended integration target:** beta (origin/beta), never stable in this task
 - **Last updated:** 2026-10-22 (PDT)
-- **Latest immutable recovery checkpoint:** d61afe41070c5f41ed6c9d7ed90355d266401866 (implementation plus parent corrections, guidance and verified receipts)
-- **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a and d61afe41070c5f41ed6c9d7ed90355d266401866; current branch tip includes a later dossier-only handoff commit
+- **Latest immutable recovery checkpoint:** e259847b055d2eed6537ec038ea8925bac4b180b (implementation, all four review repairs, maintained regressions, guidance and receipts)
+- **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a, d61afe41070c5f41ed6c9d7ed90355d266401866 and e259847b055d2eed6537ec038ea8925bac4b180b; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
 - **Successor:** fresh independent release review of the corrected checkpoint and current-beta compatibility. Parent guidance and initial edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
 
@@ -137,7 +137,7 @@ Current fetched `origin/beta` at reconciliation was `f98f538`, with unrelated sc
 
 Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains the initial implementation, directly associated test module and dossier. Subsequent parent code/test/guidance corrections are recorded in a coherent feature commit, followed by a dossier-only immutable checkpoint update. Reconcile both implementation and guidance against the actual feature tip.
 
-Resume after the blocked independent review below: parent repairs the four owning boundaries with regression coverage, then requests a fresh independent review. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.
+Resume from corrected implementation checkpoint `e259847b055d2eed6537ec038ea8925bac4b180b` and its later dossier-only handoff tip: all four old blockers have local repair receipts below, but fresh independent release review remains mandatory. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.
 
 ## Independent release gate — BLOCKED (superseded candidate; repair receipts below)
 

@@ -2376,10 +2376,11 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_maps_downloaded = 0
     source_maps_reused = 0
     source_maps_too_large = 0
+    attempted_this_run = 0
     for index, url in enumerate(normalized_urls, start=1):
         if url in succeeded:
             continue
-        if args.limit and len(succeeded) >= args.limit:
+        if args.limit and attempted_this_run >= args.limit:
             paused_reason = "url_limit"
             break
         if args.disk_free_floor_gib:
@@ -2388,12 +2389,14 @@ def command_inventory(args: argparse.Namespace) -> int:
                    for path in (root, library_root, integration_index_root)):
                 paused_reason = "disk_floor"
                 break
+        attempted_this_run += 1
         # An earlier failed attempt may have produced partial metadata. Replace
         # its rows on retry, leaving immutable content-addressed artifacts intact.
         if url in retryable_failed:
             records[:] = [row for row in records if row.url != url]
             packet_rows[:] = [row for row in packet_rows if row.get("url") != url]
             source_map_module_rows[:] = [row for row in source_map_module_rows if row.get("bundle_url") != url]
+            source_map_packet_budgets[:] = [row for row in source_map_packet_budgets if row.get("bundle_url") != url]
             provenance_rows[:] = [row for row in provenance_rows if row.js_url != url]
             provenance_rows_by_url.pop(url, None)
             external_integration_rows[:] = [row for row in external_integration_rows if row.found_in_js_url != url]
@@ -2622,7 +2625,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             )
             source_map_module_rows.extend(module_rows)
             packet_rows.extend(source_map_packets)
-            source_map_packet_budgets.append(source_map_budget)
+            source_map_packet_budgets.append(dict(source_map_budget, bundle_url=url))
             record.source_map_packet_count = len(source_map_packets)
         history, historical_body = wayback.recover(record)
         record.source_map_history = history
@@ -2649,7 +2652,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             for packet in historical_packets:
                 packet.update(artifact_kind="historical_source_map_module", historical=True, source_map_history=history)
             packet_rows.extend(historical_packets)
-            source_map_packet_budgets.append(dict(historical_budget, historical=True))
+            source_map_packet_budgets.append(dict(historical_budget, historical=True, bundle_url=url))
         records.append(record)
         record_provenance_rows = build_provenance_rows(
             record=record,

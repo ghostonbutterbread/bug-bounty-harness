@@ -1575,6 +1575,21 @@ def test_inventory_failed_fetch_remains_partial_and_retryable(tmp_path: Path):
     assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
 
 
+def test_inventory_limit_bounds_failed_attempts(tmp_path: Path):
+    urls = [f'https://app.example.com/{i}.js' for i in range(3)]
+    source = tmp_path / 'urls.txt'
+    source.write_text('\n'.join(urls) + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'', None, '')) as fetch:
+        assert J.main(base + ['--limit', '1']) == 0
+        assert fetch.call_count == 1
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete' and state['pause_reason'] == 'url_limit'
+    assert state['pending'] == urls and state['retryable_failed'][urls[0]] == 'bundle_unavailable'
+
+
 def test_checkpoint_after_artifact_before_commit_retries_url(tmp_path: Path):
     source = tmp_path / 'urls.txt'
     source.write_text('https://app.example.com/a.js\n')

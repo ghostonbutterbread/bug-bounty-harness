@@ -7,8 +7,9 @@
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` fetched `origin/beta`
 - **Intended integration target:** local `beta` (parent handles integration; no push)
 - **Owning feature branch/ref:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `7403f01` (local beta merge; implementation `f734ec1`)
+- **Feature implementation commit(s):** `f734ec1`; post-merge bounded-limit follow-up pending
+- **Reconciled local beta:** `43a81c325750c09ebe1ce51c0f78a086c12de032` via merge `7403f01`
 
 ## Intent and implemented contract
 
@@ -16,9 +17,9 @@ Remove the default 8 MiB source-map comment parse cutoff while retaining grammar
 
 ## Evidence and review
 
-- Focused tests: `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 529 passed before local beta reconciliation.
-- New local fixtures cover >8 MiB grammar scan, URL-limit resume, disk-floor pause, retry after empty fetch, and interrupt before checkpoint commit.
-- Local beta reconciliation and post-merge focused rerun pending.
+- Focused tests: `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 530 passed after local beta merge. After the URL-keyed budget retry fix, targeted subset → 6 passed (`-k 'source_map_packet_budget or historical_packet_and_expansion or resume_after_url_limit or failed_fetch_remains or checkpoint_after_artifact or limit_bounds_failed_attempts'`); `git diff --check` clean.
+- New local fixtures cover >8 MiB grammar scan, URL-limit resume and failed-attempt bound, disk-floor pause, retry after empty fetch, and interrupt before checkpoint commit.
+- Local `beta` `43a81c3` merged into this branch, no conflict; no integration or push.
 
 ## Blockers and deferred work
 
@@ -31,9 +32,9 @@ Remove the default 8 MiB source-map comment parse cutoff while retaining grammar
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** none yet
-- **Exact resume point:** complete tests, merge local beta, rerun focused tests, commit dossier and implementation.
-- **Working tree:** in progress.
+- **Latest immutable recovery checkpoint:** `7403f01` (follow-up pending commit)
+- **Exact resume point:** review the post-merge focused test receipt and follow-up commit, then parent may integrate if residuals accepted.
+- **Working tree:** follow-up in progress.
 
 ## Decision gates
 

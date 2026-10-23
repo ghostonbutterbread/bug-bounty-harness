@@ -7,8 +7,8 @@
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` fetched `origin/beta`
 - **Intended integration target:** local `beta` (parent handles integration; no push)
 - **Owning feature branch/ref:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `7403f01` (local beta merge; implementation `f734ec1`)
-- **Feature implementation commit(s):** `f734ec1`; post-merge bounded-limit follow-up pending
+- **Latest immutable recovery checkpoint:** `edbbd5b15b04270100404b4450cb2b30a897d3ce` (implementation `f734ec1`, merge `7403f01`, follow-up `edbbd5b`)
+- **Feature implementation commit(s):** `f734ec1`, `edbbd5b`
 - **Reconciled local beta:** `43a81c325750c09ebe1ce51c0f78a086c12de032` via merge `7403f01`
 
 ## Intent and implemented contract
@@ -32,9 +32,9 @@ Remove the default 8 MiB source-map comment parse cutoff while retaining grammar
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `7403f01` (follow-up pending commit)
-- **Exact resume point:** review the post-merge focused test receipt and follow-up commit, then parent may integrate if residuals accepted.
-- **Working tree:** follow-up in progress.
+- **Latest immutable recovery checkpoint:** `edbbd5b15b04270100404b4450cb2b30a897d3ce` (a dossier-only handoff commit follows)
+- **Exact resume point:** parent review of the change and explicit acceptance/deferment of residuals; no feature merge or push performed.
+- **Working tree:** clean after handoff commit.
 
 ## Decision gates
 

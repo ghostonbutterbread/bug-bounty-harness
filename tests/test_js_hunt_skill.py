@@ -83,6 +83,23 @@ def test_hunt_is_adaptive_and_evidence_led_not_a_class_matrix() -> None:
     assert "at most three active JS-review subagents" in fanout
 
 
+def test_static_signal_review_is_routed_without_a_parallel_scanner() -> None:
+    hunt = text("skills/js-hunt/SKILL.md")
+    reference = text("skills/js-hunt/references/static-signal-review.md")
+    assert "references/static-signal-review.md" in hunt
+    for phrase in (
+        "page/flow provenance",
+        "individual call sites",
+        "*observed* framework",
+        "getter from a setter",
+        "still-unexamined sites",
+        "normal policies",
+    ):
+        assert phrase in reference
+    assert "not a new scanner" in reference
+    assert "A site count is not a review-depth measure" in reference
+
+
 def test_hunt_handoff_names_evidence_and_separate_validation() -> None:
     hunt = text("skills/js-hunt/SKILL.md")
     for required in (

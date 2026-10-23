@@ -103,9 +103,13 @@ can do, what changes, and what request or browser effect carries the action:
   and state machines that do not fit a named class.
 
 Use deterministic hits and `/jsluice` as **starting seeds**; inspect code beyond
-those lists. Compare relevant page HTML, hidden controls, `data-*` attributes,
-and bootstrap state when the code consumes them. Record visible coverage by
-feature family and missing artifact edges rather than saying “all JS checked.”
+those lists. For a sink/signature inventory, read
+[`references/static-signal-review.md`](references/static-signal-review.md) to
+reconcile per-site hits with stack-specific consumers and acquisition gaps;
+this is a review lens, not a second scanner or a completeness claim. Compare
+relevant page HTML, hidden controls, `data-*` attributes, and bootstrap state
+when the code consumes them. Record visible coverage by feature family and
+missing artifact edges rather than saying “all JS checked.”
 
 ## 2. Prioritize and Deep Trace
 

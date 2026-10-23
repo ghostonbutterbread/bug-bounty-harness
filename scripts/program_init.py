@@ -143,8 +143,8 @@ def _seed_recon_files(recon_root: Path, domains: set[str], urls: set[str], *, dr
         _write_once(recon_root / name, body, dry_run=dry_run)
     return seeds
 
-def _full_handoff(program: str, domains: set[str], urls: set[str], *, include_docs: bool) -> dict[str, object]:
-    """Stable packets for an agent coordinator, not runnable scanner commands."""
+def _collection_handoff(program: str, domains: set[str], urls: set[str], *, mode: str, include_docs: bool) -> dict[str, object]:
+    """Stable dependency packets for an agent coordinator, not scanner commands."""
     seeds, wildcards = recon_seed_lines(domains, urls)
     scope = {"source": "saved platform scope", "domains": sorted(domains),
              "urls": sorted(urls), "url_seeds": seeds, "wildcard_seeds": wildcards}
@@ -154,43 +154,57 @@ def _full_handoff(program: str, domains: set[str], urls: set[str], *, include_do
                 "status": "pending-scope-rate-review" if not depends_on else "pending-prerequisites",
                 "task": task, "expected_receipt": output}
 
-    stages = [
-        packet("full-recon", "/recon", [],
-               "Inspect the completed comparable full-platform baseline and freshness receipt first. If absent, incomplete or materially stale, run /recon at the appropriate baseline-full or explicit full mode against all eligible saved scope; otherwise reuse its evidence or run a targeted delta for a named gap. Assess each active producer's request-level scope and aggregate rate budget. Recon-Ry owns its own stages and archive promotion. Do not infer coverage from a plan.",
-               "Full-recon collection manifests or verified baseline reuse/delta receipt, coverage gaps, scope/rate decision and Recon-Ry completion receipt when launched"),
-        packet("js-url-acquisition", "/js-pull + /live-map", [],
-               "Comprehensively collect scoped JavaScript URL candidates from canonical aggregate, authorized runtime pages/flows, and source-attributed history; dedupe, preserve provenance and fetch only after live-policy approval. Do not silently treat a URL list as downloaded JS or deep review.",
-               "JS URL inventory, content hashes, source/page provenance, failures and coverage gaps"),
-        packet("katana-endpoints", "/bounty-tools + /focused-recon", ["js-url-acquisition"],
-               "Only after the JS collection receipt, run a bounded, scoped Katana endpoint pass over approved page/JS URL inputs with JavaScript parsing (-jc; consider -jsl only within memory budget). Verify local Katana help and request-level scope/redirect containment and rate first; record the exact source URLs and raw output through /bounty-tools. If unsafe or unavailable, record a skipped receipt. Do not repeat Recon-Ry archive producers.",
-               "Raw Katana run manifest and source-attributed endpoint candidates or explicit skip reason"),
-        packet("api-mapping", "/api-surface-mapping", ["js-url-acquisition", "katana-endpoints"],
-               "Reconcile JS/source-declared routes with authorized runtime observations as separate evidence classes; map methods, auth context, and unknowns without testing operations.",
-               "API operation map and bounded evidence-linked handoffs"),
-    ]
+    stages = [packet("full-recon", "/recon", [],
+                     "Inspect comparable baseline freshness and scope first. Reuse a verified current baseline, run a targeted delta for a named gap, or run all eligible /recon baseline lanes if missing or stale. For explicit full, do not silently downgrade collection. Assess request-level destinations and aggregate rate across workers; Recon-Ry owns archive promotion. Publish scope-checked new page/host discoveries to the JS worker without waiting for the entire broad run.",
+                     "Completed comparable baseline/reuse or delta receipt with manifests, scope/rate decision, gaps and completed Recon-Ry receipt when launched")]
+    stages.append(packet("js-url-acquisition", "/js-pull + /live-map", [] if mode == "full" else ["full-recon"],
+                         "For full, start beside /recon on approved seeds within a shared rate budget and consume newly validated scoped page/host URLs as they arrive; for focused modes, first ensure a usable /recon receipt. Reuse current content-addressed JS or fetch missing/stale scoped scripts, including runtime chunks and bounded source maps. A page/flow with no JS is an explicit negative coverage receipt, not a blocker to mapping other evidence. Do not mistake URL inventory for downloaded or reviewed JS.",
+                         "JS URL/content-hash and page/flow provenance, failures, no-JS surfaces and bounded collection checkpoint/coverage gaps"))
+    if mode in {"full", "api", "params"}:
+        stages.append(packet("katana-endpoints", "/bounty-tools + /focused-recon", ["js-url-acquisition"],
+                             "After the JS checkpoint, run bounded scoped Katana -jc on approved page/JS inputs if request-level redirects/rate and resources permit; check installed help, preserve raw source-attributed output. Record a skipped receipt if unsafe or unavailable. Do not duplicate Recon-Ry archives.",
+                             "Raw Katana manifest and candidates or explicit skip reason"))
     if include_docs:
         stages.append(packet("public-docs", "/recon-docs → /docs", [],
-                             "Explicit full-only discovery of bounded public program/product/developer documentation from provider-compliant sources. Public docs are source claims, not target scope or observed behavior; quarantine third-party and out-of-scope links; do not crawl indiscriminately.",
-                             "Source-attributed public docs list and candidate Program Docs topics or skip reason"))
-    sources = ["full-recon", "js-url-acquisition", "katana-endpoints", "api-mapping"]
-    if include_docs:
-        sources.append("public-docs")
+                             "Discover bounded public program/product/developer documentation from provider-compliant sources. Docs are source claims, not target scope or server behavior; quarantine third-party and out-of-scope links.",
+                             "Source-attributed docs and reviewed topics or explicit skip reason"))
+    if mode in {"full", "api", "params"}:
+        api_dependencies = ["js-url-acquisition", "katana-endpoints"]
+        if mode != "full":
+            api_dependencies.insert(0, "full-recon")
+        if include_docs:
+            api_dependencies.append("public-docs")
+        stages.append(packet("api-mapping", "/api-surface-mapping", api_dependencies,
+                             "Reconcile scoped JS/source declarations, authorized runtime requests and completed docs/spec receipts into API operations and context. In full mode, begin from approved initial seeds and the JS checkpoint while broad /recon continues; refresh affected operation records if later recon discoveries change the surface before final reconciliation. A no-JS receipt permits runtime/spec mapping; do not invoke candidate operations as a discovery test.",
+                             "Attributed API operation map, declared versus observed distinctions and bounded evidence-linked handoffs; final refresh after any material later recon discovery"))
+    if mode == "full":
+        stages.append(packet("api-reconciliation", "/js-pull + /api-surface-mapping", ["full-recon", "api-mapping"],
+                             "Compare final /recon discoveries to the API-map input manifests. Refresh affected JS/API operation records where a new scoped surface is material, or record no change with evidence. Keep the full baseline completion distinct from the earlier API mapping checkpoint.",
+                             "Final recon-to-API diff and refreshed operation/JS input pointers or evidence-backed no-change receipt"))
+    if mode in {"full", "params"}:
+        dependencies = ["full-recon", "js-url-acquisition", "api-reconciliation" if mode == "full" else "api-mapping"]
+        if include_docs:
+            dependencies.append("public-docs")
+        stages.append(packet("parameter-mining", "/parameter-mining", dependencies,
+                             "Correlate query/path/body/header/form/GraphQL fields with specific scoped routes and operations from recon, JS request builders, API map, runtime observations and docs. Distinguish observed from declared or name-only candidates; do not automatically fuzz or claim server acceptance. Reuse current evidence and fill bounded gaps.",
+                             "Source-attributed parameter/operation records, confidence, unresolved fields and coverage gaps"))
+    sources = [str(stage["id"]) for stage in stages]
     stages.extend([
         packet("recon-bus-promotion", "/recon-corpus-write-policy + Recon Bus", sources,
-               "Review raw producer receipts, filter each candidate against saved scope, retain rejected candidates in quarantine, and promote attributed reusable evidence through Recon Bus only; never hand-edit aggregates or duplicate Recon-Ry completion promotion.",
-               "Recon Bus promotion receipts and quarantined candidate references"),
+               "At each completed producer checkpoint, scope-check and promote reusable full URLs, parameterized URLs, JavaScript URLs, hosts and content paths through Recon Bus append or promote-run; preserve raw manifests, provenance and quarantine. Recon Bus URL promotion probes new URLs by default: include those requests in the aggregate rate budget and enforce request-level destination/redirect containment, or deliberately use record-only --liveness unknown / --no-probe until authorized. Query canonical aggregate for downstream input. This final receipt reconciles all selected producer promotions; never hand-edit aggregates or repeat Recon-Ry's archive promotion. Name-only field vocabulary stays in attributed parameter artifacts until tied to an eligible URL/route.",
+               "Per-producer and final Recon Bus promotion receipts/counts, source references and quarantined candidates"),
         packet("url-ingest-review", "/url-ingest", ["recon-bus-promotion"],
-               "Ingest promoted URL sets into a review queue, inspect prior per-lane coverage, and hand off bounded next packets; do not mark URLs tested by collection alone.",
-               "URL Ingest queue/coverage receipt and pending review gaps"),
+               "Review promoted URL sets and prior per-lane coverage; hand off bounded next packets without marking collection as testing.",
+               "URL Ingest queue/coverage receipt and remaining gaps"),
     ])
-    return {"schema_version": 1, "program": program, "mode": "full",
+    return {"schema_version": 2, "program": program, "mode": mode,
             "execution_boundary": "plan-only; this CLI does not spawn Hermes subagents or make target requests",
             "scope": scope,
-            "gates": ["Read published program scope and rules, saved scope and permitted rate budget before dispatch.",
+            "gates": ["Read published program scope and rules, saved scope and permitted aggregate rate budget before dispatch.",
                       "Apply general-security-testing-policy, program-testing-policy and live-testing-policy before traffic; owning skills govern accounts, browsers, tools and writes.",
-                      "A wildcard, shared IP, archive result or public doc is not authorization. Restricted origin/path grants require request-level enforcement; defer active broad scans if unresolved.",
+                      "Wildcard/shared IP/archive/docs do not authorize a destination; enforce restricted origins/paths at request time or defer broad active scanning.",
                       "Stop on challenge, repeated 429, instability, scope ambiguity or unavailable rate authorization."],
-            "completion_rule": "All selected receipts, scope-filtered promotion and URL review queue required; every stage remains pending until an agent records evidence.",
+            "completion_rule": "Every selected producer needs an evidence-backed completed/reused/skipped or blocked receipt; dependencies wait for completion, not launch. Scope-filtered Recon Bus promotion and URL review are required. A pending/blocked stage means this mode is not complete.",
             "stages": stages}
 
 
@@ -211,20 +225,20 @@ def initialize_program(
         raise ValueError("--platform and --skip-scope cannot be used together")
     if not platform and not skip_scope:
         raise ValueError("scope is required: provide --platform or explicitly use --skip-scope")
-    if mode not in {"basic", "full"}:
-        raise ValueError("mode must be basic or full")
-    if include_docs and mode != "full":
-        raise ValueError("--include-docs requires --mode full")
+    if mode not in {"basic", "full", "js", "api", "params"}:
+        raise ValueError("mode must be basic, full, js, api or params")
+    if include_docs and mode == "basic":
+        raise ValueError("--include-docs requires a non-basic mode")
     if include_docs is None:
-        include_docs = mode == "full"
-    if mode == "full" and (skip_scope or not platform):
-        raise ValueError("full mode requires --platform and saved scope; --skip-scope is not eligible")
-    if mode == "full" and not any(lane in {"web", "api"} for lane in lanes):
-        raise ValueError("full mode requires a web or api lane")
+        include_docs = mode in {"full", "api", "params"}
+    if mode != "basic" and (skip_scope or not platform):
+        raise ValueError(f"{mode} mode requires --platform and saved scope; --skip-scope is not eligible")
+    if mode != "basic" and not any(lane in {"web", "api"} for lane in lanes):
+        raise ValueError(f"{mode} mode requires a web or api lane")
     # pull_scope and ScopeManager both use ~/Shared/scopes. Reject an alternate
     # layout before the network pull rather than claiming its scope is aligned.
-    if mode == "full" and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
-        raise ValueError("--shared-root is not supported with full initialization: scope pull and reads use ~/Shared/scopes")
+    if mode != "basic" and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
+        raise ValueError("--shared-root is not supported with non-basic initialization: scope pull and reads use ~/Shared/scopes")
 
     if platform and not dry_run:
         pulled_scope = pull_scope(program, platform)
@@ -232,15 +246,15 @@ def initialize_program(
             raise RuntimeError("scope pull failed; no program layout was created")
 
     scope_state = "skipped" if skip_scope else "pulled" if platform else "unknown"
-    if mode == "full" and dry_run:
+    if mode != "basic" and dry_run:
         scope_state = "saved"
     domains, urls = _read_scope(slug) if not dry_run else (set(), set())
-    if mode == "full" and dry_run:
+    if mode != "basic" and dry_run:
         # Dry runs do not pull scope, but must still have an existing saved grant.
         domains, urls = _read_scope(slug)
-    if mode == "full" and not (domains or urls):
-        raise ValueError("full mode requires non-empty saved scope; no layout or handoff created")
-    handoff = _full_handoff(slug, domains, urls, include_docs=include_docs) if mode == "full" else None
+    if mode != "basic" and not (domains or urls):
+        raise ValueError(f"{mode} mode requires non-empty saved scope; no layout or handoff created")
+    handoff = _collection_handoff(slug, domains, urls, mode=mode, include_docs=include_docs) if mode != "basic" else None
     created: list[str] = []
     refreshed: list[str] = []
     shared_lanes: dict[str, str] = {}
@@ -299,7 +313,7 @@ def initialize_program(
     if handoff is not None:
         handoff_lane = "web" if "web" in lanes else "api"
         handoff_root = shared_root / WEB_FAMILY / slug / handoff_lane / "recon" / "_meta"
-        handoff_path = handoff_root / "full-recon-handoff.json"
+        handoff_path = handoff_root / ("full-recon-handoff.json" if mode == "full" else f"init-{mode}-handoff.json")
         body = json.dumps(handoff, indent=2, sort_keys=True) + "\n"
         if not handoff_path.exists():
             if not dry_run:
@@ -322,7 +336,7 @@ def initialize_program(
         "dry_run": dry_run,
     }
     if handoff is not None:
-        result["mode"] = "full"
+        result["mode"] = mode
         result["handoff_path"] = str(handoff_path)
         result["handoff"] = handoff
     return result
@@ -335,8 +349,8 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--platform", choices=["hackerone", "bugcrowd", "intigriti"], help="Pull published scope from this platform")
     scope.add_argument("--skip-scope", action="store_true", help="Initialize only and record that a manual scope source is still required")
     parser.add_argument("--lane", dest="lanes", choices=sorted(LANE_FAMILIES), action="append", help="Initialize a surface lane (repeatable; defaults to web)")
-    parser.add_argument("--mode", choices=["basic", "full"], default="basic", help="Basic bootstrap (default) or full agent-facing handoff (CLI does not dispatch)")
-    parser.add_argument("--include-docs", action="store_true", default=None, help="Compatibility option; bounded public docs are included in full by default")
+    parser.add_argument("--mode", choices=["basic", "full", "js", "api", "params"], default="basic", help="Basic bootstrap (default), or an agent-facing recon + discovery handoff (CLI does not dispatch)")
+    parser.add_argument("--include-docs", action="store_true", default=None, help="Bounded public docs; included by default in full, api and params")
     parser.add_argument("--shared-root", type=Path, default=Path.home() / "Shared", help="Shared base root (default: ~/Shared)")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT, help="Mounted non-secret artifact root (default: /mnt/bounty)")
     parser.add_argument("--dry-run", action="store_true", help="Show the initialization plan without creating files")
@@ -372,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {label}: {len(result['created'])} path(s)")
         print(f"  {'Would refresh' if result['dry_run'] else 'Refreshed'}: {len(result['refreshed'])} path(s)")
         if result.get("handoff_path"):
-            print(f"  Pending full-recon handoff: {result['handoff_path']}")
+            print(f"  Pending {result['mode']} handoff: {result['handoff_path']}")
     return 0
 
 

@@ -1,0 +1,576 @@
+"""Offline regression and bounded historical source-map recovery contracts."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from unittest.mock import patch
+from email.message import Message
+import io
+import ssl
+import urllib.error
+import urllib.parse
+
+
+import pytest
+
+from agents import js_analyzer as J
+
+BUNDLE = 'https://app.example.com/static/app.js'
+STAMP = '20240102030405'
+MAP = json.dumps({'version': 3, 'sources': ['src/main.ts'], 'sourcesContent': ['export const x = 1;']}).encode()
+
+
+class Response:
+    def __init__(self, body, status=200, headers=None):
+        self.body = io.BytesIO(body)
+        self.status = status
+        self.headers = Message()
+        for key, value in (headers or {}).items():
+            self.headers[key] = value
+
+    def read(self, size=-1):
+        return self.body.read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def inventory(tmp_path, *extra, run='out', urls=None):
+    source = tmp_path / 'urls.txt'
+    source.write_text('\n'.join(urls or [BUNDLE]) + '\n')
+    assert J.main(['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+                   '--output-root', str(tmp_path / run), '--run-id', run,
+                   '--library-root', str(tmp_path / 'lib'),
+                   '--integration-index-root', str(tmp_path / 'integrations'), *extra]) == 0
+    return (J.read_jsonl(tmp_path / run / 'metadata.jsonl'),
+            json.loads((tmp_path / run / 'manifest.json').read_text()))
+
+
+@pytest.mark.parametrize(('headers', 'expected', 'origin'), [
+    ({'SourceMap': '../maps/header.map', 'X-SourceMap': 'legacy.map'}, 'https://app.example.com/maps/header.map', 'SourceMap'),
+    ({'x-sourcemap': 'legacy.map'}, BUNDLE.rsplit('/', 1)[0] + '/legacy.map', 'X-SourceMap'),
+])
+def test_response_header_precedes_comment_and_survives_cache(tmp_path, headers, expected, origin):
+    def open_response(request, timeout):
+        assert request.full_url == BUNDLE
+        return Response(b'//# sourceMappingURL=comment.map\n', headers=headers)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response), \
+         patch.object(J, 'http_get_limited', return_value=(MAP, 200, 'application/json', False)) as fetch:
+        first, _ = inventory(tmp_path)
+        second, _ = inventory(tmp_path, run='again')
+    assert first[0]['source_map'] == expected
+    assert second[0]['source_map'] == expected
+    assert second[0]['source_map_discovery'] == origin
+    assert second[0]['source_map_status'] == 'cached'
+    assert fetch.call_count == 1
+    assert fetch.call_args.args[0] == expected
+
+
+@pytest.mark.parametrize('header', ['https://outside.invalid/map', 'data:application/json,{}'])
+def test_header_cannot_fall_back_to_comment_when_not_fetchable(tmp_path, header):
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(
+            b'//# sourceMappingURL=comment.map', headers={'SourceMap': header})), \
+         patch.object(J, 'http_get_limited') as fetch:
+        rows, _ = inventory(tmp_path)
+    fetch.assert_not_called()
+    assert rows[0]['source_map_discovery'] == 'SourceMap'
+
+
+@pytest.mark.parametrize(('failure', 'reason', 'status'), [
+    (404, 'http_404', 404), (429, 'http_429', 429), (302, 'http_302', 302),
+    (ssl.SSLCertVerificationError('secret'), 'tls', None),
+    (TimeoutError('secret'), 'timeout', None),
+    (urllib.error.URLError('secret'), 'transport', None),
+    (b'not json', 'invalid', 200), (b'x' * 101, 'oversize', 200),
+])
+def test_map_fetch_diagnostics_are_actionable_and_redacted(tmp_path, capsys, failure, reason, status):
+    def open_response(request, timeout):
+        if request.full_url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if isinstance(failure, int):
+            raise urllib.error.HTTPError(request.full_url, failure, 'secret', Message(), io.BytesIO(b'secret'))
+        if isinstance(failure, Exception):
+            raise failure
+        return Response(failure)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-max-bytes', '100')
+    assert rows[0]['source_map_reason'] == reason
+    assert rows[0]['source_map_http_status'] == status
+    assert 'secret' not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('transport', [ssl.SSLError('secret'), TimeoutError('secret')])
+def test_wrapped_transport_failure_category(transport):
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=urllib.error.URLError(transport)):
+        result = J.http_get_limited(BUNDLE + '.map', timeout=1, max_bytes=100)
+    assert result[:2] == (b'', None)
+    assert result.reason == ('tls' if isinstance(transport, ssl.SSLError) else 'timeout')
+
+
+def cdx(original, *stamps):
+    return json.dumps([['timestamp', 'original', 'statuscode', 'digest'],
+                       *[[stamp, original, '200', 'A' * 32] for stamp in stamps]]).encode()
+
+
+def replay(original, stamp=STAMP):
+    return f'https://web.archive.org/web/{stamp}id_/{original}'
+
+
+def test_archived_bundle_declaration_resolves_original_relative_and_renders_history(tmp_path):
+    old = b'const old = true;\n//# sourceMappingURL=../maps/old.map\n'
+    map_url = 'https://app.example.com/maps/old.map'
+    calls = []
+
+    def open_response(request, timeout):
+        url = request.full_url
+        calls.append(url)
+        if url == BUNDLE:
+            return Response(b'const current = true;')
+        if url.startswith('https://web.archive.org/cdx/search/cdx?'):
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        if url == replay(BUNDLE):
+            return Response(old)
+        if url == replay(map_url):
+            return Response(MAP)
+        raise AssertionError(f'unexpected request: {url}')
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto')
+    history = rows[0]['source_map_history']
+    assert rows[0]['source_map_status'] == 'not_detected'
+    assert history['status'] == 'recovered'
+    assert history['original_map_url'] == map_url
+    assert history['map_archive_timestamp'] == STAMP
+    assert history['map_retrieval_url'] == replay(map_url)
+    assert history['map_sha256'] == hashlib.sha256(MAP).hexdigest()
+    assert history['archived_bundle_sha256'] == hashlib.sha256(old).hexdigest()
+    assert history['current_bundle_sha256'] == rows[0]['sha256']
+    assert history['current_bundle_match_verified'] is False
+    modules = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')
+    assert modules[0]['historical'] is True
+    assert modules[0]['source_map_history']['map_retrieval_url'] == replay(map_url)
+    packet = Path(modules[0]['packet_paths'][0]).read_text()
+    assert 'HISTORICAL' in packet and 'not verified' in packet
+    assert replay(map_url) in packet
+    ledger = json.loads((tmp_path / 'lib' / 'ledger.json').read_text())
+    assert not ledger.get('source_maps')
+    assert manifest['historical_source_maps_recovered'] == 1
+    assert manifest['source_maps_downloaded'] == 0
+    assert len(calls) == 5
+
+
+@pytest.mark.parametrize('with_content', [True, False])
+def test_exact_missing_map_recovery_is_unverified_historical_and_cached(tmp_path, with_content):
+    map_url = BUNDLE + '.map'
+    document = {'version': 3, 'sources': ['src/main.ts']}
+    if with_content:
+        document['sourcesContent'] = ['export const historical = true;']
+    map_body = json.dumps(document).encode()
+    archive_calls = []
+
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        archive_calls.append(url)
+        headers = {k.lower(): v for k, v in request.header_items()}
+        assert set(headers) <= {'user-agent', 'accept'}
+        if url.startswith('https://web.archive.org/cdx/search/cdx?'):
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+            assert params == {'url': [map_url], 'matchType': ['exact'], 'output': ['json'],
+                              'fl': ['timestamp,original,statuscode,digest'], 'filter': ['statuscode:200'], 'limit': ['2']}
+            return Response(cdx(map_url, STAMP))
+        assert url == replay(map_url)
+        return Response(map_body)
+
+    options = ['--source-map-wayback', 'auto', '--header', 'Cookie: session=private',
+               '--header', 'Authorization: Bearer private', '--header', 'Host: app.example.com',
+               '--header', 'X-Researcher: private']
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        first, _ = inventory(tmp_path, *options)
+        rows, manifest = inventory(tmp_path, *options, run='again')
+    assert len(archive_calls) == 2
+    assert first[0]['source_map_status'] == 'fetch_failed'
+    history = rows[0]['source_map_history']
+    assert history['status'] == 'cached'
+    assert history['archived_bundle_sha256'] == ''
+    assert history['current_bundle_match_verified'] is False
+    assert history['embedded_source_recovered'] is with_content
+    assert manifest['source_map_wayback']['requests'] == 0
+    assert manifest['historical_source_maps_reused'] == 1
+    modules = J.read_jsonl(tmp_path / 'again' / 'source_map_modules.jsonl')
+    assert modules[0]['source'] == 'src/main.ts'
+    assert bool(modules[0]['packet_paths']) is with_content
+    assert not json.loads((tmp_path / 'lib' / 'ledger.json').read_text()).get('source_maps')
+
+
+def test_exact_archived_bundle_hash_verifies_only_bundle_bytes(tmp_path):
+    body = b'const x=1;\n//# sourceMappingURL=app.js.map'
+    map_url = BUNDLE + '.map'
+
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            # Invalid authoritative header suppresses the live comment declaration.
+            return Response(body, headers={'SourceMap': 'data:invalid'})
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        return Response(body if url == replay(BUNDLE) else MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto')
+    history = rows[0]['source_map_history']
+    assert history['original_map_url'] == map_url
+    assert history['current_bundle_match_verified'] is True
+    assert history['archived_bundle_sha256'] == rows[0]['sha256']
+    assert Path(history['bundle_artifact_path']).read_bytes() == body
+    module = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')[0]
+    packet = Path(module['packet_paths'][0]).read_text()
+    assert 'SHA256 verified' in packet
+    assert 'not a verified build binding' in packet
+
+
+@pytest.mark.parametrize('body', [
+    'const t=`outer ${`inner\n//# sourceMappingURL=fake.map\n`} tail`;',
+    'const t=`outer ${ {key: `inner /*# sourceMappingURL=fake.map */`} } tail`;',
+])
+def test_nested_template_decoys_do_not_become_comments(body):
+    assert J.last_source_map_directive('//# sourceMappingURL=real.map\n' + body) == 'real.map'
+
+
+def test_unavailable_live_bundle_can_recover_historical_declaration(tmp_path):
+    old = b'//# sourceMappingURL=app.js.map'
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            raise urllib.error.URLError(TimeoutError('private'))
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        return Response(old if url == replay(BUNDLE) else MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto')
+    assert len(rows) == 1
+    assert rows[0]['source_map_history']['status'] == 'recovered'
+    assert rows[0]['source_map_history']['current_bundle_match_verified'] is False
+    assert rows[0]['source_map_history']['current_bundle_sha256'] == ''
+    assert not json.loads((tmp_path / 'lib' / 'ledger.json').read_text()).get('urls', {}).get(BUNDLE)
+
+
+@pytest.mark.parametrize('extra', [[], ['--source-map-wayback', 'off'],
+                                  ['--source-map-wayback', 'auto', '--source-maps', 'off']])
+def test_archive_is_never_contacted_without_both_opt_ins(tmp_path, extra):
+    calls = []
+    def open_response(request, timeout):
+        calls.append(request.full_url)
+        assert request.full_url == BUNDLE
+        return Response(b'const x = true;')
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, *extra)
+    assert calls == [BUNDLE]
+    assert rows[0]['source_map_history']['status'] == 'disabled'
+    assert manifest['source_map_wayback']['requests'] == 0
+
+
+@pytest.mark.parametrize(('index', 'reason'), [
+    (404, 'http_404'), (429, 'http_429'), (503, 'http_503'), (302, 'http_302'),
+    (ssl.SSLError('private'), 'tls'), (TimeoutError('private'), 'timeout'),
+    (urllib.error.URLError('private'), 'transport'), (b'bad json', 'invalid_index'),
+    (b'x' * 2048, 'oversize'), (cdx(BUNDLE), 'empty_index'),
+])
+def test_archive_index_failures_remain_distinct(tmp_path, index, reason):
+    archive_calls = []
+    def open_response(request, timeout):
+        if request.full_url == BUNDLE:
+            return Response(b'const x=true;')
+        archive_calls.append(request.full_url)
+        assert '/cdx/search/cdx?' in request.full_url
+        if isinstance(index, int):
+            raise urllib.error.HTTPError(request.full_url, index, 'private', Message(), io.BytesIO(b'private'))
+        if isinstance(index, Exception):
+            raise index
+        return Response(index)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', '--source-map-wayback-max-bytes', '1024')
+    assert len(archive_calls) == 1
+    assert rows[0]['source_map_history']['reason'] == reason
+    assert rows[0]['source_map_history']['status'] == 'not_recovered'
+    assert manifest['historical_source_maps_recovered'] == 0
+
+
+@pytest.mark.parametrize('row', [
+    [STAMP, 'https://outside.invalid/steal', '200', 'A' * 32],
+    [STAMP, BUNDLE + '?other=1', '200', 'A' * 32],
+    ['20249999000000', BUNDLE, '200', 'A' * 32],
+    ['2024/../../host', BUNDLE, '200', 'A' * 32],
+    [STAMP, BUNDLE, '302', 'A' * 32],
+    [STAMP, BUNDLE, '200', 'not-a-digest'],
+])
+def test_hostile_cdx_rows_cannot_supply_a_fetch_url(tmp_path, row):
+    payload = json.dumps([['timestamp', 'original', 'statuscode', 'digest'], row]).encode()
+    calls = []
+    def open_response(request, timeout):
+        calls.append(request.full_url)
+        if request.full_url == BUNDLE:
+            return Response(b'const x=1;')
+        assert '/cdx/' in request.full_url
+        return Response(payload)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto')
+    assert len(calls) == 2
+    assert rows[0]['source_map_history']['reason'] == 'invalid_index'
+
+
+def test_archive_429_halts_all_later_assets(tmp_path):
+    urls = [BUNDLE, 'https://app.example.com/static/next.js']
+    calls = []
+    def open_response(request, timeout):
+        if request.full_url in urls:
+            return Response(b'const x=1;')
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 429, '', Message(), io.BytesIO())
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', urls=urls)
+    assert len(calls) == 1
+    assert [r['source_map_history']['reason'] for r in rows] == ['http_429', 'http_429']
+    assert manifest['source_map_wayback']['stopped_reason'] == 'http_429'
+
+
+@pytest.mark.parametrize('options', [
+    ['--source-map-wayback-max-requests', '1'],
+    ['--source-map-wayback-max-total-bytes', '16'],
+    ['--source-map-wayback-max-captures', '1'],
+])
+def test_archive_run_budgets_are_enforced(tmp_path, options):
+    calls = []
+    def open_response(request, timeout):
+        if request.full_url == BUNDLE:
+            return Response(b'const x=1;')
+        calls.append(request.full_url)
+        assert '/cdx/' in request.full_url or len(calls) > 1
+        return Response(cdx(BUNDLE, STAMP, '20230102030405'))
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', *options)
+    assert manifest['historical_source_maps_recovered'] == 0
+    summary = manifest['source_map_wayback']
+    assert summary['requests'] <= summary['max_requests']
+    assert summary['bytes_read'] <= summary['max_total_bytes']
+    if options[0] == '--source-map-wayback-max-captures':
+        assert len(calls) == 1  # Server ignored limit: reject entire response.
+        assert rows[0]['source_map_history']['reason'] == 'invalid_index'
+
+
+@pytest.mark.parametrize('original', ['https://outside.invalid/a.js', BUNDLE + '#inline-script-1',
+                                     'https://user:private@app.example.com/app.js', BUNDLE + '?q=*'])
+def test_archive_original_scope_is_checked_before_query(tmp_path, original):
+    args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto'])
+    recovery = J.WaybackRecovery(args, ['example.com'], {}, tmp_path)
+    with patch.object(J, 'http_get_limited') as fetch:
+        assert recovery.captures(original, []) == []
+    fetch.assert_not_called()
+
+
+@pytest.mark.parametrize(('failure', 'reason'), [
+    (404, 'http_404'), (429, 'http_429'), (302, 'http_302'),
+    (ssl.SSLError('private'), 'tls'), (TimeoutError('private'), 'timeout'),
+    (b'bad map', 'invalid'), (b'x' * 2048, 'oversize'),
+])
+def test_archived_map_failure_is_not_silently_an_empty_index(tmp_path, failure, reason):
+    map_url = BUNDLE + '.map'
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP) if original == map_url else cdx(original))
+        assert url == replay(map_url)
+        if isinstance(failure, int):
+            raise urllib.error.HTTPError(url, failure, '', Message(), io.BytesIO())
+        if isinstance(failure, Exception):
+            raise failure
+        return Response(failure)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto', '--source-map-wayback-max-bytes', '1024')
+    history = rows[0]['source_map_history']
+    assert any(a['operation'] == 'map' and a['reason'] == reason for a in history['attempts'])
+    assert history['status'] == 'not_recovered'
+    assert not json.loads((tmp_path / 'lib' / 'ledger.json').read_text()).get('source_maps')
+
+
+def test_historical_packet_and_expansion_budgets_and_lowered_cache_cap(tmp_path):
+    map_url = BUNDLE + '.map'
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        if '/cdx/' in url:
+            return Response(cdx(map_url, STAMP))
+        return Response(MAP)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        _, first = inventory(tmp_path, '--source-map-wayback', 'auto', '--source-map-max-packets', '0')
+        modules = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')
+        assert modules[0]['packet_status'] == 'truncated_by_budget'
+        assert first['historical_source_map_packets'] == 0
+        _, second = inventory(tmp_path, '--source-map-wayback', 'auto', run='second')
+        assert second['historical_source_map_packets'] == 1
+        rows, third = inventory(tmp_path, '--source-map-wayback', 'auto', '--source-map-max-bytes', '10', run='third')
+    assert third['historical_source_map_packets'] == 0
+    assert rows[0]['source_map_history']['reason'] == 'oversize'
+    assert rows[0]['source_map_history']['embedded_source_recovered'] is False
+    assert J.read_jsonl(tmp_path / 'third' / 'source_map_modules.jsonl') == []
+
+
+def test_archive_transport_keeps_environment_proxy_tls_and_no_redirects(tmp_path):
+    real_build = J.urllib.request.build_opener
+    openers = []
+    def build(*handlers):
+        opener = real_build(*handlers)
+        openers.append(opener)
+        return opener
+    proxy = 'http://proxy.invalid:8888'
+    with patch.object(J.urllib.request, 'getproxies', return_value={'http': proxy, 'https': proxy}), \
+         patch.object(J.urllib.request, 'build_opener', side_effect=build), \
+         patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(b'{}')):
+        J.http_get_limited(replay(BUNDLE), timeout=7, max_bytes=100, include_program_headers=False)
+    handlers = openers[0].handlers
+    assert any(isinstance(h, J.urllib.request.ProxyHandler) and h.proxies['https'] == proxy for h in handlers)
+    assert any(isinstance(h, J.NoRedirectHandler) for h in handlers)
+    tls = next(h for h in handlers if isinstance(h, J.urllib.request.HTTPSHandler))
+    assert tls._context is None  # urllib's verified default, not a custom insecure SSL context.
+
+
+def test_failed_archived_map_transport_is_not_retried_for_another_bundle_capture(tmp_path):
+    map_url = BUNDLE + '.map'
+    map_calls = []
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'const current=true;')
+        if '/cdx/' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            return Response(cdx(original, STAMP, '20230102030405') if original == BUNDLE else cdx(original, STAMP))
+        if url.startswith('https://web.archive.org/web/') and url.endswith(BUNDLE):
+            return Response(b'//# sourceMappingURL=app.js.map')
+        assert url == replay(map_url)
+        map_calls.append(url)
+        raise ssl.SSLError('private')
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto')
+    assert len(map_calls) == 1
+    assert rows[0]['source_map_history']['reason'] == 'tls'
+
+
+def test_incomplete_map_response_is_safe_transport_diagnostic(tmp_path):
+    import http.client
+    def open_response(request, timeout):
+        if request.full_url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        raise http.client.IncompleteRead(b'private', 100)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, _ = inventory(tmp_path)
+    assert rows[0]['source_map_reason'] == 'transport'
+    assert rows[0]['source_map_status'] == 'fetch_failed'
+
+
+def test_archive_honors_timeout_delay_and_expanded_source_cap(tmp_path):
+    map_url = BUNDLE + '.map'
+    calls = []
+    def open_response(request, timeout):
+        assert timeout == 7
+        calls.append(request.full_url)
+        if request.full_url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if request.full_url == map_url:
+            raise urllib.error.HTTPError(map_url, 404, '', Message(), io.BytesIO())
+        if '/cdx/' in request.full_url:
+            return Response(cdx(map_url, STAMP))
+        return Response(MAP)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response), \
+         patch.object(J.time, 'sleep') as sleep:
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', '--timeout', '7', '--delay', '0.25',
+                                   '--source-map-max-expanded-bytes', '1')
+    assert sleep.call_count == len(calls) == 4
+    assert all(call.args == (0.25,) for call in sleep.call_args_list)
+    assert rows[0]['source_map_history']['status'] == 'recovered'
+    assert manifest['historical_source_map_packets'] == 0
+    modules = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')
+    assert modules[0]['packet_status'] == 'truncated_by_budget'
+
+
+@pytest.mark.parametrize('mode', ['off', 'live_success'])
+def test_historical_cache_never_enables_traffic_or_overrides_live_map(tmp_path, mode):
+    map_url = BUNDLE + '.map'
+    live_map = json.dumps({'version': 3, 'sources': ['live.ts']}).encode()
+    archive_calls = []
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            if mode == 'live_success' and (tmp_path / 'out' / 'manifest.json').exists():
+                return Response(live_map)
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        archive_calls.append(url)
+        return Response(cdx(map_url, STAMP) if '/cdx/' in url else MAP)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        inventory(tmp_path, '--source-map-wayback', 'auto')
+        rows, manifest = inventory(tmp_path, *(['--source-map-wayback', 'auto'] if mode == 'live_success' else []), run='again')
+    assert len(archive_calls) == 2
+    assert manifest['source_map_wayback']['requests'] == 0
+    assert rows[0]['source_map_history']['status'] == ('not_needed' if mode == 'live_success' else 'disabled')
+    if mode == 'live_success':
+        assert rows[0]['source_map_sha256'] == hashlib.sha256(live_map).hexdigest()
+        assert not J.read_jsonl(tmp_path / 'again' / 'source_map_modules.jsonl')[0]['historical']
+
+
+@pytest.mark.parametrize('budget', ['packets', 'bytes', 'modules'])
+def test_source_module_budget_is_checked_before_chunk_allocation(tmp_path, budget):
+    record = J.JsRecord(BUNDLE, 200, 'application/javascript', 1, 'a' * 64, '')
+    modules = [{'source_index': 0, 'source': 'large.ts', 'source_root': '', 'source_label': 'large.ts',
+                'has_content': True, 'content': 'x' * 10000}]
+    with patch.object(J, 'chunk_text', side_effect=AssertionError('over-budget chunks must not be allocated')):
+        rows, packets, summary = J.write_source_map_modules(
+            root=tmp_path, source_maps_dir=tmp_path / 'maps', record=record,
+            source_map_sha256='b' * 64, modules=modules, chunk_size=1, chunk_overlap=0,
+            module_limit=0 if budget == 'modules' else 1,
+            max_packets=0 if budget == 'packets' else 20000,
+            max_expanded_bytes=0 if budget == 'bytes' else 20000)
+    assert rows[0]['source'] == 'large.ts'
+    assert rows[0]['packet_status'] == 'truncated_by_budget'
+    assert not packets and summary['expanded_bytes'] == 0
+
+
+@pytest.mark.parametrize("prefix", [
+    'const s="' + 'a' * 3500 + '";\n',
+    "const s='" + 'a' * 3500 + "';\n",
+    'const s=`' + 'a\n' * 3500 + '`;\n',
+    '/* ' + 'a' * 3500 + ' */\n',
+    'const r=/[' + 'a' * 3500 + '//]/;\n',
+], ids=['double', 'single', 'template', 'comment', 'regex'])
+def test_directive_after_arbitrary_old_tail_boundary(prefix):
+    assert J.last_source_map_directive(prefix + '//# sourceMappingURL=real.js.map\n') == 'real.js.map'
+
+
+@pytest.mark.parametrize("decoy", [
+    'const s="' + 'a' * 3500 + '//# sourceMappingURL=fake.map";',
+    'const s=`' + 'a\n' * 3500 + '/*# sourceMappingURL=fake.map */`;',
+    'const r=/[' + 'a' * 3500 + '//# sourceMappingURL=fake.map]/;',
+], ids=['string', 'template', 'regex'])
+def test_long_lexical_decoys_do_not_override_comment(decoy):
+    assert J.last_source_map_directive('//@ sourceMappingURL=real.map\n' + decoy) == 'real.map'

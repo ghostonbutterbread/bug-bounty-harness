@@ -706,6 +706,12 @@ disposable run-scoped profile directory: absent (if deletion was requested)
 ```
 
 Never delete a persistent account profile as part of ordinary browser release.
+Do not mount or copy a Chromium user-data directory into another browser engine.
+Cookie import into an engine-native disposable session, if separately authorized,
+proves only cookie transport—not authenticated identity, transferable storage,
+or permission for concurrent same-account sessions. Check the selected program's
+session policy and verify the principal in that browser before any target work;
+otherwise remain with the exact leased Chromium profile.
 If a disposable-profile cleanup helper removes its directory while its
 Chromium root is still alive, treat cleanup as incomplete: stop the exact root,
 confirm CDP is closed, and recheck disposable directory absence.

@@ -1,6 +1,6 @@
 # JavaScript source-map discovery and Wayback recovery
 
-- **Status:** parser replacement locally verified; fresh independent release review pending. Not integrated or activated.
+- **Status:** BLOCKED by fresh independent release review of candidate d300b610c770a1ebfab1a3583d917bb6639cd96e: Content-Length premature EOF is accepted as complete archive evidence. Parser checks pass, but acquisition correctness blocks integration. Not integrated or activated.
 - **Owner / task:** Hermes / t_9b4400cf
 - **Feature:** fix/js-source-map-discovery-wayback
 - **Worktree:** /home/ryushe/projects/bug_bounty_harness/.worktrees/t_9b4400cf
@@ -73,6 +73,123 @@ Optional executable receipt: `/home/ryushe/.hermes/cache/scratch/js_map_parser_r
 
 No real program/archive requests, private corpus mutations, beta changes, pushes or Hoster/runtime activation occurred. Package provisioning affected only the owned task environment. Actual Wayback availability and private-corpus map recovery remain unverified; a separately authorized scoped live smoke is required to establish that evidence. Earlier private-corpus detector counts concern an older heuristic checkpoint, not a new claim for this parser.
 
-Resume from immutable implementation `41f90e331e0010cd21cbc4d09956cb123db51d29` and the later dossier-only feature tip. The fresh independent release owner must review the full feature, rerun checks, fetch current beta and establish exact-tree beta execution compatibility. Last fetched `origin/beta` was `f98f538344a4c0673b48052b519c87446bc605d1`; root integration checkout `/home/ryushe/projects/bug_bounty_harness` remained beta `73d83c730cef6343e0c61d5d0ddcc70a416490d3`, with no tracked edits and unrelated nested worktrees to preserve. These target facts must be fetched/rechecked, not assumed current at merge.
+Current resume point: implementation owner must correct the premature-EOF defect below on this feature branch, preserve its RED receipt, add maintained positive/negative regressions, and request a fresh independent gate of the new implementation commit. No implementation repair was made by this reviewer. Candidate `d300b610c770a1ebfab1a3583d917bb6639cd96e` remains BLOCKED. The later feature-tip commit changes only this dossier. `origin/beta` was fetched again as `f98f538344a4c0673b48052b519c87446bc605d1`; the root integration checkout remains local beta `73d83c730cef6343e0c61d5d0ddcc70a416490d3`, with no tracked edits and unrelated untracked nested checkouts preserved. No beta preflight or integration mutation was attempted because feature acceptance failed.
 
 Only if accepted, follow the normal clean/current-beta preflight, remove this temporary dossier from the target, verify staged tree/checks, then perform the intentional beta-only merge and `git push origin beta` from beta's integration worktree. No helper lane, HEAD:beta, force push or main promotion. Material code conflict resolution needs its own independent review; do not nest a reviewer. Record final verdict and residual live evidence on the feature before accepted integration. The parent retains remote readback, Kanban closure and clean contained feature cleanup. Runtime/skill activation remains a separate explicit decision; provision the selected runtime's root manifest and verify actual source/env before any later activation.
+
+## Fresh independent gate — 2026-10-23: BLOCKED
+
+- Reviewed candidate commit `d300b610c770a1ebfab1a3583d917bb6639cd96e`, tree `345a375e61758c38d4fe7019c4f259b9ce0443b3`, against base `73d83c730cef6343e0c61d5d0ddcc70a416490d3`. Read the complete current dossier, all seven changed paths, local instructions and current-beta changes. Verified object types, implementation/base ancestry, and that implementation checkpoint `41f90e331e0010cd21cbc4d09956cb123db51d29` to candidate is dossier-only.
+- Independent interpreter/import readback selects this feature's `agents/js_analyzer.py` and `.venv/bin/python`; installed tree-sitter 0.26.0 / tree-sitter-javascript 0.25.0 match root pins, bounty-core direct_url commit is `6c36ee88a60073e1b687ec32deeade24ffafdd4f`. Manifest mtime 1792738605.5454807 precedes environment config mtime 1792738639.7383986; resolved versions, not mtime alone, establish the match.
+- Exact unfiltered broader command above: **759 passed, 2 failed in 72.16s**. Independently hash-compared all **910** exported baseline blobs against `git ls-tree -r` IDs from the real feature repository: no mismatches. Same feature interpreter, baseline cwd and baseline source FIRST on PYTHONPATH reproduced the exact two known stack-to-program nodes: **2 failed in 0.14s**. These are baseline-only, not an unfiltered green receipt.
+- Original three reviewer suites: **15 passed in 1.83s**. CLI `inventory --help` and `git diff --check` pass. No parser regression found in exercised contracts; this is not a future-syntax or private-corpus guarantee.
+
+### Concrete blocker: premature Content-Length EOF publishes incomplete archive bytes
+
+Owner: `agents/js_analyzer.py:599-600` (`http_get_limited`), consumed by `WaybackRecovery.fetch`, `recover_map`, and archived-bundle `recover`.
+
+`resp.read(max_bytes + 1)` uses an explicit amount. A real `http.client.HTTPResponse` can return fewer bytes on premature EOF without raising `IncompleteRead` for a Content-Length-framed response. The helper only compares against the maximum and never checks declared completion. Thus a body shorter than Content-Length returns status 200 / reason `ok`. The existing exception-only partial-read handling does not cover this path. The old limited-fetch helper also used an amount; the release blocker is the new archive evidence path and its explicitly promised incomplete-artifact rejection, not a claim that the primitive first appeared in this candidate.
+
+Offline reproducer patches only `OpenerDirector.open` with a **real standard-library HTTPResponse** over an in-memory HTTP wire fixture; no program/archive network traffic occurs. It declares exactly 100 bytes more than delivered. This is adversarial test input, not claimed live evidence.
+
+Observed on this candidate:
+
+1. Limited fetch accepts **85 delivered bytes** with reason `ok` despite Content-Length **185**. The same decoder/fixture with exact Content-Length is a passing positive control.
+2. Exact archived-map recovery publishes that incomplete response as a content-addressed `.map`, records `status=recovered`, `reason=ok`, `embedded_source_recovered=true`, and emits one historical source packet.
+3. Archived-bundle recovery similarly hashes/writes the incomplete JavaScript prefix as the archived bundle, follows its declaration, and records successful historical recovery/packet output. A syntactically usable prefix is not proof of complete acquisition.
+
+Command (feature cwd and feature source first):
+
+```bash
+PYTHONPATH="$PWD" .venv/bin/python -m pytest /home/ryushe/.hermes/cache/scratch/test_js_map_fourth_release_review.py -q --tb=short --show-capture=no
+```
+
+Result: **3 failed, 1 passed in 2.01s**. Failing nodes:
+
+- `test_content_length_completion_checked_by_limited_fetch[100]`
+- `test_incomplete_archive_payload_is_not_published[map]`
+- `test_incomplete_archive_payload_is_not_published[bundle]`
+
+Required follow-up is completion-aware bounded transport handling: reject/discard incomplete payloads while retaining safe diagnostics and charged consumed/reserved budget; do not repair this by trusting JSON/JS validity or relaxing tests. Add maintained regressions for map, bundle and index completion with complete-response controls, retaining existing chunked/uncertain-read and oversize/budget behavior. Then rerun focused and exact broader checks and obtain a fresh independent feature verdict. No beta compatibility receipt, staged tree, merge or push exists for this blocked candidate; target parent remains the fetched beta above. Live archive/private-corpus evidence remains separately authorized and deferred. No activation occurred.
+
+### Recoverable exact fourth-gate fixture
+
+If scratch is pruned, write the following block to a scratch `test_js_map_fourth_release_review.py` and run the command above from the feature checkout. It imports only maintained test helpers plus standard-library/pytest modules. This source is preserved in the dossier-only verdict commit; its RED assertions must not be silently relabelled as passing observations.
+
+```python
+"""Offline release gate: premature EOF with Content-Length using real HTTPResponse.
+No sockets or live requests: patch only opener.open, not transport decoding.
+"""
+import http.client
+import io
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from agents import js_analyzer as J
+from agents.test_js_analyzer_wayback import BUNDLE, MAP, STAMP, Response, cdx, inventory, replay
+
+
+class WireSocket:
+    def __init__(self, body, declared_length):
+        self.wire = (f'HTTP/1.1 200 OK\r\nContent-Length: {declared_length}\r\n'
+                     'Content-Type: application/json\r\n\r\n').encode() + body
+
+    def makefile(self, *args):
+        return io.BytesIO(self.wire)
+
+
+def wire_response(body, missing=0):
+    response = http.client.HTTPResponse(WireSocket(body, len(body) + missing))
+    response.begin()
+    return response
+
+
+@pytest.mark.parametrize('missing', [0, 100])
+def test_content_length_completion_checked_by_limited_fetch(missing):
+    response = wire_response(MAP, missing)
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=response):
+        result = J.http_get_limited(replay(BUNDLE + '.map'), timeout=1, max_bytes=4096,
+                                    include_program_headers=False)
+    if missing:
+        assert result[0] == b'', f'incomplete HTTP payload accepted: {len(result[0])} bytes, reason={J.fetch_reason(result)}'
+        assert J.fetch_reason(result) == 'transport'
+    else:
+        assert result[0] == MAP and J.fetch_reason(result) == 'ok'
+
+
+@pytest.mark.parametrize('partial_kind', ['map', 'bundle'])
+def test_incomplete_archive_payload_is_not_published(tmp_path, partial_kind):
+    archived_js = b'const old=true;\n//# sourceMappingURL=app.js.map\n'
+    map_url = BUNDLE + '.map'
+
+    def open_response(request, timeout):
+        url = request.full_url
+        if url == BUNDLE:
+            if partial_kind == 'map':
+                return Response(b'//# sourceMappingURL=app.js.map')
+            return Response(b'const current=true;')
+        if url == map_url:
+            raise J.urllib.error.HTTPError(url, 404, '', {}, io.BytesIO())
+        if '/cdx/' in url:
+            original = J.urllib.parse.parse_qs(J.urllib.parse.urlsplit(url).query)['url'][0]
+            # Only map exists for the map-only path; both exist for bundle recovery.
+            stamps = [STAMP] if partial_kind == 'bundle' or original == map_url else []
+            return Response(cdx(original, *stamps))
+        if url == replay(BUNDLE):
+            return wire_response(archived_js, missing=100)
+        assert url == replay(map_url)
+        return wire_response(MAP, missing=100 if partial_kind == 'map' else 0)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto')
+    history = rows[0]['source_map_history']
+    artifacts = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob('*.map'))
+    assert history['status'] == 'not_recovered', (
+        f'premature EOF in {partial_kind} published: history={history!r}; map_artifacts={artifacts!r}')
+    assert manifest['historical_source_maps_recovered'] == 0
+    assert not artifacts
+    assert any(a['reason'] == 'transport' for a in history['attempts'])
+```
+

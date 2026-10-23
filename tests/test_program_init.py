@@ -177,15 +177,92 @@ def test_full_handoff_is_deterministic_and_pending(tmp_path: Path) -> None:
     assert second["refreshed"] == []
     data = json.loads(original)
     stages = {stage["id"]: stage for stage in data["stages"]}
-    assert list(stages) == ["full-recon", "js-url-acquisition", "katana-endpoints", "api-mapping",
-                            "public-docs", "recon-bus-promotion", "url-ingest-review"]
+    assert list(stages) == ["full-recon", "js-url-acquisition", "katana-endpoints", "public-docs",
+                            "api-mapping", "api-reconciliation", "parameter-mining", "recon-bus-promotion", "url-ingest-review"]
+    assert stages["js-url-acquisition"]["depends_on"] == []
     assert stages["katana-endpoints"]["depends_on"] == ["js-url-acquisition"]
     assert "-jc" in stages["katana-endpoints"]["task"]
-    assert "completed comparable" in stages["full-recon"]["task"]
+    assert "baseline freshness" in stages["full-recon"]["task"]
+    assert stages["parameter-mining"]["depends_on"] == ["full-recon", "js-url-acquisition", "api-reconciliation", "public-docs"]
+    assert stages["api-mapping"]["depends_on"] == ["js-url-acquisition", "katana-endpoints", "public-docs"]
+    assert stages["api-reconciliation"]["depends_on"] == ["full-recon", "api-mapping"]
+    assert "Recon Bus append or promote-run" in stages["recon-bus-promotion"]["task"]
+    assert "--no-probe" in stages["recon-bus-promotion"]["task"]
     assert stages["recon-bus-promotion"]["status"] == "pending-prerequisites"
     assert all(stage["status"].startswith("pending-") for stage in stages.values())
     assert "does not spawn Hermes subagents" in data["execution_boundary"]
     assert data["scope"]["urls"] == ["https://api.demo.test/v1"]
+    assert data["schema_version"] == 2
+
+
+@pytest.mark.parametrize("mode,expected,docs", [
+    ("js", ["full-recon", "js-url-acquisition", "recon-bus-promotion", "url-ingest-review"], False),
+    ("api", ["full-recon", "js-url-acquisition", "katana-endpoints", "public-docs", "api-mapping",
+             "recon-bus-promotion", "url-ingest-review"], True),
+    ("params", ["full-recon", "js-url-acquisition", "katana-endpoints", "public-docs", "api-mapping",
+                "parameter-mining", "recon-bus-promotion", "url-ingest-review"], True),
+])
+def test_focused_mode_dependency_handoff(tmp_path: Path, mode: str, expected: list[str], docs: bool) -> None:
+    with patch.object(program_init, "_read_scope", return_value=({"*.demo.test"}, {"https://api.demo.test"})):
+        result = program_init.initialize_program(
+            "demo", lanes=["web"], shared_root=tmp_path / "Shared", artifact_root=tmp_path / "artifacts",
+            platform="bugcrowd", skip_scope=False, dry_run=True, mode=mode)
+    handoff = result["handoff"]
+    assert isinstance(handoff, dict)
+    stages = {stage["id"]: stage for stage in handoff["stages"]}
+    assert str(result["handoff_path"]).endswith(f"init-{mode}-handoff.json")
+    assert handoff["mode"] == mode
+    assert list(stages) == expected
+    assert ("public-docs" in stages) is docs
+    assert stages["js-url-acquisition"]["depends_on"] == ["full-recon"]
+    if "api-mapping" in stages:
+        assert stages["api-mapping"]["depends_on"] == ["full-recon", "js-url-acquisition", "katana-endpoints", "public-docs"]
+    assert stages["recon-bus-promotion"]["depends_on"] == expected[:-2]
+    assert not (tmp_path / "Shared").exists()
+
+
+def test_js_mode_can_opt_into_docs(tmp_path: Path) -> None:
+    with patch.object(program_init, "_read_scope", return_value=({"demo.test"}, set())):
+        result = program_init.initialize_program(
+            "demo", lanes=["web"], shared_root=tmp_path / "Shared", artifact_root=tmp_path / "artifacts",
+            platform="hackerone", skip_scope=False, dry_run=True, mode="js", include_docs=True)
+    handoff = result["handoff"]
+    assert isinstance(handoff, dict)
+    assert "public-docs" in {stage["id"] for stage in handoff["stages"]}
+
+
+def test_focused_handoff_writes_once_and_refreshes_without_target_traffic(tmp_path: Path) -> None:
+    kwargs: dict[str, Any] = dict(lanes=["web"], shared_root=tmp_path / "Shared", artifact_root=tmp_path / "artifacts",
+                                  platform="bugcrowd", skip_scope=False, dry_run=False, mode="params")
+    with patch.object(program_init, "pull_scope", return_value=object()) as pull, patch.object(
+        program_init, "_read_scope", return_value=({"demo.test"}, set())
+    ) as read_scope:
+        first = program_init.initialize_program("demo", **kwargs)
+        path = Path(first["handoff_path"])
+        assert path.exists()
+        assert first["handoff"] == json.loads(path.read_text())
+        second = program_init.initialize_program("demo", **kwargs)
+        read_scope.return_value = ({"api.demo.test"}, set())
+        third = program_init.initialize_program("demo", **kwargs)
+    assert pull.call_count == 3
+    assert str(path) in first["created"]
+    assert second["refreshed"] == []
+    assert third["refreshed"] == [str(path)]
+    assert json.loads(path.read_text())["scope"]["domains"] == ["api.demo.test"]
+    assert not (tmp_path / "Shared" / "web_bounty" / "demo" / "web" / "recon" / "aggregated").exists()
+
+
+@pytest.mark.parametrize("mode", ["js", "api", "params"])
+def test_focused_modes_reject_missing_scope_before_layout(tmp_path: Path, mode: str) -> None:
+    with patch.object(program_init, "pull_scope", return_value=object()), patch.object(
+        program_init, "_read_scope", return_value=(set(), set())
+    ):
+        with pytest.raises(ValueError, match="non-empty saved scope"):
+            program_init.initialize_program(
+                "demo", lanes=["web"], shared_root=tmp_path / "Shared",
+                artifact_root=tmp_path / "artifacts", platform="bugcrowd", skip_scope=False,
+                dry_run=False, mode=mode)
+    assert not (tmp_path / "Shared").exists()
 
 
 def test_full_docs_explicit_and_basic_unchanged(tmp_path: Path) -> None:

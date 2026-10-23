@@ -5,6 +5,7 @@ Owner: Hermes / BBH
 Branch: `feat/scratch-scripts-t66ff4122`
 Base: `origin/beta` at `43a81c325750c09ebe1ce51c0f78a086c12de032`
 Target: `beta`
+Implementation checkpoint: `9cbadd1` on `feat/scratch-scripts-t66ff4122`; reconciled with beta `9f17c67` by merge `cfa2add`.
 
 ## Intent and contract
 
@@ -16,4 +17,4 @@ RED: initial 3 tests failed on absent CLI; describe test failed on absent subcom
 
 ## Activation and next action
 
-Run focused/adjacent checks, inspect changed-path boundary, independent review, correct findings, commit feature. Fetch beta before integration; merge into clean current beta checkout, remove this temporary dossier on beta, test, push, then verify selected Hoster runtime and active skill route separately. Existing agents may retain loaded instructions.
+Final independent review on reconciled `cfa2add` is pending. If accepted, commit any dossier correction on feature, fetch beta, integrate into a clean current beta checkout, remove this temporary dossier on beta, test, publish, then verify selected Hoster runtime and active skill route separately. Existing agents may retain loaded instructions.

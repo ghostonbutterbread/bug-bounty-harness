@@ -343,9 +343,14 @@ Script responsibilities:
   over noisy "token/password/secret" matches
 - store chunk sets by file hash plus chunk settings, then write bounded packet
   files for agents
-- when an in-scope bundle declares `sourceMappingURL`, fetch its map by default,
-  retain it content-addressed under `_library/sourcemaps/`, and inventory every
-  original module name in `source_map_modules.jsonl`
+- when an in-scope bundle declares a map, prefer the response `SourceMap`
+  header, then legacy `X-SourceMap`, then the last actual-comment
+  `sourceMappingURL`. Scan from the bundle's initial lexical state rather than
+  resetting inside an arbitrary tail slice. Retain the selected response header
+  per URL for cached runs; an authoritative invalid/external header does not
+  silently fall back to a comment. Fetch live maps by default, retain them
+  content-addressed under `_library/sourcemaps/`, and inventory every original
+  module name in `source_map_modules.jsonl`
 - turn embedded `sourcesContent` into bounded, module-level review packets so
   agents can map original source instead of treating minified bundles as the
   only available code; preserve the bundle URL/SHA and map SHA on every packet
@@ -397,12 +402,64 @@ bbh agents/js_analyzer.py inventory canva \
   --refresh
 ```
 
-Source maps are automatic for in-scope JavaScript. Use `--source-maps off` only
-when a run must avoid source-map retrieval; use `--source-map-max-bytes` or
-`--source-map-module-limit` when an explicitly scoped mapping task needs a
-larger bounded review set. Start source-map review from
-`source_map_modules.jsonl` and `source_map_packets/`; do not paste the raw map
-into an agent prompt.
+Source-map retrieval is automatic for in-scope declarations, not a guarantee
+that every map exists or was found. Use `--source-maps off` when a run must
+avoid retrieval; use `--source-map-max-bytes` or `--source-map-module-limit`
+when an explicitly scoped mapping task needs a larger bounded review set.
+Read `source_map_discovery`, `source_map_reason`, and `source_map_http_status`
+in metadata before interpreting `not_detected` or `fetch_failed`: HTTP 404/429,
+TLS/timeout/transport failures, invalid documents and oversize responses are
+not equivalent. A failed fetch does not prove a map was never published.
+
+### Wayback source-map fallback
+
+If live maps are unavailable, use the existing inventory with explicit archive
+opt-in when disclosure of the scoped asset URLs to Internet Archive is allowed:
+
+```bash
+bbh agents/js_analyzer.py inventory <program> \
+  --input <scoped-js-urls.txt> \
+  --target-host <approved-host> \
+  --source-map-wayback auto
+```
+
+`--source-map-wayback` defaults to `off`; `--source-maps off` also prevents
+archive work. Reprocess cached bundles without `--skip-cached-processing` to
+apply the repaired detector and fallback; `--refresh` additionally refetches
+live assets and bypasses successful historical-cache reuse. The fallback first
+checks the exact missing declared map URL, then selected archived versions of
+the exact original bundle for map declarations. It is not domain-wide archive
+enumeration or a guarantee of finding the latest capture. Relative map URLs
+resolve against the original bundle URL, not the archive replay wrapper.
+
+Archive requests preserve environment proxy routing and normal TLS verification
+but never carry program headers. Original bundle/map scope is checked before
+lookup and redirects are disabled. HTTP 429 halts remaining archive requests
+for that run; report it as blocked, not as an empty archive. Defaults are 20
+archive requests per run, two captures per lookup, 8 MiB per response and
+32 MiB total; CDX responses also have a 256 KiB cap. Override only deliberately
+with `--source-map-wayback-max-requests`, `--source-map-wayback-max-captures`,
+`--source-map-wayback-max-bytes`, and
+`--source-map-wayback-max-total-bytes`. Timeout/delay and existing map byte,
+module, packet and expansion caps still apply. Manifest `source_map_wayback`
+records requests, bytes, limits and the stop reason; exhausted budgets leave
+coverage incomplete.
+
+Review `source_map_history` for historical status, acquisition diagnostics,
+original/retrieval URLs, capture timestamps, map hash and archived/current JS
+hashes. Historical results use a separate ledger cache, not the live map URL
+cache; `historical_source_maps_recovered`, `historical_source_maps_reused`, and
+`historical_source_map_packets` are distinct from live counters. Module rows
+carry `historical` and `source_map_history`; packet inventory uses
+`historical_source_map_module`, and rendered packets have a HISTORICAL banner.
+A map recovered alone has unverified current-byte binding. Equal archived and
+current JS hashes verify those bundle bytes, not the map-to-build association.
+Maps naming sources without `sourcesContent` remain names-only, not recovered
+original text. Preserve these qualifications in every review handoff.
+
+Start review from `source_map_modules.jsonl` and `source_map_packets/`; do not
+paste raw maps into an agent prompt. Check `modules_with_content`,
+`embedded_source_recovered`, packet counts and budget omissions separately.
 
 After a worker reviews packets, write its pre-finding conclusions as JSONL and
 index them:

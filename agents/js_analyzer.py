@@ -949,7 +949,7 @@ class WaybackRecovery:
     def allowed(self, original: str) -> bool:
         return bool(self.scope_hosts and normalize_url(original) == original
                     and in_scope_url(original, self.scope_hosts)
-                    and not urllib.parse.urlsplit(original).username
+                    and urllib.parse.urlsplit(original).username is None
                     and not any(c.isspace() or c == "*" for c in original))
 
     def fetch(self, retrieval_url: str, operation: str, attempts: list[dict], max_bytes: int) -> tuple | None:
@@ -996,6 +996,9 @@ class WaybackRecovery:
             return []
         try:
             rows = json.loads(response[0].decode("utf-8"))
+            if rows == []:
+                # CDX may omit its header row when no captures match.
+                rows = [["timestamp", "original", "statuscode", "digest"]]
             if (not isinstance(rows, list) or not rows or rows[0] != ["timestamp", "original", "statuscode", "digest"]
                     or len(rows) > self.args.source_map_wayback_max_captures + 1):
                 raise ValueError("invalid index")

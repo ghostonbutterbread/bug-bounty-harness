@@ -287,7 +287,7 @@ def test_archive_is_never_contacted_without_both_opt_ins(tmp_path, extra):
     (404, 'http_404'), (429, 'http_429'), (503, 'http_503'), (302, 'http_302'),
     (ssl.SSLError('private'), 'tls'), (TimeoutError('private'), 'timeout'),
     (urllib.error.URLError('private'), 'transport'), (b'bad json', 'invalid_index'),
-    (b'x' * 2048, 'oversize'), (cdx(BUNDLE), 'empty_index'),
+    (b'x' * 2048, 'oversize'), (cdx(BUNDLE), 'empty_index'), (b'[]', 'empty_index'),
 ])
 def test_archive_index_failures_remain_distinct(tmp_path, index, reason):
     archive_calls = []
@@ -372,11 +372,13 @@ def test_archive_run_budgets_are_enforced(tmp_path, options):
 
 
 @pytest.mark.parametrize('original', ['https://outside.invalid/a.js', BUNDLE + '#inline-script-1',
-                                     'https://user:private@app.example.com/app.js', BUNDLE + '?q=*'])
+                                     'https://user:private@app.example.com/app.js',
+                                     'https://:private@app.example.com/app.js',
+                                     'https://@app.example.com/app.js', BUNDLE + '?q=*'])
 def test_archive_original_scope_is_checked_before_query(tmp_path, original):
     args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto'])
     recovery = J.WaybackRecovery(args, ['example.com'], {}, tmp_path)
-    with patch.object(J, 'http_get_limited') as fetch:
+    with patch.object(J, 'http_get_limited', return_value=(b'[]', 200, 'application/json', False)) as fetch:
         assert recovery.captures(original, []) == []
     fetch.assert_not_called()
 

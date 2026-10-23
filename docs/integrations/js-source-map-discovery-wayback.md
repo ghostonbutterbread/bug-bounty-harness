@@ -116,8 +116,25 @@ Final unfiltered broader command: `PYTHONPATH="$PWD" .venv/bin/python -m pytest 
 - Upstream beta advanced after the assigned immutable base; no rebase/merge was attempted. Parent must preflight the exact implementation against current beta and obtain the separately dispatched independent release verdict.
 - Parent owns user-facing prompts/js-playbook.md and skills/js-pull/SKILL.md documentation. No prompt/skill/policy/dependency/unrelated source was edited here. No nested reviewer, Kanban lifecycle write, merge, push or deployment was performed.
 
+## Parent reconciliation and candidate gate
+
+Parent independently reran the builder checkpoint's focused suites: **295 passed in 67.90s**. Parent then added the user-facing archive invocation, defaults, failure interpretation and historical-evidence qualifications to `skills/js-pull/SKILL.md` and `prompts/js-playbook.md`.
+
+Two concrete edge cases were corrected before independent release review:
+
+- A valid empty CDX JSON array (`[]`) is now `empty_index`, not `invalid_index`.
+- Original URLs containing userinfo are rejected even when the username is empty (password-only or empty-userinfo authority). This prevents accidental URL-credential disclosure in archive queries.
+
+The parent added three parameter cases to the existing offline tests and observed **3 failed, 14 passed, 59 deselected in 11.16s**, specifically the diagnostic mismatch and two unexpected archive calls. After the minimal owning-boundary fixes, the same selector `archive_index_failures or archive_original_scope` returned **17 passed, 59 deselected in 8.27s**.
+
+The exact unfiltered broader command from the builder receipt, rerun after all parent code/test/guidance edits, returned **544 passed, 2 failed in 75.57s**. Parent independently reproduced both exact failing node IDs on an unchanged `git archive` of base `73d83c730cef6343e0c61d5d0ddcc70a416490d3` with the same pinned interpreter: **2 failed in 0.17s**. The two stack-to-program README defects are already recorded under `BUGFIXES.md` and are out of scope; no test was excluded, weakened, or relabelled as green. Independent release review must verify this disposition and reject new failures.
+
+An offline, read-only check ran the candidate's exact detector definition against the retained Krisp records previously marked `not_detected`: **199 inspected; 117 now detected; 82 still undetected**. It made no requests to the program, no artifact writes and no runtime changes. This proves declaration recovery, not that the referenced maps are retrievable or archived. No private source bytes were committed.
+
+Current fetched `origin/beta` at reconciliation was `f98f538`, with unrelated script-routing changes since the feature base. No source conflict or integration is implied; the release owner must fetch again and preflight the actual candidate against current clean beta.
+
 ## Recovery / review
 
-Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains exactly the implementation, directly associated test module and initial branch-local dossier. This later dossier-only handoff commit records that immutable checkpoint; reconcile its documentation-only diff separately from implementation. The feature branch is the recovery ref; no push was performed.
+Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains the initial implementation, directly associated test module and dossier. Subsequent parent code/test/guidance corrections are recorded in a coherent feature commit, followed by a dossier-only immutable checkpoint update. Reconcile both implementation and guidance against the actual feature tip.
 
-Resume at the parent-owned independent release gate: inspect base-to-checkpoint source/test changes, independently rerun the exact focused/broader commands above with the task-local interpreter and source-root isolation, and resolve or explicitly disposition the two base-reproduced unrelated documentation failures. The parent must add its user-facing documentation and preflight against current beta, then obtain review of the actual integration candidate. Integration, clean-beta preflight, Kanban closure, push and activation were not performed by this child.
+Resume at the separately dispatched independent release gate: rerun the exact focused/broader commands with the pinned task interpreter and worktree import isolation, review the source/header/archive/cache/provenance contracts and parent guidance, verify baseline-only failures, then follow the repository's normal beta preflight/integration/push/cleanup path only if accepted. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.

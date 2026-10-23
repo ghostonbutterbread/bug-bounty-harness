@@ -51,13 +51,15 @@ outputs, dependencies, virtualenvs, fixtures, and generated corpora should not.
   curated aggregate lists, sanitized request contracts, small reusable scripts.
 - `/mnt/bounty`: raw JS/source bundles, scraped pages, screenshots/videos, proxy
   flows/HARs, browser profiles, CDP traces, parser intermediates, long fuzz/recon
-  runs, redownloadable corpora with manifests.
+  runs, redownloadable corpora with manifests, and desktop-app installers or
+  unpacked binary bundles after checking for embedded secrets.
 - Scratch: active downloads, parser temp files, partial output, retry state, tool
   logs, throwaway experiments.
 - Restricted local evidence only: raw secret-bearing captures or exact sensitive
   proof when approved and protected with owner-only permissions.
 
-Open `references/storage-layout.md` for canonical layouts and path examples.
+Open `references/storage-layout.md` for canonical layouts, binary artifacts,
+and safe handling of existing bulk-artifact symlinks.
 Open `references/run-manifests.md` for large-run manifests, artifact maps,
 archive pointers, and handoff requirements.
 

@@ -11,7 +11,9 @@ when it helps explain the local application contract. An explicit error-focused
 hunt raises priority; it is not required for this default evidence-driven work.
 
 This skill records observed error behavior. It does not replace IDOR/BOLA,
-injection, auth, header, or client-side specialist testing.
+injection, auth, header, or client-side specialist testing. For cited background
+on interpreting error differentials, see `references/error-behavior-signals.md`;
+the live-testing and store boundaries below remain authoritative.
 
 ## Boundaries
 

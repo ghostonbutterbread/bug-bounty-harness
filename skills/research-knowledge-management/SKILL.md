@@ -161,9 +161,12 @@ turn:
 4. Create only cards that meet the narrow recognition → discriminating check →
    caveat rule. Use `source-reported` unless independent evidence justifies a
    stronger lifecycle status; record misleading or incomplete claims in limits.
-5. Run ResearchMap validation and indexing, then reply with created paths/card
-   IDs and any rejected candidates. A link that could not be fetched still gets
-   a metadata-only source capture if its URL and stated topic are available.
+5. Run ResearchMap validation and indexing, then query each new card with likely
+   recognition terms and a relevant alternate term to check that the intended
+   surface retrieves it. If a reasonable query misses, repair the card's
+   recognition signals before reporting created paths/card IDs and rejected
+   candidates. A link that could not be fetched still gets a metadata-only
+   source capture if its URL and stated topic are available.
 
 This user-directed intake is a deliberate review boundary. Passive collectors
 only discover and report candidates; an active research agent may promote a
@@ -212,6 +215,21 @@ quarantined raw fetch → minimal provenance capture → 0..N atomic cards
 - Do not create cards merely because a source is interesting, broad, paywalled,
   or a taxonomy. Such material remains an external on-demand reference unless
   it yields a distinct portable recognition → validation → caveat unit.
+- For a public disclosure survey, deduplicate canonical report IDs and record
+  separate counts for discovered candidates, readable narratives, and distinct
+  substantive mechanisms. Fetch canonical structured reports via `safe-fetch`
+  when available (for example HackerOne `/reports/<id>.json`), retaining only
+  the fields needed for the question: title, program, status, disclosure date,
+  severity rating and its author, researcher narrative versus team summary, and
+  source URL. Distinguish team-summary-only records from readable researcher
+  reports. Audit claimed high/critical ratings and whether they are researcher-
+  or team-assigned; neither a curated sample nor a historical `resolved` status
+  proves prevalence, target impact, or current exposure. Do not echo whole JSON:
+  attachments may contain signed URLs and bodies may contain secrets. Derive
+  bounded recognition questions rather than copying PoCs; for a domain threat
+  model, first map its actual actors, value/state transitions, authoritative
+  systems, and channels rather than treating one completed transaction as full
+  lifecycle coverage.
 - If safe-fetch marks content with risk flags or `research_lab` handling, retain
   metadata only and require explicit review before body-based distillation.
 

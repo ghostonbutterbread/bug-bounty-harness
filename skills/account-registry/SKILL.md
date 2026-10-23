@@ -175,6 +175,13 @@ record to have the same materialized fail-closed representation:
 
 ## Verification
 
+- When changing the non-secret inventory secret guard, first keep benign prose
+  and opaque references writable. Test synthetic credential assignments in JSON,
+  header containers, indexed keys, URL-decoded query keys, camelCase, and
+  prefixed/suffixed names against the old and new guards. A regex ending a secret
+  word at `\b` can miss `token_value` or `secret_access_key`. Keep real secrets
+  out of fixtures, logs, and review handoffs; request independent full-diff
+  review of the acceptance boundary after focused tests.
 - Source the checked-in example config and assert it selects `web_bounty`.
 - Before any retirement, exercise **every** reader against a tombstone and assert a non-zero, replacement-directed error. This gate currently fails for the Chromium launcher; do not retire on the basis of the account CLI alone.
 - Exercise a canonical inventory lookup and one eligible/unavailable lease status.

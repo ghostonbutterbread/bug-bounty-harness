@@ -7,8 +7,8 @@
 - **Base commit:** `611ae6bbe11d2ec979bd87c7ce934abceaff6961` (fetched `origin/beta`)
 - **Intended integration target:** `beta`; no stable or Hoster rollout
 - **Last updated:** 2026-10-22 (local)
-- **Latest immutable recovery checkpoint:** pending first commit
-- **Feature implementation commits:** pending first commit
+- **Latest immutable recovery checkpoint:** `9396a9d` on `feat/bunny-grok-glm`
+- **Feature implementation commits:** `9396a9d`
 - **Inspiration:** Ryu Discord thread/message `1563028030576926720`; Bunny mode/model owner; installed Hermes CLI help and provider profiles; official Hermes xAI OAuth and delegation documentation retrieved read-only.
 
 ## Intent and implemented contract
@@ -41,7 +41,21 @@ of silently substituting models/providers or reducing effort.
   source/runtime changes or agent launches performed.
 - Independent review: pending; review neighboring `bunny-collaborative`,
   `bunny-multi`, ordinary worker-selection rules and selected provider semantics.
-- Full checks / fresh semantic-consumer smoke: pending.
+- Full `tests/` after the repository installer provisioned checkout-local
+  dependencies: 325 passed, 1 skipped, 196 subtests passed, 3 unrelated failures.
+  Those failures (stack-to-program missing index fields, its direct-checkout
+  command example, upload-surface old exact wording assertion) also reproduce
+  on unchanged base beta `611ae6b`; focused base rerun: 3 failed / 5 passed /
+  7 subtests passed. No unrelated fixes included.
+- Fresh GLM read-only semantic consumer loaded both candidate files and correctly
+  explained coordinator/workers, effort, multi/default collaboration, API auth
+  fallback and explicit worker alias. Its long max-reasoning response hit the
+  outer terminal timeout before the final scenarios completed; it is a partial
+  navigation receipt, not a complete consumer pass. No matching process remained.
+  Independent review covers the complete scenario set.
+- Focused security-profile sync dry-run: four Bunny destination links already
+  resolve to the beta integration checkout, zero planned link/adopt/prune
+  changes. No sync apply or unrelated source refresh performed.
 
 ## Deferred runtime evidence
 

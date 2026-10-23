@@ -22,6 +22,9 @@ Load `/bounty-tools` whenever an agent will run a tool such as:
 
 Specialist skills still own their proof standards. `/bounty-tools` only
 standardizes tool execution and artifact handling.
+If implementing an adaptive scheduler rather than operating an existing tool,
+load `/adaptive-rate-control` for bucket-local controller design and tests;
+this skill's published rate ceiling and live stop rules still govern runs.
 
 ## Required Preflight
 

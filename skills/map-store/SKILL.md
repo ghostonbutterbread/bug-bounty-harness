@@ -47,6 +47,8 @@ domain, app surface, role, or defense, write it to MapStore. When that fact
 establishes a named, user-influenceable application capability—such as a parser,
 upload pipeline, renderer, fetcher, or transform—also create/update the linked
 Application Behavior record. It is a factual capability map, not a lead.
+For a stateful/browser-backed capability, use the mapping evidence checklist in
+`references/application-behavior-mapping.md` before calling the boundary mapped.
 
 ## Live Agent Flow
 

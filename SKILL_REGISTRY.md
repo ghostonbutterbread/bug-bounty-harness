@@ -127,6 +127,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **huge-ingest** | `/huge-ingest {program} {input-or-run-id}` | `skills/huge-ingest/SKILL.md` |
 | **bounty-notes** | `/bounty-notes {init|note|search|link|artifact} {program}` | `prompts/bounty-notes-playbook.md` |
 | **bounty-tools** | `/bounty-tools {program} {tool} {target-or-goal}` | `prompts/bounty-tools-playbook.md` |
+| **adaptive-rate-control** | `/adaptive-rate-control` when implementing a target-bucket controller (design guidance, not a live runner) | `skills/adaptive-rate-control/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |

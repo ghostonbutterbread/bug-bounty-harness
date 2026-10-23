@@ -1,6 +1,6 @@
 # JavaScript source-map discovery and Wayback recovery
 
-- **Status:** implemented locally; independent release gate pending; not integrated
+- **Status:** independent release review BLOCKED by four reproduced correctness defects; not integrated
 - **Owner / task:** Hermes / t_9b4400cf
 - **Branch / owning feature ref:** fix/js-source-map-discovery-wayback
 - **Worktree:** /home/ryushe/projects/bug_bounty_harness/.worktrees/t_9b4400cf
@@ -10,7 +10,7 @@
 - **Latest immutable recovery checkpoint:** d61afe41070c5f41ed6c9d7ed90355d266401866 (implementation plus parent corrections, guidance and verified receipts)
 - **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a and d61afe41070c5f41ed6c9d7ed90355d266401866; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
-- **Successor:** fresh independent release reviewer on this feature ref; parent user guidance and edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after accepted integration.
+- **Successor:** parent repair of the four independent review blockers below, followed by fresh independent release review. Parent guidance and initial edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
 
 ## Defect and implementation
 
@@ -137,4 +137,38 @@ Current fetched `origin/beta` at reconciliation was `f98f538`, with unrelated sc
 
 Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains the initial implementation, directly associated test module and dossier. Subsequent parent code/test/guidance corrections are recorded in a coherent feature commit, followed by a dossier-only immutable checkpoint update. Reconcile both implementation and guidance against the actual feature tip.
 
-Resume at the separately dispatched independent release gate: rerun the exact focused/broader commands with the pinned task interpreter and worktree import isolation, review the source/header/archive/cache/provenance contracts and parent guidance, verify baseline-only failures, then follow the repository's normal beta preflight/integration/push/cleanup path only if accepted. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.
+Resume after the blocked independent review below: parent repairs the four owning boundaries with regression coverage, then requests a fresh independent review. Never promote stable or activate Hoster. The parent retains Kanban completion and exact external-state readback responsibility.
+
+## Independent release gate — BLOCKED
+
+### Exact candidate and execution identity
+
+- Reviewed feature tip: `4c24552a04decefab3701b71885cc3363070e80f`; reviewed feature tree: `b349d8656eb4636640e08acbbbf9389659b36347`.
+- Implementation/guidance checkpoint: `d61afe41070c5f41ed6c9d7ed90355d266401866`; its tree is `0c669be5e024ffdafc9be0a8c3bc2cb3bdfa588f`. The subsequent candidate commit changes only this dossier.
+- Source import resolves to this feature's `agents/js_analyzer.py`; interpreter is this feature's `.venv/bin/python`. Installed bounty-core direct_url revision is `6c36ee88a60073e1b687ec32deeade24ffafdd4f`, exactly the requirement pin. No root/shared interpreter was used.
+- Fresh `git fetch origin beta` succeeded; `origin/beta` is `f98f538344a4c0673b48052b519c87446bc605d1`. Owning root integration checkout remains local beta `73d83c730cef6343e0c61d5d0ddcc70a416490d3`, without tracked modifications. Its unrelated nested worktree directories were not touched.
+- Substantive blockers stop acceptance before beta preflight: beta compatibility is **not established**, no beta fast-forward/merge, push, activation, Kanban write, or retirement was performed.
+
+### Independently rerun supplied checks
+
+The exact unfiltered broader command recorded above returned **544 passed, 2 failed in 70.52s**, with no exclusions. Both failures are the same exact stack-to-program README nodes listed above. The same pinned interpreter reran those two nodes from `/home/ryushe/.hermes/cache/scratch/js-map-review-base-73d83c7`: **2 failed in 0.15s**, with identical failure text. `git hash-object` of the baseline export's analyzer, both test modules, and offending README exactly matches their `git ls-tree` blobs at the immutable base. The export is not a Git checkout; attempted Git status commands there were inapplicable, and baseline identity was checked with repository object hashes instead. These are verified baseline-only failures, not a green broad suite. `git diff --check 73d83c7..4c24552` passed.
+
+Additional independent offline regression probes are saved at `/home/ryushe/.hermes/cache/scratch/test_js_map_release_review.py`. From this feature worktree:
+
+```bash
+PYTHONPATH="$PWD" .venv/bin/python -m pytest /home/ryushe/.hermes/cache/scratch/test_js_map_release_review.py -q -s --tb=short
+```
+
+Final result: **4 failed in 1.97s**. All acquisition is intercepted; there are no real program/archive calls. An initial lexer probe used duplicate `let` declarations, was rejected by `node --check`, and was corrected to repeated `var` declarations before recording the real lexer finding. No invalid fixture is counted as product evidence.
+
+### Required parent repairs and focused regressions
+
+1. **Historical cache retains a false current-bundle binding after a failed live fetch** — `WaybackRecovery.cache_key/recover`, approximately lines 1042–1073. The key includes URL/body hash/declaration but not successful-current-response availability, and reuse copies the old entire history. Offline two-run fixture: first serve HTTP 200 `b'const current = true;'`, replay identical archived JS with `SourceMap: app.js.map`, and return a valid archived map. Remove only the first run's live download CAS file to force the next live fetch while keeping history. Then return HTTP 403 with those same body bytes. The second record has status 403 but cached history still has a nonempty `current_bundle_sha256`, `current_bundle_match_verified: true`, and its rendered packet says `Archived bundle matches current bytes (SHA256 verified).` No archive request is made on reuse. Recompute all current-binding fields from the current record's valid live-byte availability when reusing history (and/or distinguish successful current bytes from error-body hashes in the key); an error body must not prove current-source equality. Preserve usable archived evidence but mark current binding unverified. Regression must assert the failed-current status clears the current hash and verified flag, including rendered packet wording.
+
+2. **Unavailable current bundles are synthesized into ordinary live artifacts/packets and download counts** — `command_inventory`, approximately lines 2328–2345, 2424–2439, 2561–2579, 2627. With archive mode enabled, an empty failed live fetch now continues into SHA256(empty), writes a zero-byte `.js` download, chunks it, emits an ordinary non-historical packet, and increments `js_downloaded` via `len(records)`. A timeout plus successful archived recovery yielded `status: null`, `byte_count: 0`, `js_downloaded: 1`, one ordinary live packet plus one historical packet, and an existing empty live artifact. The nested history correctly leaves current hash empty, but the ordinary inventory contradicts that qualification. Gate live hashing/materialization/chunking/counting on real usable current bytes; retain a separate unavailable-current metadata record so archive fallback can still work. Regression must assert zero live downloads/packets for unavailable-current recovery and no fake current CAS artifact; do not suppress historical packets or poison the live URL ledger.
+
+3. **Whole-body lexer introduces a genuine detection regression on postfix division** — `last_source_map_directive`, approximately lines 801–818, 838–844. Reproducer text is `'let x=4, y=2; x++ / y;\n' + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'`. `node --check` returns 0. Extracting and executing the exact baseline detector definition returns `real.map`; the candidate returns an empty declaration. The two plus tokens incorrectly allow a regex at the following division slash, and the scan consumes the real trailing directive. Starting at the full body makes the formerly irrelevant early construct swallow the tail. Correct postfix expression context without reverting to an arbitrary tail cut; add decrement/member-division cases as appropriate and retain quote/template/regex decoy regressions. This is concrete valid JavaScript lost relative to base, not a request for a complete ECMAScript parser.
+
+4. **Partial archive reads bypass the new run-wide byte budget** — `http_get_limited` exception handling, approximately lines 594–602, and `WaybackRecovery.fetch` line 973. A native `http.client.HTTPResponse` over an in-memory fake socket receives a valid chunked response containing one complete eight-byte chunk, then EOF before the next chunk size. Its read raises `IncompleteRead` with eight partial bytes; the handler discards those bytes and returns an empty transport failure, which is charged as zero. With total cap 10, two distinct fetch URLs each read eight payload bytes: 16 observed, `bytes_read: 0`, `requests: 2`, read sizes `[10, 10]`. Preserve/count consumed partial bytes separately from artifact validity, or conservatively reserve the permitted read amount on uncertain failed reads; keep the failure category and never accept incomplete bytes as a map. Regression must prove total transfer accounting bounds these failures as well as successful/oversized responses. The existing incomplete-read test checks only non-crashing diagnostics and misses budget accounting.
+
+No implementation, tests, prompts, skills, dependencies, or unrelated files were changed by the reviewer. Only this branch-local dossier is updated for a recoverable blocked handoff. Parent should port the scratch probes into `agents/test_js_analyzer_wayback.py`, repair these four defects, rerun the exact broad command plus the new cases, and obtain a **fresh** independent verdict before any current-beta preflight/integration. The scratch source is convenient but the fixture contracts and observed outputs above are the durable recovery record. No acceptance is implied for unexercised live archive availability or external CDX behavior.

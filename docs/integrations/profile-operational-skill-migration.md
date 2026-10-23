@@ -1,6 +1,6 @@
 # Profile-local operational skill audit and canonical migration
 
-Status: branch-local integration dossier; owner: Hermes BBH repository task, parent card `t_7478b065`. Canonical target: `beta`; this dossier retires at reviewed integration. Implementation commit: pending.
+Status: branch-local integration dossier; owner: Hermes BBH repository task, parent card `t_7478b065`. Canonical target: `beta`; this dossier retires at reviewed integration. Recoverable implementation/test checkpoint: `b695493d786b764eb61c95d2fcc74c4931edfd8f` on `docs/profile-operational-skill-migration`; verify any later dossier-only tip separately.
 
 ## Source and boundary
 

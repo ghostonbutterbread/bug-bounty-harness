@@ -118,6 +118,25 @@ When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
 exhaustive or correct.
 
+## Coverage-Preserving Resource Safety
+
+For BBH inventory, crawl, extraction, and analysis scripts, a bounded batch,
+chunk, parser window, packet, or output budget must not silently become a limit
+on the total corpus. Preserve the full discovered input set and evidence, process
+it incrementally, and checkpoint completed, failed, and pending items for a
+reliable resume. Distinguish complete input traversal from heuristic signal
+coverage; no-hit static seeds are never proof that a surface is absent. An
+explicitly requested sample may end early, but its run status and counts must
+say `partial`, never `complete`.
+
+Bound simultaneous memory/CPU/concurrency, not the amount of authorized work.
+Check free space on the actual output filesystem before large writes and
+periodically during growth; default to a configurable 5 GiB safety floor and
+pause with a durable queue and stop reason rather than clipping artifacts.
+Keep finite per-attempt network timeouts, recoverable failures, and applicable
+scope/rate controls; do not add a whole-run deadline just for speed. If an
+external deadline interrupts work, the remaining queue stays unfinished.
+
 ## Manager and Other-Agent Maintenance Boundary
 
 Hermes is the repository manager and may edit code, skills, and policies within

@@ -1356,12 +1356,20 @@ def chunk_text(text: str, size: int, overlap: int) -> list[tuple[int, int, str]]
 
 
 def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
+    # Stream into a sibling file; readers must never see a partial projection.
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            line = json.dumps(row, sort_keys=True) + "\n"
-            check_output_space(path, len(line.encode("utf-8")))
-            handle.write(line)
+    temporary = path.parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            for row in rows:
+                line = json.dumps(row, sort_keys=True) + "\n"
+                check_output_space(temporary, len(line.encode("utf-8")))
+                handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -1420,6 +1428,17 @@ def published_run_urls(path: Path, run_id: str, field: str) -> set[str]:
     # authoritative; the checkpoint's published_urls hint is not transactional.
     return {row[field] for row in iter_jsonl(path)
             if row.get("run_id") == run_id and isinstance(row.get(field), str)} if path.exists() else set()
+
+
+def provenance_identity(row: dict) -> tuple[str, ...]:
+    """Match the durable SQLite uniqueness contract per provenance hint."""
+    return tuple(str(row.get(key) or "") for key in
+                 ("js_url", "sha256", "run_id", "source", "page_url", "proxy_request_id", "timestamp"))
+
+
+def published_provenance_rows(path: Path, run_id: str) -> set[tuple[str, ...]]:
+    return {provenance_identity(row) for row in iter_jsonl(path)
+            if row.get("run_id") == run_id} if path.exists() else set()
 
 
 # A supplied JS list can contain extensionless scripts. Non-JS suffixes need
@@ -1562,13 +1581,11 @@ def write_external_integration_index(index_root: Path, rows: list[ExternalIntegr
             })
 
     host_index_path = index_root / "external_hosts.json"
-    host_index_path.write_text(
+    write_text_atomic(host_index_path,
         json.dumps({
             "updated": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "hosts": sorted(by_host.values(), key=lambda item: item["host"]),
-        }, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+        }, indent=2, sort_keys=True) + "\n")
     return {
         "external_urls": str(raw_path),
         "external_hosts": str(host_index_path),
@@ -2441,9 +2458,9 @@ def command_inventory(args: argparse.Namespace) -> int:
             "provenance_rows_by_url": provenance_rows_by_url,
         }, ensure_ascii=False) + "\n")
 
+    OUTPUT_FLOOR.set(int(args.disk_free_floor_gib * 1024 ** 3))
     if not checkpoint:
         save_checkpoint()
-    OUTPUT_FLOOR.set(int(args.disk_free_floor_gib * 1024 ** 3))
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
@@ -2846,7 +2863,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             retryable_failed.update(committed["retryable_failed"])
             break
 
-    OUTPUT_FLOOR.set(0)  # Reserve metadata/manifest publication room after a pause.
+    # Publication remains resumable from the URL checkpoint; never waive the floor
+    # for projections, shared evidence, SQLite, or the final manifest.
     save_ledger(ledger_path, ledger)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     packet_rows_by_sha: dict[str, list[dict]] = {}
@@ -2871,17 +2889,25 @@ def command_inventory(args: argparse.Namespace) -> int:
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
     existing_metadata = published_run_urls(library_metadata_path, run_id, "url")
-    existing_provenance = published_run_urls(library_provenance_path, run_id, "js_url")
+    existing_provenance = published_provenance_rows(library_provenance_path, run_id)
     new_metadata = [row for row in metadata_rows if row["url"] in succeeded and row["url"] not in existing_metadata]
-    new_provenance = [row for row in provenance_rows if row.js_url in succeeded and row.js_url not in existing_provenance]
+    new_provenance = [row for row in provenance_rows if row.js_url in succeeded
+                      and provenance_identity(asdict(row)) not in existing_provenance]
     if new_metadata:
         append_jsonl(library_metadata_path, new_metadata)
     if new_provenance:
         append_jsonl(library_provenance_path, (asdict(row) for row in new_provenance))
+    # An interrupted append or SQLite transaction can leave the JSONL ahead of
+    # the index even when there are no rows left to append on this resume.
+    if library_provenance_path.exists():
+        check_output_space(js_info_db_path, 1024 * 1024)
         write_provenance_table(js_info_db_path, iter_jsonl(library_provenance_path))
+        check_output_space(js_info_db_path, 0)
     if metadata_rows or packet_rows:
+        check_output_space(js_info_db_path, 1024 * 1024)
         write_metadata_db(js_info_db_path, iter_jsonl(library_metadata_path), packet_rows)
         write_observations_table(js_info_db_path, iter_jsonl(library_observations_path))
+        check_output_space(js_info_db_path, 0)
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     published_urls.extend(row["url"] for row in new_metadata if row["url"] in succeeded and row["url"] not in published_urls)
     save_checkpoint()
@@ -2978,7 +3004,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             "packet_dir": str(packets_dir),
         },
     }
-    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_text_atomic(root / "manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
 
@@ -3095,6 +3121,9 @@ def main(argv: list[str] | None = None) -> int:
     bundle_token = BUNDLE_MEMORY_LIMIT.set(64 * 1024 * 1024)
     try:
         return args.func(args)
+    except DiskFloorPause as exc:
+        print(f"JS publication paused: {exc}; free space above --disk-free-floor-gib and --resume", file=sys.stderr)
+        return 2
     finally:
         OUTPUT_FLOOR.reset(token)
         BUNDLE_MEMORY_LIMIT.reset(bundle_token)

@@ -1555,11 +1555,11 @@ def test_inventory_disk_floor_pause_then_resume(tmp_path: Path):
             '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
             '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
     with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
-        assert J.main(base + ['--disk-free-floor-gib', '999999']) == 0
-        state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
-        assert state['status'] == 'incomplete' and state['pause_reason'] == 'disk_floor'
+        assert J.main(base + ['--disk-free-floor-gib', '999999']) == 2
+        assert not (tmp_path / 'out' / 'manifest.json').exists()
+        assert not (tmp_path / 'out' / 'checkpoint.json').exists()
         fetch.assert_not_called()
-        assert J.main(base + ['--resume']) == 0
+        assert J.main(base) == 0
     assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
 
 
@@ -1631,6 +1631,85 @@ def test_failed_resume_does_not_reappend_library_rows(tmp_path: Path):
         assert J.main(base + ['--resume']) == 0
     assert not (tmp_path / 'lib' / 'metadata.jsonl').exists()
     assert not (tmp_path / 'lib' / 'provenance.jsonl').exists()
+
+
+def test_resume_reconciles_torn_multirow_provenance_and_sqlite(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    hints = tmp_path / 'hints.jsonl'
+    hints.write_text(''.join(json.dumps({'url': url, 'page_url': f'https://app.example.com/page-{i}',
+                                        'proxy_request_id': f'req-{i}', 'timestamp': '2026-01-01T00:00:00Z'}) + '\n'
+                             for i in range(2)))
+    base = ['inventory', 'demo', '--input', str(source), '--provenance-input', str(hints),
+            '--target-host', 'example.com', '--run-id', 'torn', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real_append = J.append_jsonl
+    def interrupt(path, rows):
+        if path.name == 'provenance.jsonl':
+            def partial():
+                yield next(iter(rows))
+                raise RuntimeError('interrupted shared append')
+            return real_append(path, partial())
+        return real_append(path, rows)
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        with patch.object(J, 'append_jsonl', side_effect=interrupt), pytest.raises(RuntimeError):
+            J.main(base)
+        assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 1
+        assert J.main(base + ['--resume']) == 0
+        assert J.main(base + ['--resume']) == 0
+    assert len(J.read_jsonl(tmp_path / 'out' / 'js_provenance.jsonl')) == 2
+    assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 2
+    with sqlite3.connect(tmp_path / 'lib' / 'js_info.sqlite') as db:
+        assert db.execute('SELECT count(*) FROM js_provenance WHERE run_id = ?', ('torn',)).fetchone()[0] == 2
+
+
+def test_resume_rebuilds_sqlite_when_shared_provenance_was_fully_appended(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'sqlite-torn', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        with patch.object(J, 'write_provenance_table', side_effect=RuntimeError('interrupted index')), pytest.raises(RuntimeError):
+            J.main(base)
+        assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 1
+        assert J.main(base + ['--resume']) == 0
+    with sqlite3.connect(tmp_path / 'lib' / 'js_info.sqlite') as db:
+        assert db.execute('SELECT count(*) FROM js_provenance').fetchone()[0] == 1
+
+
+def test_disk_floor_mid_finalization_never_publishes_complete(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'pressure', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations'),
+            '--disk-free-floor-gib', str(90 / 1024 ** 3)]
+    real_usage = J.shutil.disk_usage
+    pressure = {'on': False}
+    def usage(path):
+        if pressure['on']:
+            return Namespace(free=91)
+        return real_usage(path)
+    real_write = J.write_jsonl
+    def write(path, rows):
+        result = real_write(path, rows)
+        if path.name == 'metadata.jsonl' and path.parent == tmp_path / 'out':
+            pressure['on'] = True
+        return result
+    with (patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')),
+          patch.object(J.shutil, 'disk_usage', side_effect=usage),
+          patch.object(J, 'write_jsonl', side_effect=write)):
+        assert J.main(base) != 0
+    manifest = tmp_path / 'out' / 'manifest.json'
+    assert not manifest.exists() or json.loads(manifest.read_text())['coverage_state']['status'] != 'complete'
+    pressure['on'] = False
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        assert J.main(base + ['--resume']) == 0
+    assert json.loads(manifest.read_text())['coverage_state']['status'] == 'complete'
 
 
 def test_write_floor_checks_actual_output_size(tmp_path: Path):

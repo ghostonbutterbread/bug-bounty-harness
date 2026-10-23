@@ -49,9 +49,11 @@ payload inventory.
 4. **Keep residuals bounded.** Name only plausible untested routes that follow
    from the observed mechanism; do not turn a blocker report into speculative
    bypass ideation.
-5. **Choose the smallest authorized unblock.** Prefer a fixture, owned account,
-   role, object, normal workflow step, observation method, or explicit scope
-   decision over broader testing.
+5. **Choose the smallest authorized unblock.** Prefer an observation method or
+   normal workflow step where it resolves the question; use an owned fixture when
+   proof would otherwise mutate non-owned state. A fixture or data sensitivity
+   is not a prerequisite for in-scope disclosure testing. Where needed, use an
+   owned account, role, object, or explicit scope decision over broader testing.
 
 Use `not demonstrated under <conditions>` unless evidence closes the relevant
 preconditions and meaningful reachable variants. Reserve `closed` for that

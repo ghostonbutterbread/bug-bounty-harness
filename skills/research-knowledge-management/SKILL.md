@@ -161,9 +161,12 @@ turn:
 4. Create only cards that meet the narrow recognition → discriminating check →
    caveat rule. Use `source-reported` unless independent evidence justifies a
    stronger lifecycle status; record misleading or incomplete claims in limits.
-5. Run ResearchMap validation and indexing, then reply with created paths/card
-   IDs and any rejected candidates. A link that could not be fetched still gets
-   a metadata-only source capture if its URL and stated topic are available.
+5. Run ResearchMap validation and indexing, then query each new card with likely
+   recognition terms and a relevant alternate term to check that the intended
+   surface retrieves it. If a reasonable query misses, repair the card's
+   recognition signals before reporting created paths/card IDs and rejected
+   candidates. A link that could not be fetched still gets a metadata-only
+   source capture if its URL and stated topic are available.
 
 This user-directed intake is a deliberate review boundary. Passive collectors
 only discover and report candidates; an active research agent may promote a
@@ -212,6 +215,10 @@ quarantined raw fetch → minimal provenance capture → 0..N atomic cards
 - Do not create cards merely because a source is interesting, broad, paywalled,
   or a taxonomy. Such material remains an external on-demand reference unless
   it yields a distinct portable recognition → validation → caveat unit.
+- For a public disclosure survey, use
+  [`references/functionality-first-writeup-synthesis.md`](references/functionality-first-writeup-synthesis.md)
+  for body-access, severity-provenance, deduplication, and mechanism counts;
+  its external-content admission and source-to-claim boundaries control.
 - If safe-fetch marks content with risk flags or `research_lab` handling, retain
   metadata only and require explicit review before body-based distillation.
 

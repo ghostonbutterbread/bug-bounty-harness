@@ -17,7 +17,17 @@ create a program-specific MapStore fact.
    URL, body-access status, and source type. Deduplicate report identities;
    when coverage is broad, keep separate counts for search hits, candidates,
    readable bodies, and distinct substantive mechanisms. An incomplete index
-   is not a platform census or a vulnerability count.
+   is not a platform census or a vulnerability count. For structured public
+   report formats, fetch through `/safe-fetch` (for example a canonical
+   `/reports/<id>.json` only when that endpoint exists). A missing safe-fetch
+   helper is a hard stop, not a fallback to direct external-content retrieval.
+   Retain only fields needed to answer the question: title, program, status,
+   disclosure date, severity rating and its author, researcher narrative versus
+   team summary, and source URL. Never echo whole JSON; attachments may contain
+   signed URLs and bodies may contain secrets. Distinguish team-summary-only
+   entries from readable researcher narratives, and audit high/critical ratings
+   as researcher- versus team-assigned. A curated sample or historical `resolved`
+   status proves neither prevalence nor current exposure.
 3. Admit claims only from bodies actually read. A title, search snippet, HTTP
    success with a JavaScript shell, or inaccessible page is a discovery lead.
    If rendering or an archive is needed, preserve both canonical and mirror

@@ -670,6 +670,58 @@ def test_postfix_division_keeps_trailing_map_declaration(expression):
     assert J.last_source_map_directive(body + '//# sourceMappingURL=real.map\n') == 'real.map'
 
 
+@pytest.mark.parametrize('keyword', [
+    'return', 'throw', 'case', 'else', 'delete', 'void', 'typeof', 'yield', 'await',
+    'if', 'while', 'for', 'with', 'switch', 'catch', 'do', 'try', 'finally', 'function', 'class',
+])
+@pytest.mark.parametrize('member', ['.', ' . /* separator */ ', '?.', '?. /* separator */ '])
+@pytest.mark.parametrize('call', ['', '()'])
+def test_keyword_member_division_keeps_trailing_map_declaration(keyword, member, call):
+    prefix = f'let obj={{{keyword}:()=>4}}, y=2; obj{member}{keyword}{call} / y;\n'
+    body = prefix + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'
+    assert J.last_source_map_directive(body) == 'real.map'
+
+
+@pytest.mark.parametrize('keyword', ['return', 'delete', 'if'])
+def test_private_keyword_member_division_keeps_trailing_map_declaration(keyword):
+    prefix = f'class C {{ #{keyword}=4; f(){{ const y=2; this.#{keyword} / y; }} }}\n'
+    body = prefix + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'
+    assert J.last_source_map_directive(body) == 'real.map'
+
+
+@pytest.mark.parametrize('expression', [
+    'const values=[...typeof /[//# sourceMappingURL=fake.map]/];',
+    'const values={...void /[//# sourceMappingURL=fake.map]/};',
+])
+def test_spread_keyword_regex_does_not_create_map_comment(expression):
+    assert J.last_source_map_directive('//# sourceMappingURL=real.map\n' + expression) == 'real.map'
+
+
+@pytest.mark.parametrize('prefix', [
+    'if (true) {} /`/.test("x");',
+    'while (false) {} /`/.test("x");',
+    'function f() {} /`/.test("x");',
+    'async function f() {} /`/.test("x");',
+    'class C {} /`/.test("x");',
+    '{ let n=1; } /`/.test("x");',
+    'const n={} / 2;',
+    'const n=(function(){}) / 2;',
+    'const n=function(){} / 2;',
+    'const n=class {} / 2;',
+    'const n=(()=>{}) / 2;',
+    'function f(x=function(){}) {} /`/.test("x");',
+    'async function f(){ for await (const x of []) {} /`/.test("x"); }',
+    'class C { f(){ function g(){} /`/.test("x"); } }',
+    'const f=()=>{ function g(){} /`/.test("x"); };',
+    'const obj={if(){ function g(){} /`/.test("x"); }};',
+    'class C { function={} / 2; }',
+    'class C { class={} / 2; }',
+])
+def test_block_regex_and_expression_brace_division_keep_tail_declaration(prefix):
+    body = prefix + '\n' + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'
+    assert J.last_source_map_directive(body) == 'real.map'
+
+
 def test_partial_archive_reads_are_charged_to_total_budget(tmp_path):
     import http.client
     args = J.build_parser().parse_args(['inventory', 'demo', '--source-map-wayback', 'auto',

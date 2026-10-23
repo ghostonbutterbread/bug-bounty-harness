@@ -1,6 +1,6 @@
 # JavaScript source-map discovery and Wayback recovery
 
-- **Status:** corrected candidate independently reviewed; release BLOCKED by a further valid-JavaScript keyword-property division regression; not integrated (see final gate below)
+- **Status:** keyword-member and statement/declaration lexical-context repairs locally verified; fresh independent release review pending; not integrated
 - **Owner / task:** Hermes / t_9b4400cf
 - **Branch / owning feature ref:** fix/js-source-map-discovery-wayback
 - **Worktree:** /home/ryushe/projects/bug_bounty_harness/.worktrees/t_9b4400cf
@@ -10,7 +10,7 @@
 - **Latest immutable recovery checkpoint:** e259847b055d2eed6537ec038ea8925bac4b180b (implementation, all four review repairs, maintained regressions, guidance and receipts)
 - **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a, d61afe41070c5f41ed6c9d7ed90355d266401866 and e259847b055d2eed6537ec038ea8925bac4b180b; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
-- **Successor:** parent-owned member-property lexical-context repair and maintained regressions, then a fresh independent release review and current-beta compatibility gate. Prior parent guidance and edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
+- **Successor:** fresh independent release review of the corrected lexical-context checkpoint, then the current-beta compatibility gate. Prior parent guidance and edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
 
 ## Defect and implementation
 
@@ -192,7 +192,7 @@ The exact unfiltered broader command already recorded above returned **558 passe
 
 `prompts/js-playbook.md` now explains unavailable-current metadata/counts and conservative payload charging. No real archive/program requests, corpus mutations, Hoster/runtime changes or integration occurred. Next: commit the corrected implementation and dossier, pin its immutable checkpoint, then a fresh independent release owner must review the full feature, independently rerun checks, fetch/current-beta preflight and integrate only if accepted. The previous blocked verdict is not approval for these corrections.
 
-## Fresh independent corrected-candidate release gate — BLOCKED
+## Fresh independent corrected-candidate release gate — BLOCKED (superseded candidate; repairs below)
 
 ### Identity and independently rerun evidence
 
@@ -242,3 +242,17 @@ The reproduced correctness defect blocks release before mutating beta. No beta f
 Residual live evidence remains explicitly deferred: no real Wayback/program request or retained private corpus validation was performed; actual archive availability and retrieval require a separately authorized live smoke. A future passing offline review does not prove maps exist or authorize activation.
 
 **Resume:** use feature `fix/js-source-map-discovery-wayback` at this dossier-only handoff, retain implementation checkpoint `e259847b055d2eed6537ec038ea8925bac4b180b` and reviewed candidate `82120d7d030ab1f607106bd09c323c83157e0ffe` as immutable evidence. Repair only under the parent implementation owner, obtain a fresh review, then perform the normal clean/current-beta exact-tree preflight and beta-only integration if accepted. Do not merge or push this blocked candidate.
+
+## Parent lexical-context repair after the second gate
+
+The keyword-member reproducer is now maintained as a matrix over the scanner's expression/control keyword sets and declaration markers, four dot/optional-dot trivia forms, and value/member-call expressions, plus private-name and spread-vs-member controls. The initial 125-case matrix returned **62 failed, 63 passed, 90 deselected in 1.15s** on the blocked implementation; these are variants of one lexical-context defect, not 62 separate bugs. The initial matrix covered the original nine expression keywords and six control keywords, three private-name cases and two spread controls. The final matrix additionally covers the newly handled `do`, `try`, `finally`, `function` and `class` words.
+
+Identifiers after a member dot (including `?.` and private `.#`) no longer trigger keyword behavior. Trivia preserves that member context until the name is consumed. Spread `...` remains expression context rather than member access. Existing prefix/postfix, template and real-keyword regex behavior is retained.
+
+The parent's bounded syntax/detector probes also exposed a related brace-context false negative: `if (true) {} /` + backtick + `/.test("x");` and a function declaration followed by that valid regex lose the real distant tail because the closing statement brace was treated as an expression operand. The maintained block/declaration/expression controls initially returned **7 failed, 5 passed, 215 deselected in 0.27s**. The repair distinguishes closing statement/declaration bodies from object and function/class/arrow-expression bodies, tracks nested declaration headers by parenthesis depth, and does not treat template interpolation delimiters as block-stack entries. Async `for await`, nested method/arrow bodies, parameter defaults, and keyword-named class fields have explicit positive controls. This remains a conservative source-map scanner, not a complete ECMAScript parser; no parser dependency or new acquisition path was added.
+
+All **183 newly maintained lexical fixture variants** (member matrix, private/spread controls and block/expression variants) were reconstructed directly from the maintained parametrization and checked together as separately scoped JavaScript blocks: **`node --check` exit 0**. Node is only an offline syntax-check receipt, not a new production/test-suite dependency.
+
+The unchanged exact unfiltered broader command from the earlier receipt returned **741 passed, 2 failed in 164.89s**. Both failures remain the same two independently base-reproduced README nodes; no exclusions or changed assertions were used, and this is not an unfiltered green suite. Both independent reviewers' exact original scratch files were run together with the task interpreter and candidate source first on the path: **8 passed in 4.76s**. The maintained matrix/fixture contracts are durable; scratch files are optional convenience only. `git diff --check` passed.
+
+Only the owning detector, its directly associated maintained tests and this dossier changed in this correction. Earlier live/history/budget repairs and user-facing guidance remain intact. No program/archive request, private corpus mutation, beta mutation, push or activation occurred. Commit this implementation with these receipts, pin the new immutable checkpoint, and obtain a fresh independent release verdict before current-beta preflight/integration. The two previous blocked verdicts are not acceptance of this corrected code.

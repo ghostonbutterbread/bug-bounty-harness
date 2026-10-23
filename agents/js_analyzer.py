@@ -752,7 +752,14 @@ def last_source_map_directive(text: str) -> str:
     i = 0
     regex_allowed = True
     control_keyword = False
+    member_property = False
     parens: list[bool] = []
+    statement_start = True
+    previous_punct = ""
+    # Closing statement/declaration bodies permit a regex; expression bodies
+    # and object literals instead remain complete operands for division.
+    braces: list[bool] = []
+    declarations: list[tuple[int, bool]] = []
     # Each template frame is raw text (0) or interpolation brace depth (>0).
     # Preserve the detector's conservative exclusion of all template content.
     templates: list[int] = []
@@ -764,10 +771,16 @@ def last_source_map_directive(text: str) -> str:
             elif char == "`":
                 templates.pop()
                 regex_allowed = False
+                member_property = False
+                statement_start = False
+                previous_punct = ""
                 i += 1
             elif text.startswith("${", i):
                 templates[-1] = 1
                 regex_allowed = True
+                member_property = False
+                statement_start = False
+                previous_punct = ""
                 i += 2
             else:
                 i += 1
@@ -777,6 +790,8 @@ def last_source_map_directive(text: str) -> str:
             continue
         if char == "`":
             templates.append(0)
+            statement_start = False
+            previous_punct = ""
             i += 1
             continue
         if char in "'\"":
@@ -792,6 +807,9 @@ def last_source_map_directive(text: str) -> str:
                     i += 1
             regex_allowed = False
             control_keyword = False
+            member_property = False
+            statement_start = False
+            previous_punct = ""
             continue
         if char == "/" and i + 1 < len(text) and text[i + 1] in ("/", "*"):
             if text[i + 1] == "/":
@@ -805,10 +823,26 @@ def last_source_map_directive(text: str) -> str:
                 found = directive.group("url")
             i = end if text[i + 1] == "/" or end == len(text) else end + 2
             continue
+        if text.startswith("...", i):
+            # Spread expects an expression; it is not member access.
+            regex_allowed = True
+            control_keyword = False
+            member_property = False
+            statement_start = False
+            previous_punct = "..."
+            i += 3
+            continue
+        if char == "#" and member_property:
+            # Private member names have the same IdentifierName keyword rules.
+            i += 1
+            continue
         if text.startswith(("++", "--"), i):
             # Prefix updates keep expecting an operand; postfix updates keep
             # the preceding expression complete, so a following '/' is division.
             control_keyword = False
+            member_property = False
+            statement_start = False
+            previous_punct = ""
             i += 2
             continue
         if char == "/" and regex_allowed:
@@ -829,14 +863,24 @@ def last_source_map_directive(text: str) -> str:
                 else:
                     i += 1
             regex_allowed = False
+            member_property = False
+            statement_start = False
+            previous_punct = ""
             continue
         if char.isalpha() or char in "_$":
             end = i + 1
             while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
                 end += 1
             word = text[i:end]
-            control_keyword = word in {"if", "while", "for", "with", "switch", "catch"}
-            regex_allowed = word in {"return", "throw", "case", "else", "delete", "void", "typeof", "yield", "await"}
+            if not member_property and word in {"function", "class"}:
+                declarations.append((len(parens), statement_start))
+            # After '.' (also '?.'), keywords are property identifiers. Keep
+            # this context across trivia but consume it at the property name.
+            control_keyword = not member_property and (word in {"if", "while", "for", "with", "switch", "catch"} or word == "await" and control_keyword)
+            regex_allowed = not member_property and word in {"return", "throw", "case", "else", "do", "delete", "void", "typeof", "yield", "await"}
+            statement_start = not member_property and (word in {"else", "do", "try", "finally"} or word == "async" and statement_start)
+            member_property = False
+            previous_punct = ""
             i = end
             continue
         if char.isdigit():
@@ -845,17 +889,51 @@ def last_source_map_directive(text: str) -> str:
                 i += 1
             regex_allowed = False
             control_keyword = False
+            member_property = False
+            statement_start = False
+            previous_punct = ""
             continue
         if templates and char in "{}":
             templates[-1] += 1 if char == "{" else -1
+            if templates[-1] == 0:
+                # '${' is not a block opener in the outer brace stack.
+                regex_allowed = False
+                statement_start = False
+                previous_punct = ""
+                i += 1
+                continue
+        if text.startswith("=>", i):
+            regex_allowed = True
+            statement_start = False
+            control_keyword = member_property = False
+            previous_punct = "=>"
+            i += 2
+            continue
         if char == "(":
             parens.append(control_keyword)
             regex_allowed = True
+            statement_start = False
         elif char == ")":
             regex_allowed = parens.pop() if parens else False
+            statement_start = regex_allowed
+        elif char == "{":
+            declaration_body = bool(declarations and declarations[-1][0] == len(parens))
+            closes_statement = declarations.pop()[1] if declaration_body else statement_start
+            braces.append(closes_statement)
+            statement_start = closes_statement or declaration_body or previous_punct in {")", "=>"}
+            regex_allowed = True
+        elif char == "}":
+            regex_allowed = braces.pop() if braces else False
+            statement_start = regex_allowed
         else:
             regex_allowed = char not in "].}"
+            statement_start = char == ";"
+            if char in ":;=" and declarations and declarations[-1][0] == len(parens):
+                # Keyword-named keys/fields are not pending declarations.
+                declarations.pop()
         control_keyword = False
+        member_property = char == "."
+        previous_punct = char
         i += 1
     return found
 

@@ -1,14 +1,14 @@
 # Autonomous recon coverage repair integration dossier
 
-- **Status:** feature (independent review and beta integration not requested)
+- **Status:** feature (awaiting independent review; not integrated)
 - **Owner:** Hermes focused subagent / card `t_b317a8e8`
 - **Branch:** `fix/autonomous-recon-coverage-tb317a8e8`
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** none yet; this dossier is committed with the repair below
-- **Feature implementation commit(s):** none yet; see branch tip after commit
+- **Latest immutable recovery checkpoint:** `5d69c01968868859631c4e276ddc9108337404be` (merge of local beta into feature)
+- **Feature implementation commit(s):** `2f20ce3` (repair), `5d69c01` (local beta policy merge)
 - **Inspiration / canonical references:** User request and policy-reviewer stop-boundary note; `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -24,11 +24,11 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 
 ## Evidence and review
 
-- `python3 -m pytest agents/test_autonomous_recon.py -q`: 8 passed (offline fakes; >80 JS, nested frontier resume, transient failure retry, scope rejection, frontier pause, 5 GiB floor, existing tests).
+- `python3 -m pytest agents/test_autonomous_recon.py -q`: 8 passed before and after merging local beta (offline fakes; >80 JS, nested frontier resume, transient failure retry, scope rejection, frontier pause, 5 GiB floor, existing tests).
 - `git diff --check`: clean.
 - Independent review: not performed in this task; feature-only handoff.
 - Replay/cohort/fixture evidence: offline monkeypatched responses; no live probe performed.
-- Merge/ancestry evidence: feature branched from current fetched `origin/beta` at `720e3e2`.
+- Merge/ancestry evidence: feature branched from fetched `origin/beta` at `720e3e2`; local `beta` at `43a81c3` was merged into the isolated feature branch as `5d69c01` (no rebase). No merge into beta or push.
 
 ## Blockers and deferred work
 
@@ -41,8 +41,8 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** this branch's committed repair tip (record actual SHA in handoff)
-- **Feature implementation commit(s):** this branch's committed repair tip
+- **Latest immutable recovery checkpoint:** `5d69c01968868859631c4e276ddc9108337404be` (the later dossier-only commit carries updated handoff metadata)
+- **Feature implementation commit(s):** `2f20ce3` (repair), `5d69c01` (local beta merge)
 - **Exact resume point:** independent review and any fixture-based browser test; no merge/push authorized.
 - **Working-tree state at handoff:** clean after commit.
 

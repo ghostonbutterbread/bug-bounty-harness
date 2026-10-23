@@ -37,6 +37,7 @@ Remove the fixed 45-second parser deadline and isolate every comment scan under 
 
 ## Decision gates
 
-- **Integration:** parent reviews diff and accepts/defer residuals; do not merge or push from this subagent.
+- **Integration:** independently accepted at `eb390e2` after 549 focused JS/Wayback tests and an interruption probe between shared JSONL append and SQLite; parent may merge to clean `beta`, rerun integrated checks, and retire this dossier from beta. No stable promotion.
+- **Deferred test:** production-scale corpus/checkpoint and concurrent-writer disk-pressure exercise when such an owned corpus and reserved filesystem are available; large bundles above the configured RAM bound remain explicitly paused rather than silently skipped.
 - **Activation:** explicit beta integration and runtime selection.
 - **Promotion:** separate stable acceptance.

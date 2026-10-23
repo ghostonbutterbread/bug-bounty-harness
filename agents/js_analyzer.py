@@ -9,6 +9,7 @@ extracting cheap signals, and writing bounded agent packets for deep review.
 from __future__ import annotations
 
 import argparse
+from contextvars import ContextVar
 import hashlib
 import html.parser
 import http.client
@@ -567,9 +568,19 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
     )
     try:
         with urllib.request.build_opener(NoRedirectHandler()).open(req, timeout=timeout) as resp:
-            return HttpResult((resp.read(), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")), map_header=source_map_header(resp.headers))
+            body = bytearray()
+            limit = BUNDLE_MEMORY_LIMIT.get()
+            while True:
+                chunk = resp.read(min(64 * 1024, limit + 1 - len(body)))
+                if not chunk:
+                    break
+                body.extend(chunk)
+                if len(body) > limit:
+                    return HttpResult((b"", int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")), reason="bundle_memory")
+            return HttpResult((bytes(body), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")), map_header=source_map_header(resp.headers))
     except urllib.error.HTTPError as exc:
-        return exc.read(), exc.code, exc.headers.get("content-type", "") if exc.headers else ""
+        exc.close()
+        return b"", exc.code, exc.headers.get("content-type", "") if exc.headers else ""
     except Exception:
         return b"", None, ""
 
@@ -739,7 +750,11 @@ def allowed_context_actions(classification: str) -> list[str]:
 
 
 def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) -> tuple[list[str], list[dict], dict[str, bytes]]:
-    body, status, content_type = http_get(page_url)
+    response = http_get(page_url)
+    body, status, content_type = response
+    if getattr(response, "reason", "") == "bundle_memory":
+        return [], [{"page_url": page_url, "page_context": page_context,
+                     "status": status, "page_scan_reason": "bundle_memory"}], {}
     if not body or status is None or not 200 <= status < 300:
         return [], [], {}
     text = body.decode("utf-8", errors="ignore")
@@ -770,7 +785,30 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
 SOURCE_MAP_ISOLATE_BYTES = 8 * 1024 * 1024
 SOURCE_MAP_PARSE_MAX_BYTES = 0  # 0 disables the optional operator byte cap.
 SOURCE_MAP_WORKER_MEMORY = 1024 * 1024 * 1024
-SOURCE_MAP_WORKER_SECONDS = 45
+
+OUTPUT_FLOOR: ContextVar[int] = ContextVar("js_output_floor", default=0)
+BUNDLE_MEMORY_LIMIT: ContextVar[int] = ContextVar("js_bundle_memory_limit", default=64 * 1024 * 1024)
+
+
+class DiskFloorPause(RuntimeError):
+    """The next output would violate the reserved free-space floor."""
+
+
+def check_output_space(path: Path, size: int, *, floor: int | None = None) -> None:
+    required = OUTPUT_FLOOR.get() if floor is None else floor
+    if required <= 0:
+        return
+    parent = path.parent
+    while not parent.exists():
+        parent = parent.parent
+    if shutil.disk_usage(parent).free - size < required:
+        raise DiskFloorPause(f"disk floor at {path}; free space required before continuing")
+
+
+def write_bytes_checked(path: Path, body: bytes, *, floor: int | None = None) -> None:
+    check_output_space(path, len(body), floor=floor)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
 
 
 class SourceMapScanError(RuntimeError):
@@ -781,7 +819,6 @@ class SourceMapScanError(RuntimeError):
         action = {
             "parser_unavailable": "install this checkout's requirements with bash setup.sh --install-python-deps",
             "parse_limit": "raise --source-map-parse-max-bytes or omit it to scan the full bundle",
-            "parser_timeout": "review the oversized bundle locally; per-parse CPU fence was reached",
             "parser_memory": "review the oversized bundle locally; per-parse memory fence was reached",
         }.get(reason, "review parser diagnostics")
         super().__init__(f"source-map comment scan incomplete ({reason}); {action}")
@@ -821,6 +858,7 @@ def _parse_source_map_comments(data: bytes) -> str:
 def _source_map_worker(data: bytes, connection) -> None:
     """Fence one large AST; never let a malformed bundle exhaust the inventory."""
     try:
+        os.nice(10)  # Keep the caller responsive during expensive grammar scans.
         soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         cap = min(SOURCE_MAP_WORKER_MEMORY, hard) if hard != resource.RLIM_INFINITY else SOURCE_MAP_WORKER_MEMORY
         resource.setrlimit(resource.RLIMIT_AS, (cap, hard))
@@ -846,15 +884,17 @@ def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MA
     data = text.encode("utf-8")
     if max_bytes and len(data) > max_bytes:
         raise SourceMapScanError("parse_limit")
-    if len(data) <= SOURCE_MAP_ISOLATE_BYTES:
-        return _parse_source_map_comments(data)
+    # Isolate even small ASTs: size alone cannot predict parser complexity.
     parent, child = multiprocessing.get_context("fork").Pipe(duplex=False)
     worker = multiprocessing.get_context("fork").Process(target=_source_map_worker, args=(data, child))
     try:
         worker.start()
         child.close()
-        if not parent.poll(SOURCE_MAP_WORKER_SECONDS):
-            raise SourceMapScanError("parser_timeout")
+        # No semantic deadline. A caller may cancel the process (Ctrl-C), while
+        # RLIMIT_AS fences the AST; a slow but progressing scan is not omitted.
+        while not parent.poll(1):
+            if not worker.is_alive():
+                raise SourceMapScanError("parser_memory")
         try:
             status, result = parent.recv()
         except EOFError as exc:
@@ -940,10 +980,10 @@ def extract_signals(
         external_endpoints = []
 
     return {
-        "endpoints": sorted_endpoints[:500],
-        "in_scope_endpoints": in_scope_endpoints[:500],
-        "external_endpoints": external_endpoints[:500],
-        "params": sorted(params)[:300],
+        "endpoints": sorted_endpoints,
+        "in_scope_endpoints": in_scope_endpoints,
+        "external_endpoints": external_endpoints,
+        "params": sorted(params),
         "source_map": source_map,
         "source_map_discovery": source_map_discovery,
         "source_map_scan_reason": source_map_scan_reason,
@@ -1144,7 +1184,7 @@ class WaybackRecovery:
                 archived_sha = hashlib.sha256(archived[0]).hexdigest()
                 bundle_path = self.source_maps_dir / "historical_bundles" / f"{archived_sha}.js"
                 bundle_path.parent.mkdir(parents=True, exist_ok=True)
-                bundle_path.write_bytes(archived[0])
+                write_bytes_checked(bundle_path, archived[0])
                 history.update(bundle_artifact_path=str(bundle_path),
                                bundle_archive_timestamp=stamp, bundle_retrieval_url=bundle_retrieval,
                                archived_bundle_sha256=archived_sha,
@@ -1277,7 +1317,7 @@ def write_source_map_modules(
                 chunks = chunk_text(content, chunk_size, chunk_overlap)
                 module_dir.mkdir(parents=True, exist_ok=True)
                 module_path = module_dir / f"{module['source_index']:05d}.js"
-                module_path.write_text(module["content"], encoding="utf-8")
+                write_text_atomic(module_path, module["content"])
                 row["module_path"] = str(module_path)
                 row["packet_status"] = "packetized"
                 module_site_scan = scan_sink_sites(module["content"])
@@ -1319,11 +1359,15 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
-            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            line = json.dumps(row, sort_keys=True) + "\n"
+            check_output_space(path, len(line.encode("utf-8")))
+            handle.write(line)
 
 
 def write_text_atomic(path: Path, text: str) -> None:
     """Publish one complete text artifact for concurrent readers."""
+    if isinstance(text, str):
+        check_output_space(path, len(text.encode("utf-8")))
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
@@ -1351,9 +1395,31 @@ def write_text_atomic(path: Path, text: str) -> None:
 
 def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size:
+        with path.open("rb+") as repair:
+            repair.seek(-1, os.SEEK_END)
+            if repair.read(1) != b"\n":
+                # A crash may leave half a JSON row. Replay it from the last
+                # committed URL rather than joining two rows into invalid JSON.
+                position = repair.tell() - 1
+                while position >= 0:
+                    repair.seek(position)
+                    if repair.read(1) == b"\n":
+                        break
+                    position -= 1
+                repair.truncate(position + 1)
     with path.open("a", encoding="utf-8") as handle:
         for row in rows:
-            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            line = json.dumps(row, sort_keys=True) + "\n"
+            check_output_space(path, len(line.encode("utf-8")))
+            handle.write(line)
+
+
+def published_run_urls(path: Path, run_id: str, field: str) -> set[str]:
+    # An append may have succeeded before a checkpoint crash. The sink is
+    # authoritative; the checkpoint's published_urls hint is not transactional.
+    return {row[field] for row in iter_jsonl(path)
+            if row.get("run_id") == run_id and isinstance(row.get(field), str)} if path.exists() else set()
 
 
 # A supplied JS list can contain extensionless scripts. Non-JS suffixes need
@@ -1428,7 +1494,9 @@ def load_ledger(path: Path) -> dict:
 def save_ledger(path: Path, ledger: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(ledger, indent=2, sort_keys=True) + "\n"
+    check_output_space(tmp, len(text.encode("utf-8")))
+    tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
 
 
@@ -2164,7 +2232,7 @@ def write_chunk_set(
     rows: list[dict] = []
     for chunk_index, (start, end, chunk) in enumerate(chunks):
         chunk_path = chunk_dir / f"{chunk_index + 1:03d}.js"
-        chunk_path.write_text(chunk, encoding="utf-8")
+        write_text_atomic(chunk_path, chunk)
         rows.append({
             "sha256": sha256,
             "chunk_index": chunk_index,
@@ -2181,7 +2249,7 @@ def write_chunk_set(
         "chunk_count": len(chunks),
         "chunks": rows,
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_text_atomic(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return chunk_set_key, manifest_path, rows, False
 
 
@@ -2273,10 +2341,11 @@ def command_inventory(args: argparse.Namespace) -> int:
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
             or args.source_map_max_bytes <= 0 or (args.source_map_parse_max_bytes is not None and args.source_map_parse_max_bytes <= 0)
             or args.disk_free_floor_gib < 0
-            or args.delay < 0 or args.timeout <= 0):
+            or args.delay < 0 or args.timeout <= 0 or args.bundle_max_bytes <= 0):
         raise SystemExit("source-map byte/capture/time limits must be positive; request limit and delay must be non-negative")
     if args.source_map_parse_max_bytes is None:
         args.source_map_parse_max_bytes = SOURCE_MAP_PARSE_MAX_BYTES
+    BUNDLE_MEMORY_LIMIT.set(args.bundle_max_bytes)
     if args.chunk_size <= 0 or args.chunk_overlap < 0 or args.chunk_overlap >= args.chunk_size:
         raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
     if args.source_map_max_packets < 0 or args.source_map_max_expanded_bytes < 0:
@@ -2352,6 +2421,8 @@ def command_inventory(args: argparse.Namespace) -> int:
     published_urls: list[str] = checkpoint.get("published_urls", []) if checkpoint else []
     retryable_failed: dict[str, str] = checkpoint["retryable_failed"] if checkpoint else {}
     paused_reason = ""
+    packet_limits = [args.source_map_module_limit, args.source_map_max_packets, args.source_map_max_expanded_bytes]
+    map_limits = [args.source_map_max_bytes, args.source_map_parse_max_bytes]
 
     def save_checkpoint() -> None:
         # Publish only after all artifacts for a URL have been written. A crash
@@ -2360,6 +2431,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             "run_id": run_id, "input_id": input_id, "intended_urls": normalized_urls,
             "succeeded": succeeded, "retryable_failed": retryable_failed,
             "published_urls": published_urls,
+            "packet_limits": packet_limits,
+            "map_limits": map_limits,
             "records": [asdict(row) for row in records], "packet_rows": packet_rows,
             "source_map_module_rows": source_map_module_rows,
             "source_map_packet_budgets": source_map_packet_budgets,
@@ -2370,6 +2443,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     if not checkpoint:
         save_checkpoint()
+    OUTPUT_FLOOR.set(int(args.disk_free_floor_gib * 1024 ** 3))
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
@@ -2380,6 +2454,15 @@ def command_inventory(args: argparse.Namespace) -> int:
     for index, url in enumerate(normalized_urls, start=1):
         if url in succeeded:
             continue
+        if (retryable_failed.get(url) == "module_budget" and checkpoint
+                and checkpoint.get("packet_limits") == packet_limits):
+            paused_reason = "module_budget"
+            break
+        if (retryable_failed.get(url) == "source_map_too_large"
+                or (retryable_failed.get(url) == "source_map_scan_failed" and args.source_map_parse_max_bytes)):
+            if checkpoint and checkpoint.get("map_limits") == map_limits:
+                paused_reason = "map_limit"
+                break
         if args.limit and attempted_this_run >= args.limit:
             paused_reason = "url_limit"
             break
@@ -2389,351 +2472,381 @@ def command_inventory(args: argparse.Namespace) -> int:
                    for path in (root, library_root, integration_index_root)):
                 paused_reason = "disk_floor"
                 break
-        attempted_this_run += 1
-        # An earlier failed attempt may have produced partial metadata. Replace
-        # its rows on retry, leaving immutable content-addressed artifacts intact.
-        if url in retryable_failed:
-            records[:] = [row for row in records if row.url != url]
-            packet_rows[:] = [row for row in packet_rows if row.get("url") != url]
-            source_map_module_rows[:] = [row for row in source_map_module_rows if row.get("bundle_url") != url]
-            source_map_packet_budgets[:] = [row for row in source_map_packet_budgets if row.get("bundle_url") != url]
-            provenance_rows[:] = [row for row in provenance_rows if row.js_url != url]
-            provenance_rows_by_url.pop(url, None)
-            external_integration_rows[:] = [row for row in external_integration_rows if row.found_in_js_url != url]
-            retryable_failed.pop(url)
-        observed_non_js_suffix = (
-            url not in page_urls and url not in inline_bodies
-            and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
-        )
-        if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
-            cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
-            if cached_artifact:
-                skipped_cached_urls += 1
-                succeeded.append(url)
-                save_checkpoint()
-                sha, artifact_path = cached_artifact
-                print(
-                    f"[{index}/{len(normalized_urls)}] {url} -> skipped cached "
-                    f"{sha[:16]} {artifact_path}",
-                    file=sys.stderr,
-                )
-                continue
+        try:
+            attempted_this_run += 1
+            # An earlier failed attempt may have produced partial metadata. Replace
+            # its rows on retry, leaving immutable content-addressed artifacts intact.
+            if url in retryable_failed:
+                records[:] = [row for row in records if row.url != url]
+                packet_rows[:] = [row for row in packet_rows if row.get("url") != url]
+                source_map_module_rows[:] = [row for row in source_map_module_rows if row.get("bundle_url") != url]
+                source_map_packet_budgets[:] = [row for row in source_map_packet_budgets if row.get("bundle_url") != url]
+                provenance_rows[:] = [row for row in provenance_rows if row.js_url != url]
+                provenance_rows_by_url.pop(url, None)
+                external_integration_rows[:] = [row for row in external_integration_rows if row.found_in_js_url != url]
+                retryable_failed.pop(url)
+            observed_non_js_suffix = (
+                url not in page_urls and url not in inline_bodies
+                and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
+            )
+            if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
+                cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+                if cached_artifact:
+                    skipped_cached_urls += 1
+                    succeeded.append(url)
+                    save_checkpoint()
+                    sha, artifact_path = cached_artifact
+                    print(
+                        f"[{index}/{len(normalized_urls)}] {url} -> skipped cached "
+                        f"{sha[:16]} {artifact_path}",
+                        file=sys.stderr,
+                    )
+                    continue
 
-        reused_download = False
-        map_header = ("", "")
-        cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
-        if cached:
-            body = cached[0]
-            cached_response = ledger.get("urls", {}).get(url, {})
-            status = cached_response.get("status") if isinstance(cached_response, dict) else None
-            content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
-            if isinstance(cached_response, dict):
-                map_header = (cached_response.get("source_map_header", ""), cached_response.get("source_map_header_name", ""))
-            reused_download = True
-        else:
-            if args.delay and url not in inline_bodies:
-                time.sleep(args.delay)
-            if url in inline_bodies:
-                body, status, content_type = inline_bodies[url], None, "application/javascript"
-            else:
-                response = http_get(url, timeout=args.timeout)
-                body, status, content_type = response
-                map_header = getattr(response, "map_header", ("", ""))
-            if not body and (args.source_map_wayback == "off" or args.source_maps == "off"):
-                retryable_failed[url] = "bundle_unavailable"
-                save_checkpoint()
-                continue
-        current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
-        if not current_available:
-            # An HTTP error body (or an empty/failed fetch) is not JavaScript.
-            # Retain status/history metadata for archive fallback, not live bytes.
-            if args.source_map_wayback == "off" or args.source_maps == "off":
-                retryable_failed[url] = "bundle_unavailable"
-                save_checkpoint()
-                continue
-            body = b""
-            map_header = ("", "")
-            cached = None
             reused_download = False
-        if observed_non_js_suffix:
-            if (not isinstance(status, int) or not 200 <= status < 300
-                    or not is_js_content_type(content_type)):
-                print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
-                retryable_failed[url] = "non_js_response"
-                save_checkpoint()
-                continue
-        digest = ""
-        artifact_path: Path | None = None
-        if cached:
-            body, digest, artifact_path = cached
-            reused_downloads += 1
-        elif current_available:
-            digest = hashlib.sha256(body).hexdigest()
-            artifact_path = downloads_dir / f"{digest}.js"
-            if artifact_path.exists():
+            map_header = ("", "")
+            cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+            if cached:
+                body = cached[0]
+                cached_response = ledger.get("urls", {}).get(url, {})
+                status = cached_response.get("status") if isinstance(cached_response, dict) else None
+                content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
+                if isinstance(cached_response, dict):
+                    map_header = (cached_response.get("source_map_header", ""), cached_response.get("source_map_header_name", ""))
                 reused_download = True
-                reused_downloads += 1
             else:
-                artifact_path.write_bytes(body)
-        text = body.decode("utf-8", errors="ignore")
-        signals = extract_signals(text, url, scope_hosts, source_map_header=map_header,
-                                  source_map_parse_max_bytes=args.source_map_parse_max_bytes)
-        source_map_discovery = signals["source_map_discovery"]
-        scan_reason = signals["source_map_scan_reason"]
-        if scan_reason:
-            print(f"[{index}/{len(normalized_urls)}] {url} -> {SourceMapScanError(scan_reason)}", file=sys.stderr)
-        source_map_status = "scan_failed" if scan_reason else "not_detected"
-        source_map_reason = scan_reason or ("invalid_declaration" if map_header[1] and not signals["source_map"] else "not_detected")
-        source_map_http_status = None
-        source_map_sha256 = ""
-        source_map_artifact_path = ""
-        source_map_path: Path | None = None
-        source_map_modules: list[dict] = []
-        source_map_modules_with_content = 0
-        if signals["source_map"]:
-            if args.source_maps == "off":
-                source_map_status = "disabled"
-                source_map_reason = "disabled"
-            elif not in_scope_url(signals["source_map"], scope_hosts):
-                source_map_status = "external_not_fetched"
-                source_map_reason = "out_of_scope"
-            else:
-                cached_source_map = None if args.refresh else load_source_map_from_ledger(
-                    ledger,
-                    url=signals["source_map"],
-                    source_maps_dir=source_maps_dir,
-                    max_bytes=args.source_map_max_bytes,
-                )
-                if cached_source_map:
-                    source_map_body, source_map_sha256, source_map_path = cached_source_map
-                    if source_map_body is None:
-                        source_map_status = "too_large"
-                        source_map_reason = "oversize"
-                        source_maps_too_large += 1
-                        source_map_sha256 = ""
-                        source_map_path = None
-                    else:
-                        source_map_status = "cached"
-                        source_map_reason = "ok"
-                        source_maps_reused += 1
+                if args.delay and url not in inline_bodies:
+                    time.sleep(args.delay)
+                response = None
+                if url in inline_bodies:
+                    body, status, content_type = inline_bodies[url], None, "application/javascript"
                 else:
-                    if args.delay:
-                        time.sleep(args.delay)
-                    map_response = http_get_limited(
-                        signals["source_map"],
-                        timeout=args.timeout,
+                    response = http_get(url, timeout=args.timeout)
+                    body, status, content_type = response
+                    map_header = getattr(response, "map_header", ("", ""))
+                if getattr(response, "reason", "") == "bundle_memory":
+                    retryable_failed[url] = "bundle_memory"
+                    paused_reason = "bundle_memory"
+                    save_checkpoint()
+                    break
+                if not body and (args.source_map_wayback == "off" or args.source_maps == "off"):
+                    retryable_failed[url] = "bundle_unavailable"
+                    save_checkpoint()
+                    continue
+            current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
+            if not current_available:
+                # An HTTP error body (or an empty/failed fetch) is not JavaScript.
+                # Retain status/history metadata for archive fallback, not live bytes.
+                if args.source_map_wayback == "off" or args.source_maps == "off":
+                    retryable_failed[url] = "bundle_unavailable"
+                    save_checkpoint()
+                    continue
+                body = b""
+                map_header = ("", "")
+                cached = None
+                reused_download = False
+            if observed_non_js_suffix:
+                if (not isinstance(status, int) or not 200 <= status < 300
+                        or not is_js_content_type(content_type)):
+                    print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
+                    retryable_failed[url] = "non_js_response"
+                    save_checkpoint()
+                    continue
+            digest = ""
+            artifact_path: Path | None = None
+            if cached:
+                body, digest, artifact_path = cached
+                reused_downloads += 1
+            elif current_available:
+                digest = hashlib.sha256(body).hexdigest()
+                artifact_path = downloads_dir / f"{digest}.js"
+                if artifact_path.exists():
+                    reused_download = True
+                    reused_downloads += 1
+                else:
+                    write_bytes_checked(artifact_path, body)
+            text = body.decode("utf-8", errors="ignore")
+            signals = extract_signals(text, url, scope_hosts, source_map_header=map_header,
+                                      source_map_parse_max_bytes=args.source_map_parse_max_bytes)
+            source_map_discovery = signals["source_map_discovery"]
+            scan_reason = signals["source_map_scan_reason"]
+            if scan_reason:
+                print(f"[{index}/{len(normalized_urls)}] {url} -> {SourceMapScanError(scan_reason)}", file=sys.stderr)
+            source_map_status = "scan_failed" if scan_reason else "not_detected"
+            source_map_reason = scan_reason or ("invalid_declaration" if map_header[1] and not signals["source_map"] else "not_detected")
+            source_map_http_status = None
+            source_map_sha256 = ""
+            source_map_artifact_path = ""
+            source_map_path: Path | None = None
+            source_map_modules: list[dict] = []
+            source_map_modules_with_content = 0
+            if signals["source_map"]:
+                if args.source_maps == "off":
+                    source_map_status = "disabled"
+                    source_map_reason = "disabled"
+                elif not in_scope_url(signals["source_map"], scope_hosts):
+                    source_map_status = "external_not_fetched"
+                    source_map_reason = "out_of_scope"
+                else:
+                    cached_source_map = None if args.refresh else load_source_map_from_ledger(
+                        ledger,
+                        url=signals["source_map"],
+                        source_maps_dir=source_maps_dir,
                         max_bytes=args.source_map_max_bytes,
                     )
-                    source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = map_response
-                    source_map_http_status = source_map_status_code
-                    source_map_reason = fetch_reason(map_response)
-                    if source_map_too_large:
-                        source_map_status = "too_large"
-                        source_maps_too_large += 1
-                    elif not source_map_body or not (source_map_status_code and 200 <= source_map_status_code < 300):
-                        source_map_status = "fetch_failed"
-                    elif not is_source_map_body(source_map_body):
-                        source_map_status = "invalid"
-                        source_map_reason = "invalid"
+                    if cached_source_map:
+                        source_map_body, source_map_sha256, source_map_path = cached_source_map
+                        if source_map_body is None:
+                            source_map_status = "too_large"
+                            source_map_reason = "oversize"
+                            source_maps_too_large += 1
+                            source_map_sha256 = ""
+                            source_map_path = None
+                        else:
+                            source_map_status = "cached"
+                            source_map_reason = "ok"
+                            source_maps_reused += 1
                     else:
-                        source_map_sha256 = hashlib.sha256(source_map_body).hexdigest()
-                        source_map_path = source_maps_dir / f"{source_map_sha256}.map"
-                        if not source_map_path.exists():
-                            source_map_path.write_bytes(source_map_body)
-                        update_ledger_source_map(
-                            ledger,
-                            url=signals["source_map"],
-                            sha256=source_map_sha256,
-                            artifact_path=source_map_path,
-                            byte_count=len(source_map_body),
-                            status=source_map_status_code,
-                            content_type=_source_map_content_type,
+                        if args.delay:
+                            time.sleep(args.delay)
+                        map_response = http_get_limited(
+                            signals["source_map"],
+                            timeout=args.timeout,
+                            max_bytes=args.source_map_max_bytes,
                         )
-                        source_map_status = "downloaded"
-                        source_maps_downloaded += 1
-                if source_map_sha256 and source_map_path and source_map_body is not None:
-                    source_map_artifact_path = str(source_map_path)
-                    source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
-        chunks = []
-        chunk_rows = []
-        chunk_set_key = ""
-        chunk_manifest_path = None
-        reused_chunks = False
-        if current_available:
-            chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
-            chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
-                chunks_root=library_chunks_dir,
-                sha256=digest,
-                chunks=chunks,
-                chunk_size=args.chunk_size,
-                chunk_overlap=args.chunk_overlap,
-            )
-        if reused_chunks:
-            reused_chunk_sets += 1
-        record = JsRecord(
-            url=url,
-            status=status,
-            content_type=content_type,
-            byte_count=len(body),
-            sha256=digest,
-            artifact_path=str(artifact_path) if artifact_path is not None else "",
-            reused_download=reused_download,
-            reused_chunks=reused_chunks,
-            page_context=args.page_context or "",
-            source=args.input or args.page or "",
-            source_map=signals["source_map"],
-            source_map_status=source_map_status,
-            source_map_discovery=source_map_discovery,
-            source_map_reason=source_map_reason,
-            source_map_http_status=source_map_http_status,
-            source_map_sha256=source_map_sha256,
-            source_map_artifact_path=source_map_artifact_path,
-            source_map_module_count=len(source_map_modules),
-            source_map_modules_with_content=source_map_modules_with_content,
-            endpoints=signals["endpoints"],
-            in_scope_endpoints=signals["in_scope_endpoints"],
-            external_endpoints=signals["external_endpoints"],
-            params=signals["params"],
-            imports=signals["imports"],
-            secret_hints=signals["secret_hints"],
-            sources=signals["sources"],
-            sinks=signals["sinks"],
-            sink_sites=signals["sink_sites"],
-            sink_sites_truncated=signals["sink_sites_truncated"],
-            source_sites=signals["source_sites"],
-            source_sites_truncated=signals["source_sites_truncated"],
-            flow_hints=signals["flow_hints"],
-            interesting_keys=signals["interesting_keys"],
-            graphql_operations=signals["graphql_operations"],
-            route_hints=signals["route_hints"],
-            hidden_state_hints=signals["hidden_state_hints"],
-            signal_coverage=signals["signal_coverage"],
-            chunk_count=len(chunks),
-        )
-        if source_map_modules:
-            module_rows, source_map_packets, source_map_budget = write_source_map_modules(
-                root=root,
-                source_maps_dir=source_maps_dir,
-                record=record,
-                source_map_sha256=source_map_sha256,
-                modules=source_map_modules,
-                chunk_size=args.chunk_size,
-                chunk_overlap=args.chunk_overlap,
-                module_limit=args.source_map_module_limit,
-                max_packets=args.source_map_max_packets,
-                max_expanded_bytes=args.source_map_max_expanded_bytes,
-            )
-            source_map_module_rows.extend(module_rows)
-            packet_rows.extend(source_map_packets)
-            source_map_packet_budgets.append(dict(source_map_budget, bundle_url=url))
-            record.source_map_packet_count = len(source_map_packets)
-        history, historical_body = wayback.recover(record)
-        record.source_map_history = history
-        if historical_body is not None:
-            historical_sha = history["map_sha256"]
-            historical_path = source_maps_dir / f"{historical_sha}.map"
-            if not historical_path.exists():
-                historical_path.write_bytes(historical_body)
-            history["map_artifact_path"] = str(historical_path)
-            historical_modules, content_count = parse_source_map(historical_body)
-            history.update(module_count=len(historical_modules), modules_with_content=content_count,
-                           embedded_source_recovered=content_count > 0)
-            historical_record = replace(record, source_map=history["original_map_url"],
-                                        sha256=history.get("archived_bundle_sha256") or record.sha256)
-            module_rows, historical_packets, historical_budget = write_source_map_modules(
-                root=root, source_maps_dir=source_maps_dir, record=historical_record,
-                source_map_sha256=historical_sha, modules=historical_modules,
-                chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
-                module_limit=args.source_map_module_limit, max_packets=args.source_map_max_packets,
-                max_expanded_bytes=args.source_map_max_expanded_bytes)
-            history["packet_count"] = len(historical_packets)
-            ledger.setdefault("historical_source_maps", {})[wayback.cache_key(record)] = history
-            source_map_module_rows.extend(module_rows)
-            for packet in historical_packets:
-                packet.update(artifact_kind="historical_source_map_module", historical=True, source_map_history=history)
-            packet_rows.extend(historical_packets)
-            source_map_packet_budgets.append(dict(historical_budget, historical=True, bundle_url=url))
-        records.append(record)
-        record_provenance_rows = build_provenance_rows(
-            record=record,
-            run_id=run_id,
-            source=args.provenance_source or args.input or args.page or "",
-            page_url=args.page or "",
-            target_host=target_host or "",
-            hints=provenance_hints.get(url, []),
-        )
-        provenance_rows.extend(record_provenance_rows)
-        provenance_rows_by_url.setdefault(url, []).extend(asdict(row) for row in record_provenance_rows)
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        for external_url in record.external_endpoints:
-            host = url_host(external_url)
-            classification = classify_external_url(external_url)
-            external_integration_rows.append(ExternalIntegration(
-                external_url=external_url,
-                host=host,
-                classification=classification,
-                action_policy=external_action_policy(classification),
-                allowed_context_actions=allowed_context_actions(classification),
-                found_in_js_url=url,
-                found_in_sha256=digest,
-                found_in_source=record.source,
-                page_context=record.page_context,
-                run_id=run_id,
-                evidence_path=str(root / "metadata.jsonl"),
-                in_scope_target_host=",".join(scope_hosts),
-                first_seen=now,
-                last_seen=now,
-            ))
-        if current_available and artifact_path is not None and chunk_manifest_path is not None:
-            update_ledger_for_file(
-                ledger,
+                        source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = map_response
+                        source_map_http_status = source_map_status_code
+                        source_map_reason = fetch_reason(map_response)
+                        if source_map_too_large:
+                            source_map_status = "too_large"
+                            source_maps_too_large += 1
+                        elif not source_map_body or not (source_map_status_code and 200 <= source_map_status_code < 300):
+                            source_map_status = "fetch_failed"
+                        elif not is_source_map_body(source_map_body):
+                            source_map_status = "invalid"
+                            source_map_reason = "invalid"
+                        else:
+                            source_map_sha256 = hashlib.sha256(source_map_body).hexdigest()
+                            source_map_path = source_maps_dir / f"{source_map_sha256}.map"
+                            if not source_map_path.exists():
+                                write_bytes_checked(source_map_path, source_map_body)
+                            update_ledger_source_map(
+                                ledger,
+                                url=signals["source_map"],
+                                sha256=source_map_sha256,
+                                artifact_path=source_map_path,
+                                byte_count=len(source_map_body),
+                                status=source_map_status_code,
+                                content_type=_source_map_content_type,
+                            )
+                            source_map_status = "downloaded"
+                            source_maps_downloaded += 1
+                    if source_map_sha256 and source_map_path and source_map_body is not None:
+                        source_map_artifact_path = str(source_map_path)
+                        source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
+            chunks = []
+            chunk_rows = []
+            chunk_set_key = ""
+            chunk_manifest_path = None
+            reused_chunks = False
+            if current_available:
+                chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
+                chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
+                    chunks_root=library_chunks_dir,
+                    sha256=digest,
+                    chunks=chunks,
+                    chunk_size=args.chunk_size,
+                    chunk_overlap=args.chunk_overlap,
+                )
+            if reused_chunks:
+                reused_chunk_sets += 1
+            record = JsRecord(
                 url=url,
-                sha256=digest,
-                artifact_path=artifact_path,
-                byte_count=len(body),
                 status=status,
                 content_type=content_type,
-                chunk_set_key=chunk_set_key,
+                byte_count=len(body),
+                sha256=digest,
+                artifact_path=str(artifact_path) if artifact_path is not None else "",
+                reused_download=reused_download,
+                reused_chunks=reused_chunks,
+                page_context=args.page_context or "",
+                source=args.input or args.page or "",
+                source_map=signals["source_map"],
+                source_map_status=source_map_status,
+                source_map_discovery=source_map_discovery,
+                source_map_reason=source_map_reason,
+                source_map_http_status=source_map_http_status,
+                source_map_sha256=source_map_sha256,
+                source_map_artifact_path=source_map_artifact_path,
+                source_map_module_count=len(source_map_modules),
+                source_map_modules_with_content=source_map_modules_with_content,
+                endpoints=signals["endpoints"],
+                in_scope_endpoints=signals["in_scope_endpoints"],
+                external_endpoints=signals["external_endpoints"],
+                params=signals["params"],
+                imports=signals["imports"],
+                secret_hints=signals["secret_hints"],
+                sources=signals["sources"],
+                sinks=signals["sinks"],
+                sink_sites=signals["sink_sites"],
+                sink_sites_truncated=signals["sink_sites_truncated"],
+                source_sites=signals["source_sites"],
+                source_sites_truncated=signals["source_sites_truncated"],
+                flow_hints=signals["flow_hints"],
+                interesting_keys=signals["interesting_keys"],
+                graphql_operations=signals["graphql_operations"],
+                route_hints=signals["route_hints"],
+                hidden_state_hints=signals["hidden_state_hints"],
+                signal_coverage=signals["signal_coverage"],
                 chunk_count=len(chunks),
-                chunk_manifest_path=chunk_manifest_path,
             )
-            ledger["urls"][url].update(source_map_header=map_header[0], source_map_header_name=map_header[1])
-        for chunk_row in chunk_rows:
-            chunk_index = int(chunk_row["chunk_index"])
-            start = int(chunk_row["byte_start"])
-            end = int(chunk_row["byte_end"])
-            chunk_path = Path(str(chunk_row["chunk_path"]))
-            chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
-            packet_path = packets_dir / f"{digest[:16]}-{hashlib.sha256(url.encode('utf-8')).hexdigest()}-{chunk_index + 1:03d}.md"
-            write_text_atomic(packet_path, build_packet(record, chunk_index, start, end, chunk))
-            packet_rows.append({
-                "url": url,
-                "sha256": digest,
-                "chunk_set_key": chunk_set_key,
-                "chunk_index": chunk_index,
-                "chunk_count": len(chunks),
-                "chunk_path": str(chunk_path),
-                "packet_path": str(packet_path),
-                "byte_start": start,
-                "byte_end": end,
-            })
-        reuse_note = " reused" if reused_download else " downloaded"
-        chunk_note = " reused-chunks" if reused_chunks else " chunked"
-        if current_available:
-            print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
-        else:
-            print(f"[{index}/{len(normalized_urls)}] {url} -> current unavailable ({status}), historical={record.source_map_history.get('status', 'off')}", file=sys.stderr)
-        if source_map_status in {"scan_failed", "fetch_failed", "too_large", "invalid"}:
-            retryable_failed[url] = f"source_map_{source_map_status}"
-        elif any(row["packet_status"] == "truncated_by_budget" for row in source_map_module_rows if row["bundle_url"] == url):
-            retryable_failed[url] = "module_budget"
-        elif not current_available and record.source_map_history.get("status") not in {"recovered", "cached"}:
-            retryable_failed[url] = "bundle_unavailable"
-        else:
-            succeeded.append(url)
-        save_ledger(ledger_path, ledger)
-        save_checkpoint()
+            if source_map_modules:
+                module_rows, source_map_packets, source_map_budget = write_source_map_modules(
+                    root=root,
+                    source_maps_dir=source_maps_dir,
+                    record=record,
+                    source_map_sha256=source_map_sha256,
+                    modules=source_map_modules,
+                    chunk_size=args.chunk_size,
+                    chunk_overlap=args.chunk_overlap,
+                    module_limit=args.source_map_module_limit,
+                    max_packets=args.source_map_max_packets,
+                    max_expanded_bytes=args.source_map_max_expanded_bytes,
+                )
+                source_map_module_rows.extend(module_rows)
+                packet_rows.extend(source_map_packets)
+                source_map_packet_budgets.append(dict(source_map_budget, bundle_url=url))
+                record.source_map_packet_count = len(source_map_packets)
+            history, historical_body = wayback.recover(record)
+            record.source_map_history = history
+            if historical_body is not None:
+                historical_sha = history["map_sha256"]
+                historical_path = source_maps_dir / f"{historical_sha}.map"
+                if not historical_path.exists():
+                    write_bytes_checked(historical_path, historical_body)
+                history["map_artifact_path"] = str(historical_path)
+                historical_modules, content_count = parse_source_map(historical_body)
+                history.update(module_count=len(historical_modules), modules_with_content=content_count,
+                               embedded_source_recovered=content_count > 0)
+                historical_record = replace(record, source_map=history["original_map_url"],
+                                            sha256=history.get("archived_bundle_sha256") or record.sha256)
+                module_rows, historical_packets, historical_budget = write_source_map_modules(
+                    root=root, source_maps_dir=source_maps_dir, record=historical_record,
+                    source_map_sha256=historical_sha, modules=historical_modules,
+                    chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
+                    module_limit=args.source_map_module_limit, max_packets=args.source_map_max_packets,
+                    max_expanded_bytes=args.source_map_max_expanded_bytes)
+                history["packet_count"] = len(historical_packets)
+                ledger.setdefault("historical_source_maps", {})[wayback.cache_key(record)] = history
+                source_map_module_rows.extend(module_rows)
+                for packet in historical_packets:
+                    packet.update(artifact_kind="historical_source_map_module", historical=True, source_map_history=history)
+                packet_rows.extend(historical_packets)
+                source_map_packet_budgets.append(dict(historical_budget, historical=True, bundle_url=url))
+            records.append(record)
+            record_provenance_rows = build_provenance_rows(
+                record=record,
+                run_id=run_id,
+                source=args.provenance_source or args.input or args.page or "",
+                page_url=args.page or "",
+                target_host=target_host or "",
+                hints=provenance_hints.get(url, []),
+            )
+            provenance_rows.extend(record_provenance_rows)
+            provenance_rows_by_url.setdefault(url, []).extend(asdict(row) for row in record_provenance_rows)
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            for external_url in record.external_endpoints:
+                host = url_host(external_url)
+                classification = classify_external_url(external_url)
+                external_integration_rows.append(ExternalIntegration(
+                    external_url=external_url,
+                    host=host,
+                    classification=classification,
+                    action_policy=external_action_policy(classification),
+                    allowed_context_actions=allowed_context_actions(classification),
+                    found_in_js_url=url,
+                    found_in_sha256=digest,
+                    found_in_source=record.source,
+                    page_context=record.page_context,
+                    run_id=run_id,
+                    evidence_path=str(root / "metadata.jsonl"),
+                    in_scope_target_host=",".join(scope_hosts),
+                    first_seen=now,
+                    last_seen=now,
+                ))
+            if current_available and artifact_path is not None and chunk_manifest_path is not None:
+                update_ledger_for_file(
+                    ledger,
+                    url=url,
+                    sha256=digest,
+                    artifact_path=artifact_path,
+                    byte_count=len(body),
+                    status=status,
+                    content_type=content_type,
+                    chunk_set_key=chunk_set_key,
+                    chunk_count=len(chunks),
+                    chunk_manifest_path=chunk_manifest_path,
+                )
+                ledger["urls"][url].update(source_map_header=map_header[0], source_map_header_name=map_header[1])
+            for chunk_row in chunk_rows:
+                chunk_index = int(chunk_row["chunk_index"])
+                start = int(chunk_row["byte_start"])
+                end = int(chunk_row["byte_end"])
+                chunk_path = Path(str(chunk_row["chunk_path"]))
+                chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
+                packet_path = packets_dir / f"{digest[:16]}-{hashlib.sha256(url.encode('utf-8')).hexdigest()}-{chunk_index + 1:03d}.md"
+                write_text_atomic(packet_path, build_packet(record, chunk_index, start, end, chunk))
+                packet_rows.append({
+                    "url": url,
+                    "sha256": digest,
+                    "chunk_set_key": chunk_set_key,
+                    "chunk_index": chunk_index,
+                    "chunk_count": len(chunks),
+                    "chunk_path": str(chunk_path),
+                    "packet_path": str(packet_path),
+                    "byte_start": start,
+                    "byte_end": end,
+                })
+            reuse_note = " reused" if reused_download else " downloaded"
+            chunk_note = " reused-chunks" if reused_chunks else " chunked"
+            if current_available:
+                print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
+            else:
+                print(f"[{index}/{len(normalized_urls)}] {url} -> current unavailable ({status}), historical={record.source_map_history.get('status', 'off')}", file=sys.stderr)
+            if source_map_status in {"scan_failed", "fetch_failed", "too_large", "invalid"}:
+                retryable_failed[url] = f"source_map_{source_map_status}"
+                if source_map_status == "too_large":
+                    paused_reason = "map_limit"
+            elif any(row["packet_status"] == "truncated_by_budget" for row in source_map_module_rows if row["bundle_url"] == url):
+                retryable_failed[url] = "module_budget"
+                paused_reason = "module_budget"
+            elif not current_available and record.source_map_history.get("status") not in {"recovered", "cached"}:
+                retryable_failed[url] = "bundle_unavailable"
+            else:
+                succeeded.append(url)
+            save_ledger(ledger_path, ledger)
+            save_checkpoint()
+            if paused_reason:
+                break
+        except DiskFloorPause:
+            paused_reason = "disk_floor"
+            # Roll back in-memory additions too: the last durable checkpoint
+            # alone defines which URL is complete after a pressure pause.
+            committed = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            records[:] = [JsRecord(**row) for row in committed["records"]]
+            packet_rows[:] = committed["packet_rows"]
+            source_map_module_rows[:] = committed["source_map_module_rows"]
+            source_map_packet_budgets[:] = committed["source_map_packet_budgets"]
+            external_integration_rows[:] = [ExternalIntegration(**row) for row in committed["external_integration_rows"]]
+            provenance_rows[:] = [JsProvenance(**row) for row in committed["provenance_rows"]]
+            provenance_rows_by_url.clear()
+            provenance_rows_by_url.update(committed["provenance_rows_by_url"])
+            succeeded[:] = committed["succeeded"]
+            retryable_failed.clear()
+            retryable_failed.update(committed["retryable_failed"])
+            break
 
+    OUTPUT_FLOOR.set(0)  # Reserve metadata/manifest publication room after a pause.
     save_ledger(ledger_path, ledger)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     packet_rows_by_sha: dict[str, list[dict]] = {}
@@ -2757,8 +2870,10 @@ def command_inventory(args: argparse.Namespace) -> int:
     write_jsonl(root / "page_context.jsonl", page_records)
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
-    new_metadata = [row for row in metadata_rows if row["url"] not in published_urls]
-    new_provenance = [row for row in provenance_rows if row.js_url not in published_urls]
+    existing_metadata = published_run_urls(library_metadata_path, run_id, "url")
+    existing_provenance = published_run_urls(library_provenance_path, run_id, "js_url")
+    new_metadata = [row for row in metadata_rows if row["url"] in succeeded and row["url"] not in existing_metadata]
+    new_provenance = [row for row in provenance_rows if row.js_url in succeeded and row.js_url not in existing_provenance]
     if new_metadata:
         append_jsonl(library_metadata_path, new_metadata)
     if new_provenance:
@@ -2773,15 +2888,34 @@ def command_inventory(args: argparse.Namespace) -> int:
     pending_urls = [url for url in normalized_urls if url not in succeeded]
     pending_path = root / "pending_urls.txt"
     write_text_atomic(pending_path, "".join(f"{url}\n" for url in pending_urls))
+    limitations = {
+        "pages_oversized": sum(row.get("page_scan_reason") == "bundle_memory" for row in page_records),
+        "inline_scripts_truncated": sum(row.get("inline_scripts_truncated", 0) for row in page_records),
+        "source_maps_too_large": sum(record.source_map_status == "too_large" for record in records),
+        "source_map_modules_unpacketized": sum(row["packet_status"] == "truncated_by_budget" for row in source_map_module_rows),
+        "source_map_scans_failed": sum(record.source_map_status == "scan_failed" for record in records),
+        "sink_sites_capped": sum(record.sink_sites_truncated for record in records),
+        "source_sites_capped": sum(record.source_sites_truncated for record in records),
+    }
     manifest = {
         "coverage_state": {
-            "status": "complete" if not pending_urls else "incomplete",
+            "status": "complete" if not pending_urls and not any(limitations.values()) else "incomplete",
+            "partial_seed_counts": limitations,
+            "pending_artifacts": [record.url for record in records if record.source_map_status in {"too_large", "scan_failed"}],
+            "pending_pages": [row["page_url"] for row in page_records if row.get("page_scan_reason")],
             "input_id": input_id,
             "intended_count": len(normalized_urls),
             "succeeded": succeeded,
             "retryable_failed": retryable_failed,
             "pending": pending_urls,
             "pause_reason": paused_reason,
+            "action": ("Increase --source-map-module-limit, --source-map-max-packets, or "
+                       "--source-map-max-expanded-bytes, then --resume; unchanged budgets stay paused"
+                       if paused_reason == "module_budget" else
+                       "Increase --source-map-max-bytes (or remove --source-map-parse-max-bytes) then --resume"
+                       if paused_reason == "map_limit" else
+                       "Increase --bundle-max-bytes for this bundle then --resume" if paused_reason == "bundle_memory" else
+                       "Free space on every output filesystem then --resume" if paused_reason == "disk_floor" else ""),
             "checkpoint": str(checkpoint_path),
             "pending_input": str(pending_path),
         },
@@ -2910,6 +3044,8 @@ def build_parser() -> argparse.ArgumentParser:
              "repeatable. Use for program-mandated attribution headers.",
     )
     inv.add_argument("--timeout", type=int, default=20)
+    inv.add_argument("--bundle-max-bytes", type=int, default=64 * 1024 * 1024,
+                     help="Per-bundle in-memory read limit; exceeding it pauses with pending URL, raise after resource review")
     inv.add_argument("--delay", type=float, default=0.0, help="Delay between JS downloads")
     inv.add_argument(
         "--source-maps",
@@ -2955,7 +3091,13 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not args.input and not args.page:
         raise SystemExit("inventory requires --input and/or --page")
-    return args.func(args)
+    token = OUTPUT_FLOOR.set(0)
+    bundle_token = BUNDLE_MEMORY_LIMIT.set(64 * 1024 * 1024)
+    try:
+        return args.func(args)
+    finally:
+        OUTPUT_FLOOR.reset(token)
+        BUNDLE_MEMORY_LIMIT.reset(bundle_token)
 
 
 if __name__ == "__main__":

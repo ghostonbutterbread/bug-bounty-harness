@@ -9,32 +9,31 @@
 - **Owning feature branch/ref:** `fix/js-coverage-first-tb317a8e8`
 - **Latest immutable recovery checkpoint:** `edbbd5b15b04270100404b4450cb2b30a897d3ce` (implementation `f734ec1`, merge `7403f01`, follow-up `edbbd5b`)
 - **Feature implementation commit(s):** `f734ec1`, `edbbd5b`
-- **Reconciled local beta:** `43a81c325750c09ebe1ce51c0f78a086c12de032` via merge `7403f01`
+- **Reconciled fetched beta:** `fbcf83efea7dc9a8091f3a7f77dcb42f71e77dbe` via merge `bee5fa4` (local beta unchanged)
 
 ## Intent and implemented contract
 
-Remove the default 8 MiB source-map comment parse cutoff while retaining grammar-aware full-bundle comment selection. Above 8 MiB the tree-sitter parse runs in an isolated worker with 1 GiB address-space and 45-second per-parse wall clock fence; failure is explicit, not absence. The optional explicit byte cap remains. Inventory declares the original normalized URL set, a stable ordered SHA-256 input ID, succeeded/retryable_failed/pending states and a configured 5 GiB disk floor. Per-URL atomic checkpoints permit resume with the same input/order/run/roots; a limit or low disk pauses with pending URLs, not completion. No live target requests were made in verification.
+Remove the fixed 45-second parser deadline and isolate every comment scan under a 1 GiB address-space fence and lower CPU scheduling priority; cancellation terminates its child. The optional explicit byte cap remains. Bundle network reads now use bounded chunks and an operator-adjustable per-bundle RAM bound with an explicit pending pause; URL writes preflight the configured 5 GiB floor against actual artifact size and roll back in-memory URL state to the last checkpoint on pressure. Failed URLs remain local until successful publication; shared library rows are keyed against the durable sink on resume. Unchanged module/map budgets pause with an action rather than retrying indefinitely. Endpoint and parameter seed list caps were removed; inline body and map limits are counted as partial coverage. No live target requests were made.
 
 ## Evidence and review
 
-- Focused tests: `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 530 passed after local beta merge. After the URL-keyed budget retry fix, targeted subset → 6 passed (`-k 'source_map_packet_budget or historical_packet_and_expansion or resume_after_url_limit or failed_fetch_remains or checkpoint_after_artifact or limit_bounds_failed_attempts'`); `git diff --check` clean.
+- Fetched beta merge `bee5fa4`; `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 546 passed after repair; `git diff --check` clean. New regressions cover failed resume publication, paused unchanged budget, per-write floor, bounded bundle read and uncapped endpoint/parameter seeds.
 - New local fixtures cover >8 MiB grammar scan, URL-limit resume and failed-attempt bound, disk-floor pause, retry after empty fetch, and interrupt before checkpoint commit.
-- Local `beta` `43a81c3` merged into this branch, no conflict; no integration or push.
+- Fetched `origin/beta` `fbcf83e` merged into this branch without conflict; no integration or push.
 
 ## Blockers and deferred work
 
-- Checkpoint snapshot currently serializes accumulated run state once per URL; large URL sets incur quadratic serialization/disk writes. Switch to append-only committed per-URL state before high-volume runs.
-- Disk floor is tested before URLs, not before every per-URL artifact write; a single huge artifact may cross the floor. Bounded map downloads and packet budgets still apply; bundle fetch remains unbounded.
-- Source-map JSON unpacking still uses `json.loads` and per-module packet budgets; oversized maps are explicit `too_large`, not exhaustively analyzed. Source-map module packet limit remains partial.
-- Final shared library append and checkpoint are not one transaction; a crash in that window can duplicate library metadata on resume. Reconcile append idempotence before claiming exactly-once publication.
+- Whole-state checkpoint serialization and the final shared library/index rebuild are still proportional to accumulated run/library size; large URL sets need incremental state before production-scale claims. The shared library append is sink-deduped per run/URL but not an atomic multi-file transaction; torn rows are repaired at append. Concurrent writers require coordination.
+- Final index/SQLite/manifest publication runs from a reserved post-loop margin rather than a fully size-reserved floor, so extremely large final derived outputs can still cross the 5 GiB floor. This is a release residual, not a fully closed disk guarantee.
+- Source-map JSON unpacking still uses `json.loads`; 64 MiB map default and module packet budgets are explicit partial states. In-memory bundle threshold pauses rather than streaming analysis of arbitrarily large bundles; operator must raise `--bundle-max-bytes` after RAM review.
 - Page collection during resume is repeated before input ID verification; prefer `--input` for durable offline reconstruction. Inline page URLs cannot currently resume without refetching the page.
 
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `edbbd5b15b04270100404b4450cb2b30a897d3ce` (a dossier-only handoff commit follows)
-- **Exact resume point:** parent review of the change and explicit acceptance/deferment of residuals; no feature merge or push performed.
-- **Working tree:** clean after handoff commit.
+- **Latest immutable recovery checkpoint:** `bee5fa4` (beta reconciliation; follow-up implementation commit will supersede this checkpoint).
+- **Exact resume point:** parent review of the release residuals before any integration; no feature integration or push performed.
+- **Working tree:** commit follow-up before handoff.
 
 ## Decision gates
 

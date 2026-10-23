@@ -1610,3 +1610,109 @@ def test_checkpoint_after_artifact_before_commit_retries_url(tmp_path: Path):
         assert J.main(base + ['--resume']) == 0
         assert fetch.call_count == 1  # replay uses the saved content-addressed download
     assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_comment_scan_isolated_even_below_threshold_and_waits_for_completion():
+    body = 'const x="//# sourceMappingURL=decoy.map";\n//# sourceMappingURL=real.map'
+    with patch.object(J, 'SOURCE_MAP_ISOLATE_BYTES', 10**9):
+        assert J.last_source_map_directive(body) == 'real.map'
+
+
+def test_failed_resume_does_not_reappend_library_rows(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with (patch.object(J, 'http_get', return_value=(b'//# sourceMappingURL=bad.map', 200, 'application/javascript')),
+          patch.object(J, 'http_get_limited', return_value=(b'', 404, '', False))):
+        assert J.main(base) == 0
+        assert J.main(base + ['--resume']) == 0
+    assert not (tmp_path / 'lib' / 'metadata.jsonl').exists()
+    assert not (tmp_path / 'lib' / 'provenance.jsonl').exists()
+
+
+def test_write_floor_checks_actual_output_size(tmp_path: Path):
+    destination = tmp_path / 'artifact.js'
+    with patch.object(J.shutil, 'disk_usage', return_value=Namespace(free=100)):
+        with pytest.raises(J.DiskFloorPause):
+            J.write_bytes_checked(destination, b'x' * 11, floor=90)
+    assert not destination.exists()
+
+
+def test_unchanged_module_budget_pauses_with_action(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations'),
+            '--source-map-module-limit', '0']
+    map_body = json.dumps({'version': 3, 'sources': ['one.js'], 'sourcesContent': ['const x=1;']}).encode()
+    with (patch.object(J, 'http_get', return_value=(b'//# sourceMappingURL=a.js.map', 200, 'application/javascript')),
+          patch.object(J, 'http_get_limited', return_value=(map_body, 200, 'application/json', False))):
+        assert J.main(base) == 0
+        assert J.main(base + ['--resume']) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete' and state['pause_reason'] == 'module_budget'
+    assert '--source-map-module-limit' in state['action']
+
+
+def test_bundle_stream_read_pauses_without_materializing_oversized_body():
+    class Response:
+        status = 200
+        headers = {'content-type': 'application/javascript'}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, amount):
+            assert amount <= 64 * 1024
+            return b'x' * amount
+    with patch.object(J.urllib.request, 'build_opener') as opener:
+        opener.return_value.open.return_value = Response()
+        token = J.BUNDLE_MEMORY_LIMIT.set(256)
+        try:
+            result = J.http_get('https://app.example.com/a.js')
+        finally:
+            J.BUNDLE_MEMORY_LIMIT.reset(token)
+    assert result.reason == 'bundle_memory' and result[0] == b''
+
+
+def test_disk_floor_during_bundle_write_pauses_with_pending_url(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real_check = J.check_output_space
+    def block_bundle(path, size, **kwargs):
+        if path.suffix == '.js':
+            raise J.DiskFloorPause('pressure')
+        return real_check(path, size, **kwargs)
+    with (patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')),
+          patch.object(J, 'check_output_space', side_effect=block_bundle)):
+        assert J.main(base) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['pause_reason'] == 'disk_floor' and state['pending'] == ['https://app.example.com/a.js']
+
+
+def test_endpoint_param_seed_lists_are_not_silently_capped():
+    text = '\n'.join(f'const n{i}="/api/path{i}?field{i}=1";' for i in range(510))
+    result = J.extract_signals(text, 'https://app.example.com/a.js')
+    assert len(result['endpoints']) == 510
+    assert len(result['params']) == 510
+
+
+def test_oversized_page_is_partial_not_empty_complete(tmp_path: Path):
+    page = 'https://app.example.com/page'
+    response = J.HttpResult((b'', 200, 'text/html'), reason='bundle_memory')
+    with patch.object(J, 'http_get', return_value=response):
+        assert J.main(['inventory', 'demo', '--page', page, '--target-host', 'example.com',
+                       '--output-root', str(tmp_path / 'out'), '--library-root', str(tmp_path / 'lib'),
+                       '--integration-index-root', str(tmp_path / 'integration')]) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete'
+    assert state['pending_pages'] == [page]
+    assert state['partial_seed_counts']['pages_oversized'] == 1

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `01fbf1b819cbc2927ab44a6f6890577d8b558edb` (feature merge of fetched beta `02d3bb5`; final repair commit follows)
-- **Feature implementation commit(s):** `2f20ce3` (repair), `5d69c01` (local beta policy merge)
+- **Latest immutable recovery checkpoint:** `9111c1f` (feature merge of fetched `origin/beta` at `6a45a0d`, following repair `eba94f7`)
+- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture)
 - **Inspiration / canonical references:** User request and policy-reviewer stop-boundary note; `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -25,9 +25,10 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 
 - `python3 -m pytest agents/test_autonomous_recon.py -q`: 17 passed, including actual loopback urllib redirect-hop zero-hit and rate assertions, browser-route mocks, checkpoint/partial-exit fixtures.
 - `node --test agents/test_autonomous_recon_redirect_browser.cjs`: 1 passed using installed Node Playwright and `/usr/bin/google-chrome` against loopback HTTP: 302 `/out-redirect` to excluded `/private-redirect` records zero destination hits; a scoped redirect is aborted by browser and the allowed path succeeds through HTTP fallback. The Node fixture exercises the transport strategy; Python Playwright is absent here, so the Python application browser path is covered by mocks rather than an end-to-end Python browser run.
-- `git diff --check`: clean. No live target probes.
+- `python3 -m pytest agents/test_autonomous_recon.py tests/test_script_policy.py tests/test_scratch_scripts.py -q` after merging `origin/beta` at `6a45a0d`: 55 passed, 1 unrelated pre-existing beta failure (`test_each_skill_index_has_complete_nonstale_records`: `skills/stack-to-program/scripts/README.md` lacks `**Outputs:**`/`**Mutates:**`). Do not claim combined suite green.
+- `git diff --check origin/beta...HEAD`: clean. No live target probes.
 - Independent release review: pending parent reviewer; no beta integration or push.
-- Reconciliation: latest fetched `origin/beta` `6a45a0d` pending feature merge at this checkpoint.
+- Reconciliation: merged `origin/beta` `6a45a0d` into feature as `9111c1f`; no conflict. Re-run tests as above.
 
 
 ## Blockers and deferred work
@@ -41,9 +42,9 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `01fbf1b819cbc2927ab44a6f6890577d8b558edb` (feature merge of fetched beta; repair commit follows)
-- **Feature implementation commit(s):** `2f20ce3` (initial coverage repair), current branch tip (release blocker repair).
-- **Exact resume point:** independent release review of committed repair, local Playwright/storage fixture tests, and unrelated beta script-index test owner; no integration/push authorized.
+- **Latest immutable recovery checkpoint:** `9111c1f` (reconciled feature tip before this dossier-only receipt)
+- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`.
+- **Exact resume point:** independent release review of redirect fixture and Python-runtime gap; resolve unrelated beta script-index failure with its owner; no integration/push authorized.
 - **Working-tree state at handoff:** commit and verify clean worktree.
 
 ## Decision gates

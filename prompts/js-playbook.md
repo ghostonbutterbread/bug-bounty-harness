@@ -430,24 +430,34 @@ exist. Source parsing does not verify execution or map-to-build association.
 
 ### Wayback source-map fallback
 
-If live maps are unavailable, use the existing inventory with explicit archive
-opt-in when disclosure of the scoped asset URLs to Internet Archive is allowed:
+Inventory automatically falls back to bounded Wayback recovery for unavailable
+or invalid live source maps, including 404s and missing declarations. There is
+no failure-count threshold and no manual opt-in requirement. A valid live or
+cached map takes priority and avoids archive traffic:
 
 ```bash
 bbh agents/js_analyzer.py inventory <program> \
   --input <scoped-js-urls.txt> \
-  --target-host <approved-host> \
-  --source-map-wayback auto
+  --target-host <approved-host>
 ```
 
-`--source-map-wayback` defaults to `off`; `--source-maps off` also prevents
-archive work. Reprocess cached bundles without `--skip-cached-processing` to
+`--source-map-wayback` defaults to `auto`. Archive lookups disclose the scoped
+original bundle/map URLs to Internet Archive, without program headers. Use
+`--source-map-wayback off` where program policy or URL confidentiality prohibits
+that disclosure; `--source-maps off` disables both live-map and archive work.
+Reprocess cached bundles without `--skip-cached-processing` to
 apply the repaired detector and fallback; `--refresh` additionally refetches
 live assets and bypasses successful historical-cache reuse. The fallback first
 checks the exact missing declared map URL, then selected archived versions of
 the exact original bundle for map declarations. It is not domain-wide archive
 enumeration or a guarantee of finding the latest capture. Relative map URLs
 resolve against the original bundle URL, not the archive replay wrapper.
+Each selected map response must be complete, within byte limits, and accepted
+by the source-map reader; a 200 HTML/error document, malformed JSON or wrong
+map version is not recovery. Invalid map captures or bundles lacking a usable
+declaration are skipped so later selected snapshots can be checked within the
+same budgets. A valid map without `sourcesContent` is names-only, not invalid;
+format acceptance does not prove a match to the current build.
 
 Archive requests preserve environment proxy routing and normal TLS verification
 but never carry program headers. Original bundle/map scope is checked before

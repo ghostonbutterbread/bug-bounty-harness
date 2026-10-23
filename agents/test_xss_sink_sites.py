@@ -315,7 +315,7 @@ def test_offline_inventory_persists_site_offsets_and_packet_route(tmp_path: Path
     body = b"const x = location.hash; document.write(x); window.open(x);"
     with patch.object(J, "http_get", return_value=(body, 200, "application/javascript")):
         assert J.main([
-            "inventory", "demo", "--input", str(js_list), "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(js_list), "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--run-id", "site-unit", "--chunk-size", "200", "--chunk-overlap", "0",
         ]) == 0

@@ -95,11 +95,12 @@ collection lane only after a material deployment/scope change, a new coverage
 gap, or freshness uncertainty.
 
 Ordinary `/recon` does not fetch program/vendor documentation or public code
-without a concrete mapping question. Program initialization `--mode full` is
-the explicit exception: it includes bounded public-documentation **discovery**
-by default, not a license to fetch vendor code or treat linked assets as target
-scope. `/recon-docs` owns source-attributed candidate collection; `/docs`
-reviews only justified Program Doc topics.
+without a concrete mapping question. Program initialization `--mode full|api|params`
+is the explicit exception: it includes bounded public-documentation **discovery**
+by default; `--mode js --include-docs` also opts in. This is not a license to
+fetch vendor code or treat linked assets as target scope. `/recon-docs` owns
+source-attributed candidate collection; `/docs` reviews only justified Program
+Doc topics.
 
 ## Full-recon lane plan
 
@@ -370,25 +371,26 @@ a license to launch vulnerability testing.
 
 ## Program initializer handoff
 
-When Ryushe says **“init <program> fully”**, **“initialize <program> full”**,
-or **“initialize <program> basic”**, treat that as an owning-agent workflow,
-not merely a CLI request. Resolve the named program/platform and published
-scope/rules, run `bbh scripts/program_init.py` (basic is the default), and for
-full continue through the supervised steps below after initialization succeeds.
-Do not spawn children on a failed/partial initializer. If no program is named,
-ask for it; do not invent a target. A full request never silently downgrades to
-basic when active recon is blocked—report initialization and collection status
-separately.
+Treat **`init <program>`** as basic initialization. Explicit
+**`init <program> full|js|api|params`** (and “initialize” equivalents) are
+owning-agent workflows: resolve the named program/platform and published
+scope/rules, run `bbh scripts/program_init.py <program> --platform <platform>
+--mode <mode>`, then execute the generated handoff. Never infer a program or
+silently downgrade to basic when collection is blocked. Do not dispatch on a
+failed/partial initializer; report bootstrap and collection separately.
 
-`bbh scripts/program_init.py <program> --platform <platform> --mode full`
-creates a deterministic, pending handoff at the web (or API) lane's
-`recon/_meta/full-recon-handoff.json` alongside the normal basic bootstrap.
-Public docs discovery is included by default (`--include-docs` remains a
-compatibility spelling). Full-mode platform pulls use `~/Shared/scopes`, so
-full mode rejects any alternate `--shared-root` before contacting the platform;
-basic mode retains its existing behavior. Full rejects
-`--skip-scope` and empty saved scope. A dry run requires scope already saved
-because it does not contact the platform.
+Basic creates directories, scope and front-door metadata only. Every non-basic
+mode ensures a comparable `/recon` baseline: **full** adds scoped JS, API,
+docs and parameters; **js** adds scoped JS; **api** ensures JS then maps API;
+**params** ensures JS and API before `/parameter-mining`. Reuse verified current
+producer receipts; refresh missing, incomplete or materially stale evidence.
+The CLI writes a deterministic **pending plan**, not a completed run, at the
+web (or API) lane's `recon/_meta/full-recon-handoff.json` for full or
+`recon/_meta/init-<mode>-handoff.json` for a focused mode. Docs discovery is
+default for full/api/params; `--include-docs` opts JS into it. Non-basic pulls
+use `~/Shared/scopes` and reject alternate `--shared-root`, `--skip-scope`,
+and empty saved scope; a dry run requires existing scope. Basic retains its
+existing options and behavior.
 
 ### Owning-agent execution contract
 
@@ -403,49 +405,63 @@ execute the following after a named program and published rules are available:
    at request time, block the broad active producer; post-filtering is not a
    substitute. No budget or scope approval means stop with a blocker, not an
    offline handoff called complete.
-2. Call `delegate_task(tasks=[...])` with two independent bounded children:
-   `full-recon` loads `/recon` and first checks for a completed comparable
-   baseline and its current freshness/coverage receipt. If one is intact and
-   current, reuse it; otherwise run the eligible baseline-full lanes (or a
-   named delta for a bounded gap). Never start duplicate Recon-Ry producers
-   just because `init full` was invoked. `js-url-acquisition` loads `/js-pull`
-   and `/live-map` and owns scoped JS URL acquisition/download evidence. Give
-   each only its exact seeds, scope/rate allocation, policy chain, output root
-   and expected receipt from the packet.
-   Do not start both if aggregate traffic cannot be contained. The parent
-   retains rate oversight and stops both on challenge, repeated 429 or scope
-   drift. Delegation returns are not evidence by themselves: read the cited
-   manifests, hashes, gaps and completion/skip receipts.
-3. **Wait for JS evidence** before assigning `katana-endpoints` to a bounded
-   child via `delegate_task`; use only approved page/JS URL inputs from the JS
-   receipt. Katana's documented `-jc` parses/crawls JavaScript endpoints; check
-   the installed `katana -h` before selecting flags, and use memory-intensive
-   `-jsl` only within a verified resource budget. Verify request-level
-   destination/redirect containment and rate against the shared budget, or
-   record a skipped receipt with the reason. Preserve the raw run and source
-   attribution through `/bounty-tools`. Never repeat Recon-Ry's archive
-   producers. Next dispatch `api-mapping` via `delegate_task` with JS
-   and Katana evidence; `/api-surface-mapping` must distinguish declared routes
-   from observed operations and must not invoke operations to test them.
-4. Dispatch `public-docs` via `delegate_task` to `/recon-docs` then `/docs` for
-   bounded provider-compliant public discovery. This may run beside other
-   approved collection when rate budgets permit. Docs are claims, not scope;
-   quarantine third-party and out-of-scope links. A blocked provider gets an
-   explicit skip receipt, not fabricated coverage.
-5. After **all** prerequisite receipts exist (including completion of any
-   detached Recon-Ry jobs, not merely a launch PID), validate source attribution
-   and scope for each candidate. The parent performs `recon-bus-promotion` via
-   `/recon-corpus-write-policy` and Recon Bus; do not duplicate Recon-Ry's own
-   archive promotion. Then perform `url-ingest-review` through `/url-ingest`,
-   inspect existing lane coverage and produce bounded next packets. Record
-   promotion and queue receipts and remaining gaps in the owning run capsule.
+2. For **full**, dispatch two bounded independent workers with `delegate_task`:
+   `full-recon` loads `/recon` and checks comparable baseline freshness first;
+   `js-url-acquisition` loads `/js-pull` and `/live-map` on approved initial
+   seeds. Start them together only when the shared rate/destination budget can
+   contain both. The parent feeds newly scope-validated recon page/subdomain
+   URLs into incremental JS acquisition; a newly found URL is not automatically
+   an authorized request destination. For a focused mode, ensure the `/recon`
+   receipt first, then ensure JS. Reuse current hash-addressed JS evidence,
+   refreshing the stale or missing portion. A scoped surface with no JS gets an
+   explicit no-JS receipt; API mapping may proceed from runtime/spec evidence.
+   A detached Recon-Ry PID is not a completion receipt. Give workers exact
+   seeds, scope/rate allocation, policy chain, output root and expected receipt;
+   read their manifests and gaps, not merely their self-reports. Stop on
+   challenge, repeated 429 or scope drift.
+3. For **full/api/params**, after the JS checkpoint, assign
+   `katana-endpoints` using only approved page/JS inputs. Check installed
+   `katana -h`; use `-jc` with bounded memory/rate and request-level destination
+   and redirect containment, or record an explicit skip receipt. Preserve raw
+   output through `/bounty-tools`; do not duplicate Recon-Ry archives. Start
+   bounded `public-docs` discovery concurrently with initial collection when
+   selected, but wait for its completed/skip receipt before API mapping so
+   documented operations are not silently omitted. Docs are claims, not scope.
+4. Once JS, Katana and selected docs have receipts, assign `api-mapping` to
+   `/api-surface-mapping`; keep declared/source routes distinct from observed
+   operations and never invoke candidate operations as a discovery test. In
+   **full** mode, API mapping may start from approved initial seeds while the
+   broad `/recon` worker runs; do not gate it on detached Recon-Ry completion.
+   When full recon completes, run `api-reconciliation` against its final
+   discoveries, acquiring missing scoped JS and refreshing affected API records
+   (or record an evidenced no-change result) before parameter mining and final
+   promotion. Focused API/params instead require a comparable `/recon` receipt
+   before JS and API. For **full/params**, after recon, JS, API and docs receipts,
+   dispatch `/parameter-mining`: correlate query/path/body/header/form/GraphQL
+   fields to operations and source pointers. Name-only vocabulary is not an
+   accepted parameter or a runnable URL; no automatic active fuzzing follows
+   collection.
+5. **Recon Bus is the canonical corpus.** At each completed producer checkpoint,
+   scope-check and promote attributed reusable full URLs (including
+   parameterized URLs), JS URLs, eligible hosts and content paths through
+   `/recon-corpus-write-policy` and Recon Bus `promote-run` or `append`.
+   URL promotion probes new URLs by default: count those requests against the
+   shared rate budget and enforce destination/redirect containment, or use
+   deliberate record-only `--liveness unknown` / `--no-probe` until authorized.
+   Preserve raw manifests and quarantine rejected candidates; never hand-edit
+   aggregates, create a parallel flat corpus, or repeat Recon-Ry's own archive
+   promotion. Downstream workers query Recon Bus for current input; source
+   operation and name-only field records remain in their attributed run artifacts
+   until they yield an eligible URL/route. After **all** selected producer
+   receipts exist (and later discoveries are reconciled), verify promotion counts
+   and run `url-ingest-review` through `/url-ingest` for bounded next packets and
+   existing lane coverage.
 
-If a child fails or remains running, record its actual status and hold downstream
-dependencies; do not mark full complete. Reruns regenerate the **pending**
-handoff from scope and may refresh that file; keep worker progress and receipts
-in run capsules, never in the generated handoff. This CLI does **not** invoke
-`delegate_task`, spawn Hermes processes, or run target traffic;
-`agents/recon_full.py` is also plan-only. Literal CLI-spawning would require a
-separate reviewed runtime with delegated policy context, destination and
-aggregate-rate enforcement; never replace that with an unapproved `hermes chat
--q` launch.
+Keep an owning run capsule with per-stage `completed`, `reused`, `skipped`,
+`pending`, or `blocked` status, input manifests, freshness/coverage decisions,
+Recon Bus promotion references and remaining gaps. If a child fails or is still
+running, hold downstream dependencies and do not mark the mode complete. Reruns
+refresh the generated **pending** handoff from scope; do not store worker progress
+there. The CLI and `agents/recon_full.py` are plan-only; neither spawns workers
+or runs target traffic. Do not replace supervised `delegate_task` with an
+unapproved `hermes chat -q` launcher.

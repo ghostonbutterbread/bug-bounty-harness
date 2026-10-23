@@ -192,4 +192,3 @@ def test_incomplete_archive_payload_is_not_published(tmp_path, partial_kind):
     assert not artifacts
     assert any(a['reason'] == 'transport' for a in history['attempts'])
 ```
-

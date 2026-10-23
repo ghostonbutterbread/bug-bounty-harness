@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `9111c1f` (feature merge of fetched `origin/beta` at `6a45a0d`, following repair `eba94f7`)
-- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture)
+- **Latest immutable recovery checkpoint:** `f90d2be` (follow-up to reconciled feature `9111c1f`; final dossier-only receipt follows)
+- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture), `f90d2be` (navigation fallback invariant)
 - **Inspiration / canonical references:** User request and policy-reviewer stop-boundary note; `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -42,8 +42,8 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `9111c1f` (reconciled feature tip before this dossier-only receipt)
-- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`.
+- **Latest immutable recovery checkpoint:** `f90d2be` (reconciled feature plus navigation invariant before this dossier-only receipt)
+- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`, `f90d2be`.
 - **Exact resume point:** independent release review of redirect fixture and Python-runtime gap; resolve unrelated beta script-index failure with its owner; no integration/push authorized.
 - **Working-tree state at handoff:** commit and verify clean worktree.
 

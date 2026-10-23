@@ -43,7 +43,9 @@ of silently substituting models/providers or reducing effort.
   `bunny-collaborative`/`bunny-multi` contracts, the complete composite scenario
   walk, 12 focused tests and real GLM session read-back. Its only blocker was
   the initial dossier's stale “pending first commit” fields, corrected in
-  `5f972ca`; narrow dossier/recovery-checkpoint re-review is pending.
+  `5f972ca`; narrow dossier/recovery-checkpoint re-review
+  `sa-0-575b6c1e` **PASS** at `4f394e8465df5236b33b6539dd377116f3630027`.
+  Skills/reference/tests are unchanged from the independently reviewed implementation.
 - Full `tests/` after the repository installer provisioned checkout-local
   dependencies: 325 passed, 1 skipped, 196 subtests passed, 3 unrelated failures.
   Those failures (stack-to-program missing index fields, its direct-checkout
@@ -73,14 +75,17 @@ of silently substituting models/providers or reducing effort.
 - **Boundary:** prevents claiming the end-to-end Grok campaign has run, not
   integration of the conditional skill route; no live target campaign starts
   from this authoring request.
-- **Next step:** independent review + final checks; integrate conditional route
-  into beta, verify local resolver, report runtime auth limitation explicitly.
+- **Next step:** accepted for conditional-route beta integration; verify local
+  resolver after merge and report runtime auth limitation explicitly.
 
 ## Decision gates and resume
 
-- Integration requires focused/full check reconciliation and independent review.
+- Integration accepted after initial skill review and narrow correction re-review;
+  the three base-reproduced failures are not caused by this task.
+- Remove this temporary dossier from beta in the merge cleanup; retain all
+  review/checkpoint evidence in feature history and Kanban `t_983bf48f`.
 - Local activation requires reviewed beta source, existing managed projection,
   and fresh actual skill/reference resolver loads. No other-profile changes.
 - Stable promotion and Hoster rollout are separate owner decisions.
-- Resume at independent review/full check gate on this feature branch; all
-  task-owned material is committed with this dossier before handoff.
+- Resume at accepted beta integration/local resolver gate on this feature
+  branch; all task-owned material is committed before merge.

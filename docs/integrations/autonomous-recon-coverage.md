@@ -1,14 +1,14 @@
 # Autonomous recon coverage repair integration dossier
 
-- **Status:** two independent-review blockers repaired locally; awaiting re-review, not integrated
+- **Status:** independent blocker re-review accepted; reconciled with beta and focused checks pass, not integrated
 - **Owner:** Hermes focused subagent / card `t_b317a8e8`
 - **Branch:** `fix/autonomous-recon-coverage-tb317a8e8`
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `c6b8672` before this blocker repair; the new implementation/dossier commit will be the current branch tip
-- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture), `f90d2be` (navigation fallback invariant), current tip (effective URL and endpoint scope repair)
+- **Latest immutable recovery checkpoint:** `ba58f1a` (merges beta `81da58b` into feature after repair `95c5dcc`)
+- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture), `f90d2be` (navigation fallback invariant), `95c5dcc` (effective URL and endpoint scope repair)
 - **Inspiration / canonical references:** User request and policy-reviewer stop-boundary note; `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -31,30 +31,29 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 - `git diff --check origin/beta...HEAD`: clean. No live target probes.
 - Blocker RED: `python3 -m pytest agents/test_autonomous_recon.py -q -k 'resolves_relative_links_against_scoped_redirect_destination or filters_extracted_paths_by_saved_scope'` failed at `/old/detail` versus `/new/detail` and emitted `/api/private` outside `/allowed/`.
 - Blocker GREEN: `python3 -m pytest agents/test_autonomous_recon.py -q` 20 passed including missing-effective-URL retryable negative fixture; combined `python3 -m pytest agents/test_autonomous_recon.py tests/test_script_policy.py tests/test_scratch_scripts.py -q` before the final fixture: 58 passed, 1 pre-existing unrelated failure in the stack-to-program index (same missing Outputs/Mutates fields). `git diff --check` clean.
-- `node --test agents/test_autonomous_recon_redirect_browser.cjs`: 1 passed post-fix on loopback Chrome. No live targets. Fetched `origin/beta` remains `6a45a0d`, already merged as `9111c1f`.
-- Independent release re-review: pending parent reviewer; no beta integration or push.
-- Reconciliation: merged `origin/beta` `6a45a0d` into feature as `9111c1f`; no conflict. Re-run tests as above.
+- `node --test agents/test_autonomous_recon_redirect_browser.cjs`: 1 passed post-fix on loopback Chrome. No live targets. The earlier fetched beta `6a45a0d` was merged as `9111c1f`; the later beta tip `81da58b` was reconciled as `ba58f1a`.
+- Independent re-review accepted `95c5dcc` after reproducing both prior defects on `c6b8672`; gate required reconciling beta and rerunning the integrated feature checks. Reconciliation merge `ba58f1a` contains beta `81da58b` without conflict; checkout-local `.venv` focused Python suite 20 passed, Node/Chrome loopback 1 passed, `git diff --check` clean. No beta integration or push at dossier writing.
 
 
 ## Blockers and deferred work
 
 - **Residuals:** Python Playwright is not installed in this checkout, so the Python browser path is mocked while an equivalent Node Playwright/Chrome loopback fixture exercises the redirect transport. Redirected subresources deliberately pause instead of silently yielding incomplete dynamic coverage; scoped document redirects use urllib and may not capture browser-generated links on that page. Existing discovery/network timeouts and publication transaction caveats remain.
-- **Deferred test:** Run the same loopback redirects with installed Python Playwright in the intended runtime, then re-run `python3 -m pytest agents/test_autonomous_recon.py -q` and `node --test agents/test_autonomous_recon_redirect_browser.cjs`; verify recon-store crash/republication separately before activation.
-- **Trigger:** independent release review or provisioning Python Playwright in the target runtime; no live target probe authorized.
-- **Integration gate:** parent reviewer decides whether the local transport receipt and explicit partial contract suffice; do not integrate on this subagent's authority.
-- **Next step:** parent reviews committed diff, Python-runtime browser receipt if available, and beta reconciliation; no merge/push by this subagent.
+- **Deferred test:** When Python Playwright is installed in the selected runtime, run loopback redirects through its Python application browser path; verify exact-once Recon Bus publication across a deliberate side-effect/manifest crash window before claiming that stronger guarantee. Current runtime lacks Python Playwright and uses guarded urllib fallback.
+- **Trigger:** runtime gains Python Playwright, or an owned disposable publication fixture becomes available; no live target probe authorized.
+- **Integration gate:** independent blocker re-review accepted; parent to integrate reconciled feature and retest before rollout. The unrelated stack-to-program metadata test failure is not a recon release signal.
+- **Next step:** parent merges reviewed feature into beta, retires this dossier from beta, tests, publishes, and verifies selected Hoster runtime.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `c6b8672` before repair; current branch tip after committing this repair.
-- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`, `f90d2be`, current tip.
-- **Exact resume point:** independent re-review of both blocker fixes and Python-runtime gap; resolve unrelated beta script-index failure with its owner; no integration/push authorized.
-- **Working-tree state at handoff:** commit and verify clean worktree.
+- **Latest immutable recovery checkpoint:** `ba58f1a` after beta reconciliation; this dossier-only acceptance handoff follows.
+- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`, `f90d2be`, `95c5dcc`.
+- **Exact resume point:** parent beta merge, integrated focused checks, publication, Hoster runtime verification.
+- **Working-tree state at handoff:** clean after dossier commit.
 
 ## Decision gates
 
-- **Integration gate:** independent review and focused fixture verification, plus beta-tip reconciliation.
+- **Integration gate:** accepted at `95c5dcc`, reconciled with beta `81da58b` in `ba58f1a`, then 20 Python focused tests and 1 real local Node browser fixture passed; parent still verifies integration target.
 - **Activation / cohort gate:** separately verify selected runtime source; not activated.
 - **Promotion gate:** stable promotion requires separate owner direction and evidence.
 

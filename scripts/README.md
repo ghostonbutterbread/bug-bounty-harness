@@ -68,7 +68,11 @@ checkout-local interpreter.
   descriptions, list them, record helper-mediated uses, and prepare promotion.
 - **Inputs:** The selected lane's `context/target_profile.json`, run ID, short
   script name/description, and optional script arguments. Check maintained BBH
-  and program script indexes first; scratch entries are unreviewed.
+  and program script indexes first; scratch entries are unreviewed. `--run-id`
+  names the actual `working/_runs/<run-id>/` folder: reuse the current run's
+  exact ID. For a new run, choose a recognizable class + surface/objective +
+  unique suffix (for example `xss-editor-sinks-20261023`), not `run-1` or just
+  `xss`; do not rename an existing run to fit an example.
 - **Outputs:** `<lane>/working/_runs/<run-id>/_scratch/scripts/<name>.py` and
   `README.md`; `<lane>/scripts/SCRATCH.md` discovery index, per-script records,
   and per-invocation use receipts. The displayed count is **recorded helper
@@ -80,10 +84,10 @@ checkout-local interpreter.
   plus reviewed inputs/outputs/mutations/invocation/coverage, then copies to
   the maintained program home and indexes its hash. No BBH
   repository modification or automatic script approval.
-- **Example:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" create --run-id run-1 --name parse-js --description "Extract named JS fields"`
+- **Example:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" create --run-id xss-editor-sinks-20261023 --name parse-js --description "Extract named JS fields"`
 - **List:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" list`
-- **Run:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" run --run-id run-1 --name parse-js -- input.json`
-- **Promote:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" promote --run-id run-1 --name parse-js --to bbh` (proposal); for a reviewed program-only helper choose `--to program --review-ref <review-id> --verification <test-receipt> --inputs <actual-inputs> --outputs <actual-outputs> --mutates <actual-mutations-or-none> --invocation <tested-command> --coverage <limit>`.
+- **Run:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" run --run-id xss-editor-sinks-20261023 --name parse-js -- input.json`
+- **Promote:** `bbh scripts/scratch_scripts.py --profile "$PROFILE" promote --run-id xss-editor-sinks-20261023 --name parse-js --to bbh` (proposal); for a reviewed program-only helper choose `--to program --review-ref <review-id> --verification <test-receipt> --inputs <actual-inputs> --outputs <actual-outputs> --mutates <actual-mutations-or-none> --invocation <tested-command> --coverage <limit>`.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_scratch_scripts.py -q`
   (disposable Shared fixture; no target traffic).
 - **Owner/scope:** BBH script manager adapter; selected Shared program/family/lane.

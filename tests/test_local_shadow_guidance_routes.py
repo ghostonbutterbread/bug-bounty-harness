@@ -46,19 +46,24 @@ def test_research_cards_are_query_checked_and_disclosures_not_overclaimed() -> N
     research = skill("research-knowledge-management")
     assert "query each new card with likely" in research
     assert "reasonable query misses" in research
-    assert "deduplicate canonical report IDs" in research
-    assert "team-summary-only" in research
-    assert "researcher-" in research and "team-assigned" in research
-    assert "proves prevalence, target impact, or current exposure" in research
-    assert "Do not echo whole JSON" in research
     assert "references/functionality-first-writeup-synthesis.md" in research
+    reference = (SKILLS / "research-knowledge-management/references/functionality-first-writeup-synthesis.md").read_text(encoding="utf-8")
+    assert "Deduplicate report identities" in reference
+    assert "team-summary-only" in reference
+    assert "researcher- versus team-assigned" in reference
+    assert "proves neither prevalence nor current exposure" in reference
+    assert "Never echo whole JSON" in reference
+    assert "missing safe-fetch" in reference
 
 
 def test_hunt_pressure_does_not_override_evidence_or_transport_gate() -> None:
     hunt = skill("hunt-orchestration")
     assert "motivation, not an observed fact or finding" in hunt
     assert "clean independent verifier" in hunt
-    assert "one approved" in hunt and "not as a universal hunt-start gate" in hunt
+    flat = " ".join(hunt.split())
+    assert "one approved owned program account" in flat
+    assert "not as a universal hunt-start gate" in flat
+    assert "Public or anonymous in-scope work does not need an account" in flat
     assert "session collision from expiry" in hunt
     assert "through that affected transport path" in hunt
     assert "independently healthy transport lane" in hunt

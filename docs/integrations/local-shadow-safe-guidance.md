@@ -30,8 +30,8 @@ No shadow is authorized for deletion by this branch. Archive decisions require c
 
 - Focused checks: `python3 -m pytest -q tests/test_local_shadow_guidance_routes.py tests/test_research_map.py tests/test_goal_router.py` — 34 passed (7.04s); after reconciling fetched beta, the same set plus `tests/test_js_hunt_skill.py` — 40 passed (4.86s).
 - Diff: `git diff --check origin/beta...HEAD` passed after reconciliation; staged implementation diff and scoped feature diff inspected.
-- OWASP citation URLs retrieved and checked read-only; no target traffic.
-- Independent review: pending parent/integrator.
+- OWASP WSTG-ERRH-01 stable URL was a redirect/404 in independent review; replaced with v4.2 canonical URL and fetched through `/safe-fetch`, receiving content containing the WSTG ID and title. Other cited links were not re-fetched in this correction.
+- Independent review rejected first tip for that citation, the survey's conditional safe-fetch wording/owner overlap, and an unconditional account prerequisite. Corrected the citation, moved survey details to the existing synthesis reference with a hard safe-fetch prerequisite, and conditioned the account rule on authenticated flows. Re-review pending.
 - Merge/ancestry evidence: `origin/beta` advanced to `49a5344` in non-overlapping `js-hunt` paths; merged into feature at `71360ee`, `git merge-base --is-ancestor origin/beta HEAD` passed. No beta merge/push authorized.
 
 ## Blockers and deferred work

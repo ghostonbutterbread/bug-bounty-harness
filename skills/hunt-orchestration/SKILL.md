@@ -267,9 +267,10 @@ synthesizer: confirmed-primitive chain checkpoint
 ```
 
 Roles rotate or disappear as evidence changes. A strong solo hunter is better
-than several generic parallel hunters. Start ordinary work with one approved
-owned program account; acquire another on demand for cross-principal/role tests
-or a session constraint, not as a universal hunt-start gate. The browser
+than several generic parallel hunters. When the selected flow needs authentication,
+start with one approved owned program account; acquire another on demand for
+cross-principal/role tests or a session constraint, not as a universal hunt-start
+gate. Public or anonymous in-scope work does not need an account. The browser
 provisioner owns exact leases and program-specific same-account concurrency.
 On unexpected logout, preserve non-secret lease, timing, and authentication-check
 evidence to distinguish session collision from expiry before changing that

@@ -215,21 +215,10 @@ quarantined raw fetch → minimal provenance capture → 0..N atomic cards
 - Do not create cards merely because a source is interesting, broad, paywalled,
   or a taxonomy. Such material remains an external on-demand reference unless
   it yields a distinct portable recognition → validation → caveat unit.
-- For a public disclosure survey, deduplicate canonical report IDs and record
-  separate counts for discovered candidates, readable narratives, and distinct
-  substantive mechanisms. Fetch canonical structured reports via `safe-fetch`
-  when available (for example HackerOne `/reports/<id>.json`), retaining only
-  the fields needed for the question: title, program, status, disclosure date,
-  severity rating and its author, researcher narrative versus team summary, and
-  source URL. Distinguish team-summary-only records from readable researcher
-  reports. Audit claimed high/critical ratings and whether they are researcher-
-  or team-assigned; neither a curated sample nor a historical `resolved` status
-  proves prevalence, target impact, or current exposure. Do not echo whole JSON:
-  attachments may contain signed URLs and bodies may contain secrets. Derive
-  bounded recognition questions rather than copying PoCs; for a domain threat
-  model, first map its actual actors, value/state transitions, authoritative
-  systems, and channels rather than treating one completed transaction as full
-  lifecycle coverage.
+- For a public disclosure survey, use
+  [`references/functionality-first-writeup-synthesis.md`](references/functionality-first-writeup-synthesis.md)
+  for body-access, severity-provenance, deduplication, and mechanism counts;
+  its external-content admission and source-to-claim boundaries control.
 - If safe-fetch marks content with risk flags or `research_lab` handling, retain
   metadata only and require explicit review before body-based distillation.
 

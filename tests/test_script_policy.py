@@ -122,6 +122,8 @@ def test_bug_bounty_script_policy_loads_with_skill_and_bounds_output() -> None:
     assert "while a longer script runs" in policy
     assert "agents may create or extend a reusable bbh script" in policy
     assert "load `script-manager` and follow bbh `script_policy.md`" in policy
+    assert "check false positives" in policy
+    assert "false false positives" not in policy
     assert "script may completely process a declared corpus" in policy
     assert "does not make its security conclusions exhaustive" in policy
     assert "before running a bug-bounty script to investigate a target, load `/bb-script-rules`" in router

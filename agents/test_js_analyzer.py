@@ -777,7 +777,10 @@ def test_limit_bounds_inline_script_inventory(tmp_path: Path):
     rows = (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert len(rows) == 1
-    assert manifest["js_urls_seen"] == 1
+    assert manifest["js_urls_seen"] == 2
+    assert manifest["coverage_state"]["status"] == "incomplete"
+    assert manifest["coverage_state"]["pause_reason"] == "url_limit"
+    assert len(manifest["coverage_state"]["pending"]) == 1
 
 
 def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
@@ -1518,3 +1521,277 @@ def test_param_name_does_not_backtrack_on_inline_base64_source_map():
     start = time.monotonic()
     J.extract_signals(snippet, "https://app.example/app.js")
     assert time.monotonic() - start < 5.0
+
+
+def test_large_bundle_comment_scan_uses_full_input_and_ignores_decoy():
+    body = 'const decoy="//# sourceMappingURL=fake.map";\n' + '/*' + 'x' * (8 * 1024 * 1024) + '*/\n//# sourceMappingURL=real.map\n'
+    assert J.last_source_map_directive(body) == 'real.map'
+
+
+def test_inventory_resume_after_url_limit_keeps_intended_boundary(tmp_path: Path):
+    urls = [f'https://app.example.com/{i}.js' for i in range(2)]
+    source = tmp_path / 'urls.txt'
+    source.write_text('\n'.join(urls) + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        assert J.main(base + ['--limit', '1']) == 0
+        first = json.loads((tmp_path / 'out' / 'manifest.json').read_text())
+        assert first['coverage_state']['pending'] == [urls[1]]
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 2
+    final = json.loads((tmp_path / 'out' / 'manifest.json').read_text())
+    assert final['coverage_state']['status'] == 'complete'
+    assert len(J.read_jsonl(tmp_path / 'out' / 'metadata.jsonl')) == 2
+    assert len(J.read_jsonl(tmp_path / 'lib' / 'metadata.jsonl')) == 2
+    assert (tmp_path / 'out' / 'pending_urls.txt').read_text() == ''
+
+
+def test_inventory_disk_floor_pause_then_resume(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        assert J.main(base + ['--disk-free-floor-gib', '999999']) == 2
+        assert not (tmp_path / 'out' / 'manifest.json').exists()
+        assert not (tmp_path / 'out' / 'checkpoint.json').exists()
+        fetch.assert_not_called()
+        assert J.main(base) == 0
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_inventory_failed_fetch_remains_partial_and_retryable(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', side_effect=[(b'', None, ''), (b'const ok = 1;', 200, 'application/javascript')]) as fetch:
+        assert J.main(base) == 0
+        state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+        assert state['status'] == 'incomplete' and len(state['retryable_failed']) == 1
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 2
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_inventory_limit_bounds_failed_attempts(tmp_path: Path):
+    urls = [f'https://app.example.com/{i}.js' for i in range(3)]
+    source = tmp_path / 'urls.txt'
+    source.write_text('\n'.join(urls) + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'', None, '')) as fetch:
+        assert J.main(base + ['--limit', '1']) == 0
+        assert fetch.call_count == 1
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete' and state['pause_reason'] == 'url_limit'
+    assert state['pending'] == urls and state['retryable_failed'][urls[0]] == 'bundle_unavailable'
+
+
+def test_checkpoint_after_artifact_before_commit_retries_url(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real = J.write_text_atomic
+    def interrupt(path, text):
+        if path.name == 'checkpoint.json' and '"succeeded": ["https://app.example.com/a.js"]' in text:
+            raise RuntimeError('interrupted before checkpoint commit')
+        return real(path, text)
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        with patch.object(J, 'write_text_atomic', side_effect=interrupt), pytest.raises(RuntimeError):
+            J.main(base)
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 1  # replay uses the saved content-addressed download
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_comment_scan_isolated_even_below_threshold_and_waits_for_completion():
+    body = 'const x="//# sourceMappingURL=decoy.map";\n//# sourceMappingURL=real.map'
+    with patch.object(J, 'SOURCE_MAP_ISOLATE_BYTES', 10**9):
+        assert J.last_source_map_directive(body) == 'real.map'
+
+
+def test_failed_resume_does_not_reappend_library_rows(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with (patch.object(J, 'http_get', return_value=(b'//# sourceMappingURL=bad.map', 200, 'application/javascript')),
+          patch.object(J, 'http_get_limited', return_value=(b'', 404, '', False))):
+        assert J.main(base) == 0
+        assert J.main(base + ['--resume']) == 0
+    assert not (tmp_path / 'lib' / 'metadata.jsonl').exists()
+    assert not (tmp_path / 'lib' / 'provenance.jsonl').exists()
+
+
+def test_resume_reconciles_torn_multirow_provenance_and_sqlite(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    hints = tmp_path / 'hints.jsonl'
+    hints.write_text(''.join(json.dumps({'url': url, 'page_url': f'https://app.example.com/page-{i}',
+                                        'proxy_request_id': f'req-{i}', 'timestamp': '2026-01-01T00:00:00Z'}) + '\n'
+                             for i in range(2)))
+    base = ['inventory', 'demo', '--input', str(source), '--provenance-input', str(hints),
+            '--target-host', 'example.com', '--run-id', 'torn', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real_append = J.append_jsonl
+    def interrupt(path, rows):
+        if path.name == 'provenance.jsonl':
+            def partial():
+                yield next(iter(rows))
+                raise RuntimeError('interrupted shared append')
+            return real_append(path, partial())
+        return real_append(path, rows)
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        with patch.object(J, 'append_jsonl', side_effect=interrupt), pytest.raises(RuntimeError):
+            J.main(base)
+        assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 1
+        assert J.main(base + ['--resume']) == 0
+        assert J.main(base + ['--resume']) == 0
+    assert len(J.read_jsonl(tmp_path / 'out' / 'js_provenance.jsonl')) == 2
+    assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 2
+    with sqlite3.connect(tmp_path / 'lib' / 'js_info.sqlite') as db:
+        assert db.execute('SELECT count(*) FROM js_provenance WHERE run_id = ?', ('torn',)).fetchone()[0] == 2
+
+
+def test_resume_rebuilds_sqlite_when_shared_provenance_was_fully_appended(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'sqlite-torn', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        with patch.object(J, 'write_provenance_table', side_effect=RuntimeError('interrupted index')), pytest.raises(RuntimeError):
+            J.main(base)
+        assert len(J.read_jsonl(tmp_path / 'lib' / 'provenance.jsonl')) == 1
+        assert J.main(base + ['--resume']) == 0
+    with sqlite3.connect(tmp_path / 'lib' / 'js_info.sqlite') as db:
+        assert db.execute('SELECT count(*) FROM js_provenance').fetchone()[0] == 1
+
+
+def test_disk_floor_mid_finalization_never_publishes_complete(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'pressure', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations'),
+            '--disk-free-floor-gib', str(90 / 1024 ** 3)]
+    real_usage = J.shutil.disk_usage
+    pressure = {'on': False}
+    def usage(path):
+        if pressure['on']:
+            return Namespace(free=91)
+        return real_usage(path)
+    real_write = J.write_jsonl
+    def write(path, rows):
+        result = real_write(path, rows)
+        if path.name == 'metadata.jsonl' and path.parent == tmp_path / 'out':
+            pressure['on'] = True
+        return result
+    with (patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')),
+          patch.object(J.shutil, 'disk_usage', side_effect=usage),
+          patch.object(J, 'write_jsonl', side_effect=write)):
+        assert J.main(base) != 0
+    manifest = tmp_path / 'out' / 'manifest.json'
+    assert not manifest.exists() or json.loads(manifest.read_text())['coverage_state']['status'] != 'complete'
+    pressure['on'] = False
+    with patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')):
+        assert J.main(base + ['--resume']) == 0
+    assert json.loads(manifest.read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_write_floor_checks_actual_output_size(tmp_path: Path):
+    destination = tmp_path / 'artifact.js'
+    with patch.object(J.shutil, 'disk_usage', return_value=Namespace(free=100)):
+        with pytest.raises(J.DiskFloorPause):
+            J.write_bytes_checked(destination, b'x' * 11, floor=90)
+    assert not destination.exists()
+
+
+def test_unchanged_module_budget_pauses_with_action(tmp_path: Path):
+    url = 'https://app.example.com/a.js'
+    source = tmp_path / 'urls.txt'
+    source.write_text(url + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations'),
+            '--source-map-module-limit', '0']
+    map_body = json.dumps({'version': 3, 'sources': ['one.js'], 'sourcesContent': ['const x=1;']}).encode()
+    with (patch.object(J, 'http_get', return_value=(b'//# sourceMappingURL=a.js.map', 200, 'application/javascript')),
+          patch.object(J, 'http_get_limited', return_value=(map_body, 200, 'application/json', False))):
+        assert J.main(base) == 0
+        assert J.main(base + ['--resume']) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete' and state['pause_reason'] == 'module_budget'
+    assert '--source-map-module-limit' in state['action']
+
+
+def test_bundle_stream_read_pauses_without_materializing_oversized_body():
+    class Response:
+        status = 200
+        headers = {'content-type': 'application/javascript'}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, amount):
+            assert amount <= 64 * 1024
+            return b'x' * amount
+    with patch.object(J.urllib.request, 'build_opener') as opener:
+        opener.return_value.open.return_value = Response()
+        token = J.BUNDLE_MEMORY_LIMIT.set(256)
+        try:
+            result = J.http_get('https://app.example.com/a.js')
+        finally:
+            J.BUNDLE_MEMORY_LIMIT.reset(token)
+    assert result.reason == 'bundle_memory' and result[0] == b''
+
+
+def test_disk_floor_during_bundle_write_pauses_with_pending_url(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real_check = J.check_output_space
+    def block_bundle(path, size, **kwargs):
+        if path.suffix == '.js':
+            raise J.DiskFloorPause('pressure')
+        return real_check(path, size, **kwargs)
+    with (patch.object(J, 'http_get', return_value=(b'const ok=1;', 200, 'application/javascript')),
+          patch.object(J, 'check_output_space', side_effect=block_bundle)):
+        assert J.main(base) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['pause_reason'] == 'disk_floor' and state['pending'] == ['https://app.example.com/a.js']
+
+
+def test_endpoint_param_seed_lists_are_not_silently_capped():
+    text = '\n'.join(f'const n{i}="/api/path{i}?field{i}=1";' for i in range(510))
+    result = J.extract_signals(text, 'https://app.example.com/a.js')
+    assert len(result['endpoints']) == 510
+    assert len(result['params']) == 510
+
+
+def test_oversized_page_is_partial_not_empty_complete(tmp_path: Path):
+    page = 'https://app.example.com/page'
+    response = J.HttpResult((b'', 200, 'text/html'), reason='bundle_memory')
+    with patch.object(J, 'http_get', return_value=response):
+        assert J.main(['inventory', 'demo', '--page', page, '--target-host', 'example.com',
+                       '--output-root', str(tmp_path / 'out'), '--library-root', str(tmp_path / 'lib'),
+                       '--integration-index-root', str(tmp_path / 'integration')]) == 0
+    state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+    assert state['status'] == 'incomplete'
+    assert state['pending_pages'] == [page]
+    assert state['partial_seed_counts']['pages_oversized'] == 1

@@ -7,8 +7,8 @@
 - **Base commit:** 73d83c730cef6343e0c61d5d0ddcc70a416490d3
 - **Intended integration target:** beta (origin/beta), never stable in this task
 - **Last updated:** 2026-10-22 (PDT)
-- **Latest immutable recovery checkpoint:** pending initial implementation commit; a subsequent dossier-only commit will record its verified SHA
-- **Feature implementation commits:** pending initial implementation commit
+- **Latest immutable recovery checkpoint:** 62e0420635b666c7b919fc9121bb85290b348d8a (implementation, tests and initial dossier)
+- **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
 - **Successor:** parent-owned js-playbook/js-pull documentation update and a fresh independent release reviewer on this feature ref. This temporary dossier must not remain on beta after accepted integration.
 
@@ -118,4 +118,6 @@ Final unfiltered broader command: `PYTHONPATH="$PWD" .venv/bin/python -m pytest 
 
 ## Recovery / review
 
-Before stopping, commit exactly the implementation, its directly associated test module, and this branch-local dossier. Follow with a dossier-only commit naming the immutable implementation SHA. Resume at the parent-owned independent release gate, reconciling the exact candidate diff against this contract and the two base-reproduced unrelated documentation failures. Integration, clean-beta preflight, push and activation are not authorized to this child.
+Implementation checkpoint `62e0420635b666c7b919fc9121bb85290b348d8a` contains exactly the implementation, directly associated test module and initial branch-local dossier. This later dossier-only handoff commit records that immutable checkpoint; reconcile its documentation-only diff separately from implementation. The feature branch is the recovery ref; no push was performed.
+
+Resume at the parent-owned independent release gate: inspect base-to-checkpoint source/test changes, independently rerun the exact focused/broader commands above with the task-local interpreter and source-root isolation, and resolve or explicitly disposition the two base-reproduced unrelated documentation failures. The parent must add its user-facing documentation and preflight against current beta, then obtain review of the actual integration candidate. Integration, clean-beta preflight, Kanban closure, push and activation were not performed by this child.

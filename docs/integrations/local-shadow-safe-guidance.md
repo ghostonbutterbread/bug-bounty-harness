@@ -7,8 +7,8 @@
 - **Base commit:** `38cdff90dfbeb4926bec3f9efba07aec633b7105` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
-- **Latest immutable recovery checkpoint:** none yet; use committed branch tip after commit
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `71360ee` (merge of fetched beta after implementation commit)
+- **Feature implementation commit(s):** `355bfd0`
 - **Inspiration:** profile-local shadows under `/home/ryushe/.hermes/profiles/bugfix/skills/{security,bug-bounty,autonomous-ai-agents}/`; these remain untouched. Canonical owner is the BBH `skills/` tree. Compared full file inventories and differences against fetched beta before selecting content.
 
 ## Intent and implemented contract
@@ -28,11 +28,11 @@ No shadow is authorized for deletion by this branch. Archive decisions require c
 
 ## Evidence and review
 
-- Focused checks: `python3 -m pytest -q tests/test_local_shadow_guidance_routes.py tests/test_research_map.py tests/test_goal_router.py` — 34 passed (7.04s).
-- Diff: `git diff --check` passed; scoped diff and staged diff inspected before commit.
+- Focused checks: `python3 -m pytest -q tests/test_local_shadow_guidance_routes.py tests/test_research_map.py tests/test_goal_router.py` — 34 passed (7.04s); after reconciling fetched beta, the same set plus `tests/test_js_hunt_skill.py` — 40 passed (4.86s).
+- Diff: `git diff --check origin/beta...HEAD` passed after reconciliation; staged implementation diff and scoped feature diff inspected.
 - OWASP citation URLs retrieved and checked read-only; no target traffic.
 - Independent review: pending parent/integrator.
-- Merge/ancestry evidence: pending; no merge/push authorized.
+- Merge/ancestry evidence: `origin/beta` advanced to `49a5344` in non-overlapping `js-hunt` paths; merged into feature at `71360ee`, `git merge-base --is-ancestor origin/beta HEAD` passed. No beta merge/push authorized.
 
 ## Blockers and deferred work
 
@@ -43,8 +43,8 @@ No shadow is authorized for deletion by this branch. Archive decisions require c
 ## Interruption / resume handoff
 
 - **Owning ref:** `docs/local-shadow-safe-guidance`
-- **Recovery checkpoint:** use branch tip (this record cannot contain its own commit SHA)
-- **Implementation commits:** inspect `git log origin/beta..HEAD` after commit
+- **Recovery checkpoint:** `71360ee` (later dossier-only commit is recoverable from the branch ref)
+- **Implementation commit:** `355bfd0`; reconciliation merge `71360ee`
 - **Exact resume point:** review diff, tests and source dispositions; do not merge or archive before parent approval.
 - **Working tree:** expected clean after commit.
 

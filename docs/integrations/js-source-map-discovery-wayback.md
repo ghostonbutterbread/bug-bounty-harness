@@ -1,6 +1,6 @@
 # JavaScript source-map discovery and Wayback recovery
 
-- **Status:** keyword-member and statement/declaration lexical-context repairs locally verified; fresh independent release review pending; not integrated
+- **Status:** independent release review BLOCKED on valid optional-catch, labelled-block and exported-declaration lexical-context regressions; not integrated
 - **Owner / task:** Hermes / t_9b4400cf
 - **Branch / owning feature ref:** fix/js-source-map-discovery-wayback
 - **Worktree:** /home/ryushe/projects/bug_bounty_harness/.worktrees/t_9b4400cf
@@ -10,7 +10,7 @@
 - **Latest immutable recovery checkpoint:** c8b48440f7ff92cb0076b7949fe69380b36cd641 (all implementation, prior release repairs and member/statement lexical-context repairs with maintained tests and receipts)
 - **Feature implementation commits:** 62e0420635b666c7b919fc9121bb85290b348d8a, d61afe41070c5f41ed6c9d7ed90355d266401866, e259847b055d2eed6537ec038ea8925bac4b180b and c8b48440f7ff92cb0076b7949fe69380b36cd641; current branch tip includes a later dossier-only handoff commit
 - **Inspiration:** Discord thread 1563053963534930045; authorized patch message 1563055701704843277. Parent checked ECMA-426 section 11 and the official wayback-cdx-server README. These are protocol references, not program-testing authority.
-- **Successor:** fresh independent release review of the corrected lexical-context checkpoint, then the current-beta compatibility gate. Prior parent guidance and edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
+- **Successor:** parent-owned repair of the third gate's concrete block-context regressions, then a fresh independent full-feature release review and current-beta execution compatibility gate. Prior parent guidance and edge-case corrections are included in d61afe41070c5f41ed6c9d7ed90355d266401866. This temporary dossier must not remain on beta after any later accepted integration.
 
 ## Defect and implementation
 
@@ -256,3 +256,54 @@ All **183 newly maintained lexical fixture variants** (member matrix, private/sp
 The unchanged exact unfiltered broader command from the earlier receipt returned **741 passed, 2 failed in 164.89s**. Both failures remain the same two independently base-reproduced README nodes; no exclusions or changed assertions were used, and this is not an unfiltered green suite. Both independent reviewers' exact original scratch files were run together with the task interpreter and candidate source first on the path: **8 passed in 4.76s**. The maintained matrix/fixture contracts are durable; scratch files are optional convenience only. `git diff --check` passed.
 
 Only the owning detector, its directly associated maintained tests and this dossier changed in this correction. Earlier live/history/budget repairs and user-facing guidance remain intact. No program/archive request, private corpus mutation, beta mutation, push or activation occurred. Commit this implementation with these receipts, pin the new immutable checkpoint, and obtain a fresh independent release verdict before current-beta preflight/integration. The two previous blocked verdicts are not acceptance of this corrected code.
+
+## Third independent release gate — BLOCKED
+
+### Reviewed identity and rerun checks (2026-10-22 PDT)
+
+- Exact reviewed candidate: `ad1115b422b4493c8ab70022049ccd70e458933a`; tree: `990a86cd100f7c694a2dbb65208335ef7f991a3b`. Latest implementation remains `c8b48440f7ff92cb0076b7949fe69380b36cd641`; candidate changes only this dossier relative to that implementation. This gate's later checkpoint is also dossier-only.
+- Reviewed the complete base-to-candidate feature: detector, transport, archive recovery/cache/provenance, materialization budgets, associated tests and parent guidance. No implementation repair or nested review was performed.
+- Source isolation: the feature `.venv/bin/python` imports `agents.js_analyzer` from this feature worktree with `PYTHONPATH="$PWD"`. Installed bounty-core direct_url is `6c36ee88a60073e1b687ec32deeade24ffafdd4f`, exactly the unchanged requirements pin; installed distribution mtime is newer than requirements.txt. No dependency changes were needed or made.
+- Exact unfiltered broader command at line 105: **741 passed, 2 failed in 68.76s**. Failures are exactly `tests/test_skill_command_lane_safety.py::SkillCommandLaneSafetyTests::test_runnable_skill_and_prompt_commands_do_not_select_a_checkout_directly` and `tests/test_script_policy.py::test_each_skill_index_has_complete_nonstale_records`. No exclusions or weakened assertions; this is not an unfiltered green suite.
+- The same interpreter, with the unchanged base export first on PYTHONPATH, independently reproduced both exact failing nodes: **2 failed in 0.14s**, identical README evidence. Baseline import resolves to `/home/ryushe/.hermes/cache/scratch/js-map-review-base-73d83c7/agents/js_analyzer.py`. The export's analyzer, both failing test modules and offending README hashes match the immutable base blobs exactly. Git commands initially issued inside the non-Git export failed; all repository ref/blob inspection was then performed from the feature checkout. The existing BUGFIXES.md already records these unrelated failures; they remain out of scope.
+- Focused maintained JS command at line 94: **495 passed in 67.82s**. Both exact previous reviewer scratch suites together: **8 passed in 1.71s**. The prior concrete blocker contracts are repaired, not reasserted by this verdict.
+- `git diff --check 73d83c7..ad1115b` passed. Feature worktree was clean before this dossier-only verdict update.
+
+### Concrete blocker: remaining statement/declaration brace contexts lose the real distant tail
+
+`agents/js_analyzer.py:874-935`, `last_source_map_directive`: optional catch without a binding and labelled blocks reach their opening brace with `statement_start=False`. `export` / `export default` likewise clear declaration context before `function` / `class`. The closing brace is consequently treated as an expression operand. A following valid regex containing a backtick is read as division followed by an unterminated template, so the real trailing directive is lost. These are variants of the same remaining brace-context defect, not five independent issues or a request for complete ECMAScript grammar support.
+
+Exact fixture construction:
+
+```python
+body = prefix + '\n' + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'
+assert last_source_map_directive(body) == 'real.map'
+```
+
+Failing `prefix` variants, each valid JavaScript:
+
+```javascript
+try {} catch {} /`/.test("x");
+label: {} /`/.test("x");
+export function f() {} /`/.test("x");
+export class C {} /`/.test("x");
+export default function f() {} /`/.test("x");
+```
+
+The exact complete body for each variant passed `node --check` (commonjs input mode for the first two, module mode for the three exports). The exact detector function extracted via AST from immutable base `73d83c730cef6343e0c61d5d0ddcc70a416490d3` returned `real.map` for each; candidate returned `''` for each. Existing positive controls `if (true) {} /` + backtick + `/.test("x");` and `try {} catch (e) {} /` + backtick + `/.test("x");` pass both detectors and syntax checks.
+
+Recoverable convenience suite: `/home/ryushe/.hermes/cache/scratch/test_js_map_third_release_review.py`. It checks syntax and exact base behavior before the candidate assertion, with no program/archive acquisition:
+
+```bash
+PYTHONPATH="$PWD" .venv/bin/python -m pytest /home/ryushe/.hermes/cache/scratch/test_js_map_third_release_review.py -q --tb=short --show-capture=no
+```
+
+Observed: **5 failed, 2 passed in 0.32s**, all failures solely at the candidate assertion (`'' != 'real.map'`). The fixture contracts above preserve reproduction if scratch is pruned. Parent should maintain these cases and balanced expression/division/regex-decoy controls, repair the owning lexical boundary without reverting to arbitrary tail slicing, then rerun focused/broader/prior/new probes and obtain a fresh independent verdict.
+
+### Target state and exact resume boundary
+
+Fresh `git fetch origin beta` succeeded: `origin/beta` is `f98f538344a4c0673b48052b519c87446bc605d1`. The root beta integration worktree remains `73d83c730cef6343e0c61d5d0ddcc70a416490d3`, with no tracked modifications; its unrelated untracked nested worktrees remain untouched. Upstream changes only SCRIPT_POLICY.md, agents/index.md and skills/bunny/SKILL.md; those intended changes were inspected and left intact.
+
+The reproduced correctness regression blocks release **before beta mutation**. No beta fast-forward, staged no-commit preflight, accepted integration tree, merge, push, Kanban write, feature cleanup, stable/main promotion or runtime activation occurred. Current-beta execution compatibility remains **unestablished**. Only the feature's temporary dossier is changed/committed by this reviewer; scratch contains the optional convenience reproducer.
+
+**Resume:** parent owns implementation repair on `fix/js-source-map-discovery-wayback`, using implementation checkpoint `c8b48440f7ff92cb0076b7949fe69380b36cd641`, reviewed candidate `ad1115b422b4493c8ab70022049ccd70e458933a` and this later dossier-only handoff. All earlier blocked receipts remain historical. A corrected candidate requires fresh independent acceptance before clean/current-beta exact-tree execution compatibility and intentional beta-only integration/push. Actual archive availability and retained private-corpus retrieval are still unverified and require separately authorized live smoke; offline checks do not authorize activation.

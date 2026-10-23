@@ -22,7 +22,13 @@ is selected, the normal published scope and AI Policies gates below still apply.
    methods. Load only the minimum ordered live-testing overlay(s) required for
    the next decision. Before running a bug-bounty script to investigate a
    target, load `/bb-script-rules` alongside the relevant BBH skill; find
-   runnable scripts in that skill and its index.
+   runnable scripts in that skill and its index. Before assigning or writing
+   a helper, load `/script-manager` and use `SCRIPT_POLICY.md`'s short
+   reuse/extend/new decision when assigning a specific script job. For
+   exploratory packets without known tooling, have the worker make that
+   decision when scripting becomes useful, before creating or promoting a
+   helper. Program-only maintained helpers are indexed in the resolved program
+   lane, not the BBH launcher.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.

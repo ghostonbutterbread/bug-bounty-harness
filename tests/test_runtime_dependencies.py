@@ -31,6 +31,8 @@ class RuntimeDependencyTests(unittest.TestCase):
             "beautifulsoup4>=4.15,<5",
             "websocket-client>=1.9,<2",
             "aiohttp>=3.12,<4",
+            "tree-sitter==0.26.0",
+            "tree-sitter-javascript==0.25.0",
         ])
         self.assertNotIn(SUPERSEDED_CORE_SHA, manifest.read_text(encoding="utf-8"))
         self.assertEqual(sorted(p.name for p in ROOT.glob("requirements*.txt")),

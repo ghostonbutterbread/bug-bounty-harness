@@ -55,11 +55,44 @@ review is intended, set an explicit run ID or output root so the consumer knows
 where completed packets appear.
 
 The helper hashes/deduplicates bodies, records URL aliases, creates bounded
-packets, and retrieves bounded in-scope maps when declared. Review
-`source_map_modules.jsonl` and `source_map_packets/` for original modules with
-embedded text; a module name alone does not establish that source text exists or
-that the module ran. Use `/jsluice` on *selected local files* for AST-derived
-leads if available; its output is not an endpoint contract.
+packets, and retrieves bounded in-scope maps from response headers or actual
+comment declarations. Review `source_map_modules.jsonl` and
+`source_map_packets/` for original modules with embedded text; a module name
+alone does not establish that source text exists or that the module ran. Use
+`/jsluice` on *selected local files* for AST-derived leads if available; its
+output is not an endpoint contract.
+
+### Missing maps and Wayback recovery
+
+Do not equate `not_detected` or `fetch_failed` with maps never having existed.
+Read `source_map_discovery`, `source_map_reason`, and `source_map_http_status`
+first: 404, rate limits, TLS failures, invalid data and size caps need different
+follow-ups. `scan_failed` means comment discovery was incomplete, not that a map
+was absent: check `parse_limit`, `parser_unavailable` or `parser_memory`. The
+pinned parser comes from the checkout's root requirements; provision it with
+`bash setup.sh --install-python-deps` before selecting that checkout for use.
+Keep `--source-map-parse-max-bytes` at its 8 MiB default unless a selected bundle
+justifies more AST memory. Response headers bypass comment parsing and its cap.
+Reprocessing existing cached JS uses the repaired detector; omit
+`--skip-cached-processing` when checking map coverage.
+
+When live maps are unavailable and disclosing the scoped asset URLs to Internet
+Archive is permitted, add `--source-map-wayback auto` to the same inventory
+command. Archive traffic is **off by default**; `--source-maps off` also disables
+it. The fallback checks exact declared map URLs, then archived versions of the
+exact bundle for historical declarations. It does not crawl the whole domain.
+It sends no program headers to the archive, retains the normal proxy/TLS
+transport, and stops further archive requests on 429. The default run budget is
+20 requests, with two captures per lookup; read help before raising budgets.
+
+Read `source_map_history`, manifest `source_map_wayback` diagnostics, and
+`historical_source_maps_*` counters. Historical rows and packets are labelled;
+preserve capture timestamps, retrieval/original URLs, and hashes. Map-only
+recovery does not verify a match to current bundle bytes. Even equal archived
+and current JS hashes do not independently verify the map-to-build binding.
+Names without `sourcesContent` are not recovered source text. Report blocked,
+capped, or unattempted archive work as a gap, not an empty archive. Canonical
+limits and examples are in `prompts/js-playbook.md`.
 
 ## Handoff and Verification
 

@@ -11,17 +11,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html.parser
+import http.client
 import json
 import os
 import re
 import secrets
 import sqlite3
+import ssl
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -314,11 +316,15 @@ class JsRecord:
     source: str = ""
     source_map: str = ""
     source_map_status: str = "not_detected"
+    source_map_discovery: str = ""
+    source_map_reason: str = ""
+    source_map_http_status: int | None = None
     source_map_sha256: str = ""
     source_map_artifact_path: str = ""
     source_map_module_count: int = 0
     source_map_modules_with_content: int = 0
     source_map_packet_count: int = 0
+    source_map_history: dict = field(default_factory=dict)
     endpoints: list[str] = field(default_factory=list)
     in_scope_endpoints: list[str] = field(default_factory=list)
     external_endpoints: list[str] = field(default_factory=list)
@@ -528,6 +534,29 @@ def _request_headers(accept: str) -> dict[str, str]:
     return headers
 
 
+class HttpResult(tuple):
+    """Keep public fetch tuple unpacking/equality while exposing safe metadata."""
+
+    map_header: tuple[str, str]
+    reason: str
+    bytes_read: int | None
+
+    def __new__(cls, values: tuple, *, map_header: tuple[str, str] = ("", ""), reason: str = "", bytes_read: int | None = None):
+        result = super().__new__(cls, values)
+        result.map_header = map_header
+        result.reason = reason
+        result.bytes_read = bytes_read
+        return result
+
+
+def source_map_header(headers) -> tuple[str, str]:
+    lowered = {name.lower(): value for name, value in headers.items()}
+    for name in ("SourceMap", "X-SourceMap"):
+        if name.lower() in lowered:
+            return str(lowered[name.lower()]).strip(), name
+    return "", ""
+
+
 def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
     req = urllib.request.Request(
         url,
@@ -535,7 +564,7 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
     )
     try:
         with urllib.request.build_opener(NoRedirectHandler()).open(req, timeout=timeout) as resp:
-            return resp.read(), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")
+            return HttpResult((resp.read(), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")), map_header=source_map_header(resp.headers))
     except urllib.error.HTTPError as exc:
         return exc.read(), exc.code, exc.headers.get("content-type", "") if exc.headers else ""
     except Exception:
@@ -549,25 +578,66 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def http_get_limited(url: str, *, timeout: int, max_bytes: int) -> tuple[bytes, int | None, str, bool]:
+def http_get_limited(url: str, *, timeout: int, max_bytes: int, include_program_headers: bool = True) -> HttpResult:
     """Fetch one artifact without allowing an unbounded source-map download."""
     req = urllib.request.Request(
         url,
-        headers=_request_headers("application/json, */*"),
+        headers=_request_headers("application/json, */*") if include_program_headers else {
+            "User-Agent": "BBH-source-map-recovery", "Accept": "application/json, */*",
+        },
     )
+    read_started = False
     try:
         opener = urllib.request.build_opener(NoRedirectHandler())
         with opener.open(req, timeout=timeout) as resp:
             content_type = resp.headers.get("content-type", "")
             content_length = resp.headers.get("content-length")
-            if content_length and content_length.isdigit() and int(content_length) > max_bytes:
-                return b"", int(getattr(resp, "status", 0) or 0), content_type, True
-            body = resp.read(max_bytes + 1)
-            return body[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(body) > max_bytes
+            expected_length = getattr(resp, "length", None)
+            if (expected_length is None and not getattr(resp, "chunked", False)
+                    and content_length and content_length.isdigit()):
+                expected_length = int(content_length)
+            if expected_length is not None and expected_length > max_bytes:
+                return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, True), reason="oversize", bytes_read=0)
+            read_started = True
+            body = bytearray()
+            while len(body) <= max_bytes:
+                if expected_length is not None and len(body) == expected_length:
+                    break
+                amount = max_bytes + 1 - len(body)
+                if expected_length is not None:
+                    amount = min(amount, expected_length - len(body))
+                chunk = resp.read(amount)
+                if not chunk:
+                    if expected_length is not None and len(body) < expected_length:
+                        # Explicit-amount HTTPResponse.read() may return a short
+                        # Content-Length body without raising IncompleteRead.
+                        return HttpResult((b"", int(getattr(resp, "status", 0) or 0), content_type, False),
+                                          reason="transport", bytes_read=len(body))
+                    break
+                body.extend(chunk)
+            data = bytes(body)
+            del body
+            return HttpResult((data[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(data) > max_bytes), map_header=source_map_header(resp.headers), bytes_read=len(data))
     except urllib.error.HTTPError as exc:
-        return exc.read(max_bytes), exc.code, exc.headers.get("content-type", "") if exc.headers else "", False
-    except Exception:
-        return b"", None, "", False
+        exc.close()
+        return HttpResult((b"", exc.code, "", False), reason=f"http_{exc.code}", bytes_read=0)
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+        cause = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+        reason = "tls" if isinstance(cause, ssl.SSLError) else "timeout" if isinstance(cause, TimeoutError) else "transport"
+        # Incomplete payloads are not artifacts, but consumed transfer bytes
+        # still count. Reserve the whole permitted read if consumption is unknown.
+        consumed = max_bytes + 1 if read_started else 0
+        return HttpResult((b"", None, "", False), reason=reason, bytes_read=consumed)
+
+
+def fetch_reason(response: tuple) -> str:
+    """Stable diagnostic categories; never expose raw transport exceptions."""
+    body, status, _content_type, oversized = response
+    if status is not None and not 200 <= status < 300:
+        return f"http_{status}"
+    if oversized:
+        return "oversize"
+    return getattr(response, "reason", "") or ("ok" if status and 200 <= status < 300 and body else "transport")
 
 
 def normalize_url(value: str, base: str | None = None) -> str | None:
@@ -693,93 +763,67 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
     return dedupe(js_urls), page_records, inline_bodies
 
 
-def last_source_map_directive(text: str) -> str:
-    """Find directives in actual comments within the bounded bundle tail."""
-    text = text[-3000:]
-    found = ""
-    i = 0
-    regex_allowed = True
-    control_keyword = False
-    parens: list[bool] = []
-    while i < len(text):
-        char = text[i]
-        if char.isspace():
-            i += 1
-            continue
-        if char in "'\"`":
-            quote = char
-            i += 1
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                elif text[i] == quote:
-                    i += 1
-                    break
-                else:
-                    i += 1
-            regex_allowed = False
-            control_keyword = False
-            continue
-        if char == "/" and i + 1 < len(text) and text[i + 1] in ("/", "*"):
-            if text[i + 1] == "/":
-                end = text.find("\n", i + 2)
-                end = len(text) if end < 0 else end
-            else:
-                end = text.find("*/", i + 2)
-                end = len(text) if end < 0 else end
-            directive = SOURCE_MAP_RE.match(text[i + 2:end].lstrip())
-            if directive:
-                found = directive.group("url")
-            i = end if text[i + 1] == "/" or end == len(text) else end + 2
-            continue
-        if char == "/" and regex_allowed:
-            i += 1
-            in_class = False
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                elif text[i] == "[":
-                    in_class = True
-                    i += 1
-                elif text[i] == "]" and in_class:
-                    in_class = False
-                    i += 1
-                elif text[i] == "/" and not in_class:
-                    i += 1
-                    break
-                else:
-                    i += 1
-            regex_allowed = False
-            continue
-        if char.isalpha() or char in "_$":
-            end = i + 1
-            while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
-                end += 1
-            word = text[i:end]
-            control_keyword = word in {"if", "while", "for", "with", "switch", "catch"}
-            regex_allowed = word in {"return", "throw", "case", "else", "delete", "void", "typeof", "yield", "await"}
-            i = end
-            continue
-        if char.isdigit():
-            i += 1
-            while i < len(text) and (text[i].isalnum() or text[i] in "._"):
-                i += 1
-            regex_allowed = False
-            control_keyword = False
-            continue
-        if char == "(":
-            parens.append(control_keyword)
-            regex_allowed = True
-        elif char == ")":
-            regex_allowed = parens.pop() if parens else False
-        else:
-            regex_allowed = char not in "].}"
-        control_keyword = False
-        i += 1
-    return found
+SOURCE_MAP_PARSE_MAX_BYTES = 8 * 1024 * 1024
 
 
-def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
+class SourceMapScanError(RuntimeError):
+    """A comment scan could not complete; never report this as no declaration."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        action = ("install this checkout's requirements with bash setup.sh --install-python-deps"
+                  if reason == "parser_unavailable" else "review --source-map-parse-max-bytes and available memory")
+        super().__init__(f"source-map comment scan incomplete ({reason}); {action}")
+
+
+def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES) -> str:
+    """Read actual JavaScript comment nodes, preserving last-comment selection.
+
+    Parse the whole generated source rather than guessing lexical state from a
+    tail slice. Bound AST input and walk with a cursor, not a materialized node
+    list. Preserve conservative exclusion of all template-string contents.
+    """
+    if "sourceMappingURL" not in text:
+        return ""
+    if len(text) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    data = text.encode("utf-8")
+    if len(data) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    try:
+        from tree_sitter import Language, Parser
+        import tree_sitter_javascript
+    except ImportError as exc:
+        raise SourceMapScanError("parser_unavailable") from exc
+    try:
+        tree = Parser(Language(tree_sitter_javascript.language())).parse(data)
+        cursor = tree.walk()
+        found = ""
+        while True:
+            node = cursor.node
+            if node.type == "comment":
+                prefix = data[node.start_byte:node.start_byte + 2]
+                if prefix in (b"//", b"/*"):
+                    content = data[node.start_byte + 2:node.end_byte]
+                    if prefix == b"/*" and content.endswith(b"*/"):
+                        content = content[:-2]
+                    directive = SOURCE_MAP_RE.match(content.decode("utf-8").lstrip())
+                    if directive:
+                        found = directive.group("url")
+            if node.type != "template_string" and cursor.goto_first_child():
+                continue
+            while not cursor.goto_next_sibling():
+                if not cursor.goto_parent():
+                    return found
+    except MemoryError as exc:
+        raise SourceMapScanError("parser_memory") from exc
+
+
+def extract_signals(
+    text: str, base_url: str, scope_hosts: list[str] | None = None, *,
+    source_map_header: tuple[str, str] = ("", ""),
+    source_map_parse_max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES,
+) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
         normalized = normalize_url(match.rstrip(".,;)"), base_url)
@@ -797,9 +841,20 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         params.update(name for name, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
     source_map = ""
-    directive = last_source_map_directive(text)
-    if directive:
-        source_map = normalize_url(directive, base_url) or ""
+    source_map_discovery = source_map_header[1]
+    source_map_scan_reason = ""
+    if source_map_discovery:
+        # Authoritative response headers need no syntax tree, even for a bundle
+        # larger than the comment parser budget or an unavailable parser.
+        source_map = normalize_url(source_map_header[0], base_url) or ""
+    else:
+        try:
+            directive = last_source_map_directive(text, max_bytes=source_map_parse_max_bytes)
+            if directive:
+                source_map = normalize_url(directive, base_url) or ""
+                source_map_discovery = "comment"
+        except SourceMapScanError as exc:
+            source_map_scan_reason = exc.reason
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
@@ -838,6 +893,8 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         "external_endpoints": external_endpoints[:500],
         "params": sorted(params)[:300],
         "source_map": source_map,
+        "source_map_discovery": source_map_discovery,
+        "source_map_scan_reason": source_map_scan_reason,
         "imports": imports,
         "secret_hints": secret_hints,
         "sources": sources,
@@ -862,6 +919,190 @@ def is_source_map_body(body: bytes) -> bool:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return False
     return isinstance(document, dict) and document.get("version") == 3 and isinstance(document.get("sources"), list)
+
+
+class WaybackRecovery:
+    """Bounded exact-asset recovery; default TLS/proxy transport, no program headers."""
+
+    def __init__(self, args: argparse.Namespace, scope_hosts: list[str], ledger: dict, source_maps_dir: Path):
+        self.args = args
+        self.scope_hosts = scope_hosts
+        self.ledger = ledger
+        self.source_maps_dir = source_maps_dir
+        self.index_cache: dict[str, tuple[list[str], dict]] = {}
+        self.failed_fetches: dict[str, dict] = {}
+        self.requests = 0
+        self.bytes_read = 0
+        self.stopped = ""
+
+    def allowed(self, original: str) -> bool:
+        return bool(self.scope_hosts and normalize_url(original) == original
+                    and in_scope_url(original, self.scope_hosts)
+                    and urllib.parse.urlsplit(original).username is None
+                    and not any(c.isspace() or c == "*" for c in original))
+
+    def fetch(self, retrieval_url: str, operation: str, attempts: list[dict], max_bytes: int) -> tuple | None:
+        if self.stopped:
+            attempts.append({"operation": operation, "reason": self.stopped})
+            return None
+        if retrieval_url in self.failed_fetches:
+            attempts.append(dict(self.failed_fetches[retrieval_url], reused_failure=True))
+            return None
+        remaining = self.args.source_map_wayback_max_total_bytes - self.bytes_read
+        if self.requests >= self.args.source_map_wayback_max_requests or remaining <= 1:
+            self.stopped = "budget_exhausted"
+            attempts.append({"operation": operation, "reason": self.stopped})
+            return None
+        # Reserve the one-byte oversize probe inside the total transfer budget.
+        limit = min(max_bytes, self.args.source_map_wayback_max_bytes, remaining - 1)
+        if self.args.delay:
+            time.sleep(self.args.delay)
+        self.requests += 1
+        response = http_get_limited(retrieval_url, timeout=self.args.timeout, max_bytes=limit, include_program_headers=False)
+        consumed = getattr(response, "bytes_read", None)
+        self.bytes_read += consumed if consumed is not None else len(response[0]) + int(response[3])
+        reason = fetch_reason(response)
+        attempts.append({"operation": operation, "retrieval_url": retrieval_url, "reason": reason, "http_status": response[1]})
+        if response[1] == 429:
+            self.stopped = "http_429"
+        if reason != "ok":
+            self.failed_fetches[retrieval_url] = dict(attempts[-1])
+        return response if reason == "ok" else None
+
+    def captures(self, original: str, attempts: list[dict]) -> list[str]:
+        if not self.allowed(original):
+            attempts.append({"operation": "index", "reason": "out_of_scope_or_invalid_original"})
+            return []
+        if original in self.index_cache:
+            stamps, diagnostic = self.index_cache[original]
+            attempts.append(dict(diagnostic, reused_index=True))
+            return stamps
+        query = urllib.parse.urlencode({"url": original, "matchType": "exact", "output": "json",
+                                       "fl": "timestamp,original,statuscode,digest", "filter": "statuscode:200",
+                                       "limit": self.args.source_map_wayback_max_captures})
+        response = self.fetch(f"https://web.archive.org/cdx/search/cdx?{query}", "index", attempts, 256 * 1024)
+        if response is None:
+            self.index_cache[original] = ([], dict(attempts[-1]))
+            return []
+        try:
+            rows = json.loads(response[0].decode("utf-8"))
+            if rows == []:
+                # CDX may omit its header row when no captures match.
+                rows = [["timestamp", "original", "statuscode", "digest"]]
+            if (not isinstance(rows, list) or not rows or rows[0] != ["timestamp", "original", "statuscode", "digest"]
+                    or len(rows) > self.args.source_map_wayback_max_captures + 1):
+                raise ValueError("invalid index")
+            stamps = []
+            for row in rows[1:]:
+                if (not isinstance(row, list) or len(row) != 4 or not all(isinstance(v, str) for v in row)
+                        or row[1] != original or row[2] != "200" or not re.fullmatch(r"[0-9]{14}", row[0])
+                        or not re.fullmatch(r"[A-Z2-7]{32}|-", row[3])):
+                    raise ValueError("invalid capture")
+                datetime.strptime(row[0], "%Y%m%d%H%M%S")
+                stamps.append(row[0])
+        except (UnicodeDecodeError, ValueError, TypeError):
+            attempts[-1]["reason"] = "invalid_index"
+            self.index_cache[original] = ([], dict(attempts[-1]))
+            return []
+        if not stamps:
+            attempts[-1]["reason"] = "empty_index"
+        stamps = sorted(set(stamps), reverse=True)
+        self.index_cache[original] = (stamps, dict(attempts[-1]))
+        return stamps
+
+    @staticmethod
+    def retrieval_url(original: str, stamp: str) -> str:
+        # Call only with a scoped original and a fully validated CDX timestamp.
+        return f"https://web.archive.org/web/{stamp}id_/{original}"
+
+    def recover_map(self, original: str, history: dict) -> bytes | None:
+        for stamp in self.captures(original, history["attempts"]):
+            retrieval = self.retrieval_url(original, stamp)
+            response = self.fetch(retrieval, "map", history["attempts"], self.args.source_map_max_bytes)
+            if response is None:
+                continue
+            if not is_source_map_body(response[0]):
+                history["attempts"][-1]["reason"] = "invalid"
+                continue
+            history.update(status="recovered", reason="ok", original_map_url=original,
+                           map_archive_timestamp=stamp, map_retrieval_url=retrieval,
+                           map_sha256=hashlib.sha256(response[0]).hexdigest())
+            return response[0]
+        return None
+
+    @staticmethod
+    def cache_key(record: JsRecord) -> str:
+        return hashlib.sha256(json.dumps([record.url, record.sha256, record.source_map]).encode()).hexdigest()
+
+    def recover(self, record: JsRecord) -> tuple[dict, bytes | None]:
+        attempts: list[dict] = []
+        current_sha = record.sha256 if isinstance(record.status, int) and 200 <= record.status < 300 and record.byte_count else ""
+        history: dict = {"status": "not_recovered", "reason": "not_found", "historical": True,
+                   "original_bundle_url": record.url,
+                   "current_bundle_sha256": current_sha,
+                   "archived_bundle_sha256": "", "current_bundle_match_verified": False, "attempts": attempts}
+        if self.args.source_map_wayback == "off" or self.args.source_maps == "off":
+            history.update(status="disabled", reason="disabled")
+            return history, None
+        if record.source_map_status in {"downloaded", "cached"}:
+            history.update(status="not_needed", reason="live_map_available")
+            return history, None
+        if not self.allowed(record.url):
+            history["reason"] = "out_of_scope_or_invalid_original"
+            return history, None
+        previous = None if self.args.refresh else self.ledger.get("historical_source_maps", {}).get(self.cache_key(record))
+        if isinstance(previous, dict) and self.allowed(previous.get("original_map_url", "")):
+            cached = load_source_map_from_ledger(
+                {"source_maps": {"historical": {"sha256": previous.get("map_sha256"), "status": 200}}},
+                url="historical", source_maps_dir=self.source_maps_dir,
+                max_bytes=min(self.args.source_map_max_bytes, self.args.source_map_wayback_max_bytes))
+            if cached:
+                history = dict(previous, attempts=[], status="cached", reason="ok",
+                               current_bundle_sha256=current_sha,
+                               current_bundle_match_verified=bool(current_sha and previous.get("archived_bundle_sha256") == current_sha))
+                if cached[0] is None:
+                    history.update(status="not_recovered", reason="oversize", packet_count=0,
+                                   module_count=0, modules_with_content=0, embedded_source_recovered=False)
+                return history, cached[0]
+        if record.source_map:
+            map_body = self.recover_map(record.source_map, history)
+            if map_body is not None:
+                return history, map_body
+        for stamp in self.captures(record.url, attempts):
+            bundle_retrieval = self.retrieval_url(record.url, stamp)
+            archived = self.fetch(bundle_retrieval, "bundle", attempts, self.args.source_map_wayback_max_bytes)
+            if archived is None:
+                continue
+            declaration, header_name = getattr(archived, "map_header", ("", ""))
+            if not header_name:
+                try:
+                    declaration = last_source_map_directive(
+                        archived[0].decode("utf-8", errors="ignore"),
+                        max_bytes=self.args.source_map_parse_max_bytes,
+                    )
+                except SourceMapScanError as exc:
+                    attempts.append({"operation": "declaration", "reason": exc.reason})
+                    continue
+            original_map = normalize_url(declaration, record.url) if declaration else None
+            if not original_map or not self.allowed(original_map):
+                attempts.append({"operation": "declaration", "reason": "missing_or_out_of_scope"})
+                continue
+            map_body = self.recover_map(original_map, history)
+            if map_body is not None:
+                archived_sha = hashlib.sha256(archived[0]).hexdigest()
+                bundle_path = self.source_maps_dir / "historical_bundles" / f"{archived_sha}.js"
+                bundle_path.parent.mkdir(parents=True, exist_ok=True)
+                bundle_path.write_bytes(archived[0])
+                history.update(bundle_artifact_path=str(bundle_path),
+                               bundle_archive_timestamp=stamp, bundle_retrieval_url=bundle_retrieval,
+                               archived_bundle_sha256=archived_sha,
+                               current_bundle_match_verified=archived_sha == record.sha256 and isinstance(record.status, int) and 200 <= record.status < 300)
+                return history, map_body
+        if attempts:
+            history["reason"] = self.stopped or next(
+                (a["reason"] for a in attempts if a["reason"] not in {"ok", "empty_index", "missing_or_out_of_scope"}),
+                attempts[-1]["reason"])
+        return history, None
 
 
 def parse_source_map(body: bytes) -> tuple[list[dict], int]:
@@ -937,6 +1178,14 @@ def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module:
         "```",
         "",
     ])
+    if record.source_map_history:
+        history = record.source_map_history
+        lines[0:0] = ["# HISTORICAL archived source-map material", "",
+                      "Archived bundle matches current bytes (SHA256 verified)." if history["current_bundle_match_verified"] else "Binding to current bundle bytes is not verified; do not treat this as current source.",
+                      "Map-to-bundle association is a historical declaration, not a verified build binding.",
+                      f"- Capture: {history['map_archive_timestamp']}",
+                      f"- Retrieval: {history['map_retrieval_url']}",
+                      f"- Archived bundle SHA256: {history['archived_bundle_sha256'] or 'unavailable (map-only recovery)'}", ""]
     return "\n".join(lines)
 
 
@@ -958,16 +1207,22 @@ def write_source_map_modules(
     packets: list[dict] = []
     module_dir = source_maps_dir / source_map_sha256 / "modules"
     packet_dir = root / "source_map_packets" / record.sha256[:16] / source_map_sha256 / hashlib.sha256(record.url.encode("utf-8")).hexdigest()
+    if record.source_map_history:
+        packet_dir = packet_dir / "historical"
     packeted_modules = 0
     expanded_bytes = 0
     truncated_modules = 0
     for module in modules:
         row = {"bundle_url": record.url, "bundle_sha256": record.sha256, "source_map": record.source_map, "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source": module["source"], "source_root": module["source_root"], "source_label": module["source_label"], "has_content": module["has_content"], "module_path": "", "packet_paths": [], "packet_status": "no_content", "sink_sites": [], "sink_sites_truncated": False, "source_sites": [], "source_sites_truncated": False}
+        row.update(historical=bool(record.source_map_history), source_map_history=record.source_map_history)
         if module["has_content"]:
-            chunks = chunk_text(module["content"], chunk_size, chunk_overlap)
-            content_bytes = len(module["content"].encode("utf-8"))
-            allowed = packeted_modules < module_limit and len(packets) + len(chunks) <= max_packets and expanded_bytes + content_bytes <= max_expanded_bytes
+            content = module["content"]
+            content_bytes = len(content.encode("utf-8"))
+            step = max(1, chunk_size - chunk_overlap)
+            chunk_count = 1 if chunk_size <= 0 else 1 + (max(0, len(content) - chunk_size) + step - 1) // step
+            allowed = packeted_modules < module_limit and len(packets) + chunk_count <= max_packets and expanded_bytes + content_bytes <= max_expanded_bytes
             if allowed:
+                chunks = chunk_text(content, chunk_size, chunk_overlap)
                 module_dir.mkdir(parents=True, exist_ok=True)
                 module_path = module_dir / f"{module['source_index']:05d}.js"
                 module_path.write_text(module["content"], encoding="utf-8")
@@ -1501,6 +1756,9 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
         # large library metadata.jsonl, so it must not be materialised or
         # traversed more than once.
         for row in metadata_rows:
+            if not row.get("sha256"):
+                # Unavailable-current/archive-only metadata has no live file or alias.
+                continue
             db.execute(js_files_sql, (
                 str(row.get("sha256") or ""),
                 str(row.get("artifact_path") or ""),
@@ -1959,6 +2217,11 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 
 
 def command_inventory(args: argparse.Namespace) -> int:
+    if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
+            or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
+            or args.source_map_max_bytes <= 0 or args.source_map_parse_max_bytes <= 0
+            or args.delay < 0 or args.timeout <= 0):
+        raise SystemExit("source-map byte/capture/time limits must be positive; request limit and delay must be non-negative")
     if args.chunk_size <= 0 or args.chunk_overlap < 0 or args.chunk_overlap >= args.chunk_size:
         raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
     if args.source_map_max_packets < 0 or args.source_map_max_expanded_bytes < 0:
@@ -1988,6 +2251,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     target_host = normalize_host_value(args.target_host) if args.target_host else None
     scope_hosts = build_scope_hosts(target_host=target_host, page=args.page)
+    wayback = WaybackRecovery(args, scope_hosts, ledger, source_maps_dir)
     if args.page and (not normalize_url(args.page) or not in_scope_url(args.page, scope_hosts)):
         raise SystemExit("--page is outside --target-host scope or is not an HTTP URL")
 
@@ -2046,12 +2310,15 @@ def command_inventory(args: argparse.Namespace) -> int:
                 continue
 
         reused_download = False
+        map_header = ("", "")
         cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
         if cached:
             body = cached[0]
             cached_response = ledger.get("urls", {}).get(url, {})
             status = cached_response.get("status") if isinstance(cached_response, dict) else None
             content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
+            if isinstance(cached_response, dict):
+                map_header = (cached_response.get("source_map_header", ""), cached_response.get("source_map_header_name", ""))
             reused_download = True
         else:
             if args.delay and url not in inline_bodies:
@@ -2059,18 +2326,32 @@ def command_inventory(args: argparse.Namespace) -> int:
             if url in inline_bodies:
                 body, status, content_type = inline_bodies[url], None, "application/javascript"
             else:
-                body, status, content_type = http_get(url, timeout=args.timeout)
-            if not body:
+                response = http_get(url, timeout=args.timeout)
+                body, status, content_type = response
+                map_header = getattr(response, "map_header", ("", ""))
+            if not body and (args.source_map_wayback == "off" or args.source_maps == "off"):
                 continue
+        current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
+        if not current_available:
+            # An HTTP error body (or an empty/failed fetch) is not JavaScript.
+            # Retain status/history metadata for archive fallback, not live bytes.
+            if args.source_map_wayback == "off" or args.source_maps == "off":
+                continue
+            body = b""
+            map_header = ("", "")
+            cached = None
+            reused_download = False
         if observed_non_js_suffix:
             if (not isinstance(status, int) or not 200 <= status < 300
                     or not is_js_content_type(content_type)):
                 print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
                 continue
+        digest = ""
+        artifact_path: Path | None = None
         if cached:
             body, digest, artifact_path = cached
             reused_downloads += 1
-        else:
+        elif current_available:
             digest = hashlib.sha256(body).hexdigest()
             artifact_path = downloads_dir / f"{digest}.js"
             if artifact_path.exists():
@@ -2079,8 +2360,15 @@ def command_inventory(args: argparse.Namespace) -> int:
             else:
                 artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
-        signals = extract_signals(text, url, scope_hosts)
-        source_map_status = "not_detected"
+        signals = extract_signals(text, url, scope_hosts, source_map_header=map_header,
+                                  source_map_parse_max_bytes=args.source_map_parse_max_bytes)
+        source_map_discovery = signals["source_map_discovery"]
+        scan_reason = signals["source_map_scan_reason"]
+        if scan_reason:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> {SourceMapScanError(scan_reason)}", file=sys.stderr)
+        source_map_status = "scan_failed" if scan_reason else "not_detected"
+        source_map_reason = scan_reason or ("invalid_declaration" if map_header[1] and not signals["source_map"] else "not_detected")
+        source_map_http_status = None
         source_map_sha256 = ""
         source_map_artifact_path = ""
         source_map_path: Path | None = None
@@ -2089,8 +2377,10 @@ def command_inventory(args: argparse.Namespace) -> int:
         if signals["source_map"]:
             if args.source_maps == "off":
                 source_map_status = "disabled"
+                source_map_reason = "disabled"
             elif not in_scope_url(signals["source_map"], scope_hosts):
                 source_map_status = "external_not_fetched"
+                source_map_reason = "out_of_scope"
             else:
                 cached_source_map = None if args.refresh else load_source_map_from_ledger(
                     ledger,
@@ -2102,18 +2392,25 @@ def command_inventory(args: argparse.Namespace) -> int:
                     source_map_body, source_map_sha256, source_map_path = cached_source_map
                     if source_map_body is None:
                         source_map_status = "too_large"
+                        source_map_reason = "oversize"
                         source_maps_too_large += 1
                         source_map_sha256 = ""
                         source_map_path = None
                     else:
                         source_map_status = "cached"
+                        source_map_reason = "ok"
                         source_maps_reused += 1
                 else:
-                    source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = http_get_limited(
+                    if args.delay:
+                        time.sleep(args.delay)
+                    map_response = http_get_limited(
                         signals["source_map"],
                         timeout=args.timeout,
                         max_bytes=args.source_map_max_bytes,
                     )
+                    source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = map_response
+                    source_map_http_status = source_map_status_code
+                    source_map_reason = fetch_reason(map_response)
                     if source_map_too_large:
                         source_map_status = "too_large"
                         source_maps_too_large += 1
@@ -2121,6 +2418,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                         source_map_status = "fetch_failed"
                     elif not is_source_map_body(source_map_body):
                         source_map_status = "invalid"
+                        source_map_reason = "invalid"
                     else:
                         source_map_sha256 = hashlib.sha256(source_map_body).hexdigest()
                         source_map_path = source_maps_dir / f"{source_map_sha256}.map"
@@ -2140,14 +2438,20 @@ def command_inventory(args: argparse.Namespace) -> int:
                 if source_map_sha256 and source_map_path and source_map_body is not None:
                     source_map_artifact_path = str(source_map_path)
                     source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
-        chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
-        chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
-            chunks_root=library_chunks_dir,
-            sha256=digest,
-            chunks=chunks,
-            chunk_size=args.chunk_size,
-            chunk_overlap=args.chunk_overlap,
-        )
+        chunks = []
+        chunk_rows = []
+        chunk_set_key = ""
+        chunk_manifest_path = None
+        reused_chunks = False
+        if current_available:
+            chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
+            chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
+                chunks_root=library_chunks_dir,
+                sha256=digest,
+                chunks=chunks,
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+            )
         if reused_chunks:
             reused_chunk_sets += 1
         record = JsRecord(
@@ -2156,13 +2460,16 @@ def command_inventory(args: argparse.Namespace) -> int:
             content_type=content_type,
             byte_count=len(body),
             sha256=digest,
-            artifact_path=str(artifact_path),
+            artifact_path=str(artifact_path) if artifact_path is not None else "",
             reused_download=reused_download,
             reused_chunks=reused_chunks,
             page_context=args.page_context or "",
             source=args.input or args.page or "",
             source_map=signals["source_map"],
             source_map_status=source_map_status,
+            source_map_discovery=source_map_discovery,
+            source_map_reason=source_map_reason,
+            source_map_http_status=source_map_http_status,
             source_map_sha256=source_map_sha256,
             source_map_artifact_path=source_map_artifact_path,
             source_map_module_count=len(source_map_modules),
@@ -2204,6 +2511,32 @@ def command_inventory(args: argparse.Namespace) -> int:
             packet_rows.extend(source_map_packets)
             source_map_packet_budgets.append(source_map_budget)
             record.source_map_packet_count = len(source_map_packets)
+        history, historical_body = wayback.recover(record)
+        record.source_map_history = history
+        if historical_body is not None:
+            historical_sha = history["map_sha256"]
+            historical_path = source_maps_dir / f"{historical_sha}.map"
+            if not historical_path.exists():
+                historical_path.write_bytes(historical_body)
+            history["map_artifact_path"] = str(historical_path)
+            historical_modules, content_count = parse_source_map(historical_body)
+            history.update(module_count=len(historical_modules), modules_with_content=content_count,
+                           embedded_source_recovered=content_count > 0)
+            historical_record = replace(record, source_map=history["original_map_url"],
+                                        sha256=history.get("archived_bundle_sha256") or record.sha256)
+            module_rows, historical_packets, historical_budget = write_source_map_modules(
+                root=root, source_maps_dir=source_maps_dir, record=historical_record,
+                source_map_sha256=historical_sha, modules=historical_modules,
+                chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
+                module_limit=args.source_map_module_limit, max_packets=args.source_map_max_packets,
+                max_expanded_bytes=args.source_map_max_expanded_bytes)
+            history["packet_count"] = len(historical_packets)
+            ledger.setdefault("historical_source_maps", {})[wayback.cache_key(record)] = history
+            source_map_module_rows.extend(module_rows)
+            for packet in historical_packets:
+                packet.update(artifact_kind="historical_source_map_module", historical=True, source_map_history=history)
+            packet_rows.extend(historical_packets)
+            source_map_packet_budgets.append(dict(historical_budget, historical=True))
         records.append(record)
         record_provenance_rows = build_provenance_rows(
             record=record,
@@ -2235,18 +2568,20 @@ def command_inventory(args: argparse.Namespace) -> int:
                 first_seen=now,
                 last_seen=now,
             ))
-        update_ledger_for_file(
-            ledger,
-            url=url,
-            sha256=digest,
-            artifact_path=artifact_path,
-            byte_count=len(body),
-            status=status,
-            content_type=content_type,
-            chunk_set_key=chunk_set_key,
-            chunk_count=len(chunks),
-            chunk_manifest_path=chunk_manifest_path,
-        )
+        if current_available and artifact_path is not None and chunk_manifest_path is not None:
+            update_ledger_for_file(
+                ledger,
+                url=url,
+                sha256=digest,
+                artifact_path=artifact_path,
+                byte_count=len(body),
+                status=status,
+                content_type=content_type,
+                chunk_set_key=chunk_set_key,
+                chunk_count=len(chunks),
+                chunk_manifest_path=chunk_manifest_path,
+            )
+            ledger["urls"][url].update(source_map_header=map_header[0], source_map_header_name=map_header[1])
         for chunk_row in chunk_rows:
             chunk_index = int(chunk_row["chunk_index"])
             start = int(chunk_row["byte_start"])
@@ -2268,7 +2603,10 @@ def command_inventory(args: argparse.Namespace) -> int:
             })
         reuse_note = " reused" if reused_download else " downloaded"
         chunk_note = " reused-chunks" if reused_chunks else " chunked"
-        print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
+        if current_available:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
+        else:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> current unavailable ({status}), historical={record.source_map_history.get('status', 'off')}", file=sys.stderr)
 
     save_ledger(ledger_path, ledger)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -2313,13 +2651,25 @@ def command_inventory(args: argparse.Namespace) -> int:
         "config": config_summary,
         "root": str(root),
         "js_urls_seen": len(normalized_urls),
-        "js_downloaded": len(records),
+        "js_downloaded": sum(bool(record.artifact_path) for record in records),
+        "js_unavailable": sum(not record.artifact_path for record in records),
         "cached_urls_skipped": skipped_cached_urls,
         "downloads_reused": reused_downloads,
         "chunk_sets_reused": reused_chunk_sets,
         "source_maps_downloaded": source_maps_downloaded,
         "source_maps_reused": source_maps_reused,
         "source_maps_too_large": source_maps_too_large,
+        "source_map_parse_max_bytes": args.source_map_parse_max_bytes,
+        "source_map_scans_failed": sum(record.source_map_status == "scan_failed" for record in records),
+        "source_map_wayback": {
+            "mode": args.source_map_wayback, "requests": wayback.requests, "bytes_read": wayback.bytes_read,
+            "stopped_reason": wayback.stopped, "max_requests": args.source_map_wayback_max_requests,
+            "max_captures": args.source_map_wayback_max_captures, "max_bytes": args.source_map_wayback_max_bytes,
+            "max_total_bytes": args.source_map_wayback_max_total_bytes,
+        },
+        "historical_source_maps_recovered": sum(r.source_map_history.get("status") == "recovered" for r in records),
+        "historical_source_maps_reused": sum(r.source_map_history.get("status") == "cached" for r in records),
+        "historical_source_map_packets": sum(r.source_map_history.get("packet_count", 0) for r in records),
         "source_map_modules": len(source_map_module_rows),
         "source_map_packets": sum(record.source_map_packet_count for record in records),
         "source_map_packet_budgets": source_map_packet_budgets,
@@ -2431,7 +2781,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=500,
         help="Maximum embedded source modules to turn into review packets; all module names remain inventoried",
     )
+    inv.add_argument("--source-map-parse-max-bytes", type=int, default=SOURCE_MAP_PARSE_MAX_BYTES,
+                     help="Maximum UTF-8 bundle bytes to parse for comment declarations (default: 8 MiB); response headers bypass this budget; omitted scans are reported explicitly")
     inv.add_argument("--source-map-max-packets", type=int, default=1000, help="Maximum source-map review packets per bundle")
+    inv.add_argument("--source-map-wayback", choices=("off", "auto"), default="off", help="Opt in to bounded historical map/bundle recovery from Internet Archive; sends original asset URLs to archive (default: off; ignored with --source-maps off); program headers are never sent")
+    inv.add_argument("--source-map-wayback-max-requests", type=int, default=20, help="Maximum archive requests for the entire run")
+    inv.add_argument("--source-map-wayback-max-captures", type=int, default=2, help="Maximum exact CDX rows per asset lookup; not an exhaustive or latest-capture search")
+    inv.add_argument("--source-map-wayback-max-bytes", type=int, default=8 * 1024 * 1024, help="Maximum bytes per archived response (CDX additionally capped at 256 KiB)")
+    inv.add_argument("--source-map-wayback-max-total-bytes", type=int, default=32 * 1024 * 1024, help="Maximum archive response bytes for the entire run")
     inv.add_argument("--source-map-max-expanded-bytes", type=int, default=64 * 1024 * 1024, help="Maximum embedded source bytes materialized per bundle")
     inv.add_argument("--chunk-size", type=int, default=60000)
     inv.add_argument("--chunk-overlap", type=int, default=500)

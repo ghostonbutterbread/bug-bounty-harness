@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 import hashlib
+import io
 import json
 import os
 import sqlite3
@@ -521,14 +522,17 @@ def test_limited_source_map_fetch_uses_no_redirect_handler():
         headers = {"content-type": "application/json"}
         status = 200
 
+        def __init__(self):
+            self.body = io.BytesIO(b"{}")
+
         def __enter__(self):
             return self
 
         def __exit__(self, *args):
             return False
 
-        def read(self, _size: int):
-            return b"{}"
+        def read(self, size: int):
+            return self.body.read(size)
 
     class Opener:
         def open(self, _request, timeout: int):

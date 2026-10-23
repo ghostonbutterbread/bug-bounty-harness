@@ -28,6 +28,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,6 +151,14 @@ class ReconResult:
     # Meta
     errors: list[str] = field(default_factory=list)
     end_time: str = ""
+    crawl_pages_attempted: int = 0
+    crawl_pages_pending: int = 0
+    crawl_frontier_overflow: int = 0
+    crawl_status: str = "not_started"
+    js_files_scoped: int = 0
+    js_files_attempted: int = 0
+    js_files_failed: int = 0
+    analysis_status: str = "not_started"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -416,139 +425,187 @@ def _detect_waf(body: bytes, headers: dict, result: ReconResult) -> None:
 # Phase 2 — CRAWL
 # ──────────────────────────────────────────────────────────────────────────────
 
-def phase_crawl(result: ReconResult) -> None:
-    _log("=== Phase 2: CRAWL ===", "INFO")
-    crawled_urls: set[str] = set()
-    pending: list[str] = [result.target]
-    all_urls: set[str] = set()
-    all_params: set[str] = set()
-    all_js: set[str] = set()
-    depth = 0
-    max_depth = 2
-    max_pages = 60
+CRAWL_PAGE_BUDGET = 60
+CRAWL_URL_LIMIT = 10000  # explicit stop boundary for generated/infinite paths
+MIN_OUTPUT_FREE_BYTES = 5 * 1024 ** 3
 
-    # Try playwright first
-    playwright_ok = _try_playwright_crawl(result, all_urls, all_params, all_js)
-    if playwright_ok:
-        _log(f"Playwright crawl found {len(all_urls)} URLs, {len(all_js)} JS files", "OK")
+
+def _output_dir(result: ReconResult) -> Path:
+    return Path.home() / "Shared" / "bounty_recon" / result.program / "agent_shared" / "findings" / "recon"
+
+
+def _require_output_space(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(path).free
+    if free < MIN_OUTPUT_FREE_BYTES:
+        raise OSError(f"Recon output paused: available disk below 5 GiB at {path} ({free} bytes free)")
+
+
+def phase_crawl(result: ReconResult, scope=None) -> None:
+    """BFS in bounded invocations, retaining the full frontier between runs."""
+    _log("=== Phase 2: CRAWL ===")
+    out_dir = _output_dir(result)
+    _require_output_space(out_dir)
+    checkpoint = out_dir / "crawl_checkpoint.json"
+    overflow_path = out_dir / "crawl_overflow.txt"
+    if checkpoint.exists():
+        saved = json.loads(checkpoint.read_text())
+        if saved.get("target") != result.target or saved.get("program") != result.program:
+            raise ValueError(f"Crawl checkpoint belongs to another target: {checkpoint}")
+        pending = deque(saved["pending"])
+        visited = set(saved["visited"])
+        failed = set(saved.get("retryable_failed", []))
+        succeeded = set(saved.get("succeeded", []))
+        all_urls = set(saved["urls"])
+        all_params = set(saved["params"])
+        all_js = set(saved["js_files"])
+        result.forms = saved["forms"]
+        overflow = saved.get("frontier_overflow", 0)
+        _log(f"Resuming crawl: {len(visited)} attempted, {len(pending)} pending")
     else:
-        _log("Playwright unavailable — using curl/urllib crawler", "INFO")
-        # Simple BFS crawler
-        while pending and len(crawled_urls) < max_pages and depth <= max_depth:
-            current_batch = pending[:10]
-            pending = pending[10:]
-            depth += 1
-            for url in current_batch:
-                if url in crawled_urls:
-                    continue
-                crawled_urls.add(url)
-                _log(f"  Crawling: {url[:80]}")
-                body, headers = _http_get(url, timeout=10)
-                if not body:
-                    continue
-                text = body.decode(errors="ignore")
-                # Extract URLs from HTML
-                for m in HREF_RE.finditer(text):
-                    u = _normalize_url(m.group(1), url)
-                    if u and _same_host(u, result.target_host):
-                        all_urls.add(u)
-                        if u not in crawled_urls:
-                            pending.append(u)
-                # Extract JS files
-                for m in SRC_RE.finditer(text):
-                    u = _normalize_url(m.group(1), url)
-                    if u and _same_host(u, result.target_host):
-                        all_js.add(u)
-                # Extract all URLs from body text
-                for m in URL_RE.finditer(text):
-                    u = m.group(0).rstrip('.,;)')
-                    if _same_host(u, result.target_host):
-                        all_urls.add(u)
-                # Extract params
-                for m in PARAM_RE.finditer(url):
-                    all_params.add(m.group(1))
-                # Extract form data
-                _extract_forms(text, url, result)
+        pending = deque([result.target])
+        visited = set()
+        failed, succeeded = set(), set()
+        overflow = 0
+        all_urls, all_params, all_js = set(), set(), set()
+    def spill(url: str) -> None:
+        # Preserve identities beyond the in-memory discovery boundary for operator replay.
+        _require_output_space(out_dir)
+        with overflow_path.open("a") as stream:
+            stream.write(url + "\n")
 
-    # Collect params from all discovered URLs
-    for u in all_urls:
-        for m in PARAM_RE.finditer(u):
-            all_params.add(m.group(1))
+    queued = set(pending) | visited
+    # Failed requests are retried once per invocation, not silently treated as done.
+    pending.extend(sorted(failed))
+    queued.update(failed)
 
-    result.urls = sorted(all_urls)
-    result.params = sorted(all_params)
-    result.js_files = sorted(all_js)
-
-    _log(f"Crawl complete: {len(result.urls)} URLs, {len(result.params)} params, {len(result.js_files)} JS files", "OK")
-
-
-def _try_playwright_crawl(
-    result: ReconResult,
-    all_urls: set[str],
-    all_params: set[str],
-    all_js: set[str],
-) -> bool:
-    """Attempt playwright-based crawl. Returns True if successful."""
+    browser = None
+    pw_context = None
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
-    except ImportError:
-        return False
-
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
-            )
-            page = context.new_page()
-
-            visited: set[str] = set()
-            queue: list[str] = [result.target]
-            max_pages = 50
-
-            # Intercept network requests to grab all URLs / JS files
-            def on_request(req):
-                u = req.url
-                if _same_host(u, result.target_host):
-                    all_urls.add(u)
-                    for m in PARAM_RE.finditer(u):
-                        all_params.add(m.group(1))
-                if (u.endswith(".js") or ".js?" in u) and _same_host(u, result.target_host):
+        pw_context = sync_playwright()
+        pw = pw_context.__enter__()
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+        def on_request(req):
+            nonlocal overflow
+            u = req.url
+            if _same_host(u, result.target_host) and is_in_scope(u, scope):
+                if u not in all_urls and len(all_urls) >= CRAWL_URL_LIMIT:
+                    overflow += 1
+                    spill(u)
+                    return
+                all_urls.add(u)
+                for param in PARAM_RE.finditer(u):
+                    all_params.add(param.group(1))
+                if u.endswith(".js") or ".js?" in u:
                     all_js.add(u)
+        page.on("request", on_request)
+    except Exception:
+        if browser is not None:
+            browser.close()
+        browser = None
+        if pw_context is not None:
+            pw_context.__exit__(None, None, None)
+            pw_context = None
+        _log("Playwright unavailable — using urllib crawler")
 
-            page.on("request", on_request)
-
-            while queue and len(visited) < max_pages:
-                url = queue.pop(0)
-                if url in visited:
-                    continue
-                visited.add(url)
+    attempted = 0
+    try:
+        while pending and attempted < CRAWL_PAGE_BUDGET:
+            _require_output_space(out_dir)
+            url = pending.popleft()
+            if not _same_host(url, result.target_host) or not is_in_scope(url, scope):
+                raise ValueError(f"Checkpoint page is no longer authorized by current scope: {url}")
+            if url in visited and url not in failed:
+                continue
+            visited.add(url)
+            failed.discard(url)
+            attempted += 1
+            _log(f"  Crawling: {url[:80]}")
+            if browser is not None:
                 try:
+                    if _g_limiter is not None:
+                        _g_limiter.wait()
                     page.goto(url, timeout=15000, wait_until="domcontentloaded")
                     page.wait_for_timeout(1000)
-                    html = page.content()
-                    # Grab links
+                    text = page.content()
                     links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-                    for link in links:
-                        n = _normalize_url(link, url)
-                        if n and _same_host(n, result.target_host) and n not in visited:
-                            queue.append(n)
-                    # Grab JS src
                     scripts = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
-                    for s in scripts:
-                        n = _normalize_url(s, url)
-                        if n and _same_host(n, result.target_host):
-                            all_js.add(n)
-                    # Extract forms
-                    _extract_forms(html, url, result)
-                except Exception:
-                    pass
-
+                except Exception as exc:
+                    result.errors.append(f"Crawl page failed (retryable): {url}: {type(exc).__name__}")
+                    failed.add(url)
+                    text, links, scripts = "", [], []
+            else:
+                body, _ = _http_get(url, timeout=10)
+                if not body:
+                    result.errors.append(f"Crawl page returned no body (retryable): {url}")
+                    failed.add(url)
+                text = body.decode(errors="ignore")
+                links = HREF_RE.findall(text)
+                scripts = SRC_RE.findall(text)
+            if url not in failed:
+                succeeded.add(url)
+            for link in links:
+                u = _normalize_url(link, url)
+                if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    if u not in queued:
+                        if len(queued) < CRAWL_URL_LIMIT:
+                            pending.append(u)
+                            queued.add(u)
+                        else:
+                            overflow += 1
+                            spill(u)
+                            continue
+                    all_urls.add(u)
+                    for param in PARAM_RE.finditer(u):
+                        all_params.add(param.group(1))
+            for script in scripts:
+                u = _normalize_url(script, url)
+                if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    all_js.add(u)
+            for m in URL_RE.finditer(text):
+                u = m.group(0).rstrip('.,;)')
+                if _same_host(u, result.target_host) and is_in_scope(u, scope):
+                    if u not in all_urls and len(all_urls) >= CRAWL_URL_LIMIT:
+                        overflow += 1
+                        spill(u)
+                        continue
+                    all_urls.add(u)
+                    for param in PARAM_RE.finditer(u):
+                        all_params.add(param.group(1))
+            _extract_forms(text, url, result)
+            for m in PARAM_RE.finditer(url):
+                all_params.add(m.group(1))
+            state = {"program": result.program, "target": result.target,
+                     "pending": list(pending), "visited": sorted(visited),
+                     "succeeded": sorted(succeeded), "retryable_failed": sorted(failed),
+                     "frontier_overflow": overflow,
+                     "urls": sorted(all_urls), "params": sorted(all_params),
+                     "js_files": sorted(all_js), "forms": result.forms}
+            temp = checkpoint.with_suffix(".tmp")
+            temp.write_text(json.dumps(state))
+            temp.replace(checkpoint)
+    finally:
+        if browser is not None:
             browser.close()
-        return True
-    except Exception:
-        return False
-
+        if pw_context is not None:
+            pw_context.__exit__(None, None, None)
+        result.urls = sorted(all_urls)
+        result.params = sorted(all_params)
+        result.js_files = sorted(all_js)
+        result.crawl_pages_attempted = len(visited)
+        result.crawl_pages_pending = len(pending) + len(failed)
+        result.crawl_frontier_overflow = overflow
+        result.crawl_status = "paused" if pending or failed or overflow else "complete"
+        if len(queued) >= CRAWL_URL_LIMIT or overflow:
+            result.errors.append(f"Crawl frontier limit {CRAWL_URL_LIMIT} reached; paused for operator review")
+    if not pending and not failed and not overflow:
+        checkpoint.unlink(missing_ok=True)
+        overflow_path.unlink(missing_ok=True)
+    _log(f"Crawl {result.crawl_status}: {len(visited)} attempted, {len(succeeded)} succeeded, "
+         f"{len(pending)} pending, {len(failed)} retryable failed, {overflow} frontier overflow, "
+         f"{len(result.urls)} URLs, {len(result.js_files)} JS files")
 
 def _extract_forms(html: str, base_url: str, result: ReconResult) -> None:
     for form_html in FORM_BLOCK_RE.findall(html):
@@ -578,10 +635,14 @@ def phase_analyze(result: ReconResult) -> None:
     )
     endpoint_set: set[str] = set()
 
-    scoped_js_urls = [js_url for js_url in result.js_files if _same_host(js_url, result.target_host)]
-    for js_url in scoped_js_urls[:80]:  # cap at 80 JS files
+    scoped_js_urls = sorted({js_url for js_url in result.js_files if _same_host(js_url, result.target_host)})
+    result.js_files_scoped = len(scoped_js_urls)
+    for js_url in scoped_js_urls:
         body, _ = _http_get(js_url, timeout=10)
+        result.js_files_attempted += 1
         if not body:
+            result.js_files_failed += 1
+            result.errors.append(f"JS fetch returned no body: {js_url}")
             continue
         text = body.decode(errors="ignore")
 
@@ -614,6 +675,7 @@ def phase_analyze(result: ReconResult) -> None:
             if _same_host(u, result.target_host):
                 endpoint_set.add(u)
 
+    result.analysis_status = "partial" if result.js_files_failed else "complete"
     result.api_endpoints = sorted(endpoint_set)
 
     # Probe interesting paths
@@ -622,6 +684,8 @@ def phase_analyze(result: ReconResult) -> None:
         url = urllib.parse.urljoin(result.target, path)
         probe_start = time.time()
         try:
+            if _g_limiter is not None:
+                _g_limiter.wait()
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; BountyRecon/1.0)"},
@@ -676,16 +740,8 @@ def phase_analyze(result: ReconResult) -> None:
 def phase_organize(result: ReconResult) -> Path:
     _log("=== Phase 4: ORGANIZE ===", "INFO")
 
-    out_dir = (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / result.program
-        / "agent_shared"
-        / "findings"
-        / "recon"
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _output_dir(result)
+    _require_output_space(out_dir)
 
     # Deduplicate and write urls.txt
     urls = sorted(set(result.urls + result.api_endpoints))
@@ -718,6 +774,15 @@ def phase_organize(result: ReconResult) -> Path:
         "urls_total": len(urls),
         "params_total": len(params),
         "js_files_total": len(js_files),
+        "crawl_status": result.crawl_status,
+        "crawl_pages_attempted": result.crawl_pages_attempted,
+        "crawl_pages_pending": result.crawl_pages_pending,
+        "crawl_frontier_overflow": result.crawl_frontier_overflow,
+        "crawl_checkpoint": str(out_dir / "crawl_checkpoint.json") if result.crawl_status == "paused" else None,
+        "analysis_status": result.analysis_status,
+        "js_files_scoped": result.js_files_scoped,
+        "js_files_attempted": result.js_files_attempted,
+        "js_files_failed": result.js_files_failed,
         "secrets_found": len(result.secrets_found),
         "api_endpoints": len(result.api_endpoints),
         "interesting_paths": result.interesting_paths_found,
@@ -726,7 +791,7 @@ def phase_organize(result: ReconResult) -> Path:
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 
-    if record_recon_artifacts is not None:
+    if record_recon_artifacts is not None and result.crawl_status == "complete" and result.analysis_status == "complete":
         manifest_path = record_recon_artifacts(
             program=result.program,
             target=result.target_host or result.target,
@@ -796,14 +861,18 @@ def run_recon(program: str, target: str) -> ReconResult:
     result = ReconResult(program=program, target=target, target_host=host)
 
     phase_discover(result)
-    phase_crawl(result)
-    phase_analyze(result)
+    phase_crawl(result, scope=scope)
+    if result.crawl_status == "complete":
+        phase_analyze(result)
+    else:
+        result.analysis_status = "pending_crawl"
+        _log(f"Crawl paused with {result.crawl_pages_pending} pages outstanding; rerun the same target to resume", "WARN")
     out_dir = phase_organize(result)
 
     # Final report
     print()
     print("=" * 60)
-    print(" RECON COMPLETE")
+    print(" RECON COMPLETE" if result.crawl_status == "complete" and result.analysis_status == "complete" else " RECON PARTIAL / PAUSED")
     print("=" * 60)
     print(f"  Target        : {target}")
     print(f"  Open ports    : {result.open_ports or 'none found'}")
@@ -815,6 +884,8 @@ def run_recon(program: str, target: str) -> ReconResult:
     print(f"  Secrets found : {len(result.secrets_found)}")
     print(f"  API endpoints : {len(result.api_endpoints)}")
     print(f"  Interesting   : {len(result.interesting_paths_found)}")
+    print(f"  Crawl         : {result.crawl_status} ({result.crawl_pages_attempted} attempted, {result.crawl_pages_pending} outstanding)")
+    print(f"  JS analysis   : {result.analysis_status} ({result.js_files_attempted}/{result.js_files_scoped} attempted, {result.js_files_failed} failed)")
     print(f"  Output dir    : {out_dir}")
     print("=" * 60)
 

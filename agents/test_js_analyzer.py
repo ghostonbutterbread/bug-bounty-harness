@@ -11,6 +11,9 @@ from argparse import Namespace
 
 import pytest
 
+# Live-only inventory fixtures explicitly disable archive recovery; automatic
+# fallback and its off controls are exercised in test_js_analyzer_wayback.py.
+
 from agents import js_analyzer as J
 
 
@@ -26,7 +29,7 @@ def test_identical_bundles_at_distinct_urls_preserve_source_map_packets(tmp_path
         return maps[url], 200, "application/json", False
 
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", side_effect=fetch_map):
-        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
+        assert J.main(["inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
     rows = J.read_jsonl(tmp_path / "out" / "source_map_modules.jsonl")
     metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
     packets = J.read_jsonl(tmp_path / "out" / "packets.jsonl")
@@ -48,7 +51,7 @@ def test_identical_bundles_keep_bundle_packets_and_metadata_url_specific(tmp_pat
     source = tmp_path / "urls.txt"
     source.write_text("\n".join(urls) + "\n")
     with patch.object(J, "http_get", return_value=(b"const same = true;", 200, "application/javascript")):
-        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
+        assert J.main(["inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
     metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
     packets = J.read_jsonl(tmp_path / "out" / "packets.jsonl")
     assert [row["url"] for row in metadata] == urls
@@ -67,7 +70,7 @@ def test_identical_bundles_keep_metadata_provenance_url_specific(tmp_path: Path)
     hints = tmp_path / "hints.jsonl"
     hints.write_text("\n".join(json.dumps({"js_url": url, "page_url": f"https://app.example.com/page-{i}", "proxy_request_id": f"req-{i}"}) for i, url in enumerate(urls)) + "\n")
     with patch.object(J, "http_get", return_value=(b"const same = true;", 200, "application/javascript")):
-        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations"), "--provenance-input", str(hints)]) == 0
+        assert J.main(["inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations"), "--provenance-input", str(hints)]) == 0
     metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
     assert len(J.read_jsonl(tmp_path / "out" / "js_provenance.jsonl")) == 2
     for i, row in enumerate(metadata):
@@ -80,7 +83,7 @@ def test_cached_source_map_obeys_lowered_byte_cap_without_refetch(tmp_path: Path
     source = tmp_path / "urls.txt"
     source.write_text("https://app.example.com/app.js\n")
     body = json.dumps({"version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const long = '" + "x" * 100 + "';"]}).encode()
-    common = ["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--target-host", "example.com", "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]
     map_reads = []
     real_open = Path.open
 
@@ -573,7 +576,7 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
 
     with patch.object(J, "http_get", side_effect=fake_get):
         rc = J.main([
-            "inventory",
+            "inventory", "--source-map-wayback", "off",
             "demo",
             "--input",
             str(input_file),
@@ -674,7 +677,7 @@ def test_inventory_page_includes_inline_executable_script_in_packets(tmp_path: P
 
     with patch.object(J, "http_get", side_effect=fake_get):
         assert J.main([
-            "inventory", "demo", "--page", page, "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--page", page, "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--integration-index-root", str(tmp_path / "integrations"),
         ]) == 0
@@ -718,7 +721,7 @@ def test_inventory_keeps_extensionless_page_script_src(tmp_path: Path):
 
     with patch.object(J, "http_get", side_effect=fake_get):
         assert J.main([
-            "inventory", "demo", "--page", page, "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--page", page, "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--integration-index-root", str(tmp_path / "integrations"),
         ]) == 0
@@ -729,7 +732,7 @@ def test_inventory_rejects_out_of_scope_page_before_fetch(tmp_path: Path):
     with patch.object(J, "http_get") as get:
         with pytest.raises(SystemExit, match="outside --target-host scope"):
             J.main([
-                "inventory", "demo", "--page", "https://other.example.net/account",
+                "inventory", "demo", "--source-map-wayback", "off", "--page", "https://other.example.net/account",
                 "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
                 "--library-root", str(tmp_path / "library"),
             ])
@@ -755,7 +758,7 @@ def test_http_get_does_not_follow_redirects():
 def test_inventory_ignores_redirect_page_body(tmp_path: Path):
     with patch.object(J, "http_get", return_value=(b'<script>fetch("/api/private")</script>', 302, "text/html")):
         assert J.main([
-            "inventory", "demo", "--page", "https://app.example.com/account",
+            "inventory", "demo", "--source-map-wayback", "off", "--page", "https://app.example.com/account",
             "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
             "--library-root", str(tmp_path / "library"),
         ]) == 0
@@ -766,7 +769,7 @@ def test_limit_bounds_inline_script_inventory(tmp_path: Path):
     html = b'<script>fetch("/api/one")</script><script>fetch("/api/two")</script>'
     with patch.object(J, "http_get", return_value=(html, 200, "text/html")):
         assert J.main([
-            "inventory", "demo", "--page", "https://app.example.com/account",
+            "inventory", "demo", "--source-map-wayback", "off", "--page", "https://app.example.com/account",
             "--target-host", "example.com", "--limit", "1",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--integration-index-root", str(tmp_path / "integrations"),
@@ -788,7 +791,7 @@ def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
 
     with patch.object(J, "http_get", side_effect=fake_get):
         assert J.main([
-            "inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--integration-index-root", str(tmp_path / "integrations"),
         ]) == 0
@@ -812,7 +815,7 @@ def test_inventory_accepts_browser_observed_php_script_with_js_response(tmp_path
     bundle = b"document.querySelector('#out').innerHTML = new URLSearchParams(location.search).get('q');"
     with patch.object(J, "http_get", return_value=(bundle, 200, "text/javascript; charset=utf-8")) as get:
         assert J.main([
-            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--provenance-input", str(hints),
             "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
             "--library-root", str(tmp_path / "lib"),
             "--integration-index-root", str(tmp_path / "integrations"),
@@ -847,7 +850,7 @@ def test_inventory_does_not_fetch_arbitrary_php_input_without_script_evidence(tm
         hints.write_text("")
     with patch.object(J, "http_get") as get:
         assert J.main([
-            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--provenance-input", str(hints),
             "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
             "--library-root", str(tmp_path / "lib"),
             "--integration-index-root", str(tmp_path / "integrations"),
@@ -868,7 +871,7 @@ def test_browser_observed_php_script_requires_target_host_for_input(tmp_path: Pa
     }) + "\n")
     with patch.object(J, "http_get", return_value=(b"const x = 1;", 200, "application/javascript")) as get:
         assert J.main([
-            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--provenance-input", str(hints),
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"),
             "--integration-index-root", str(tmp_path / "integrations"),
         ]) == 0
@@ -892,7 +895,7 @@ def test_inventory_does_not_archive_non_script_response_from_php_url(tmp_path: P
     }) + "\n")
     with patch.object(J, "http_get", return_value=response) as get:
         assert J.main([
-            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--provenance-input", str(hints),
             "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
             "--library-root", str(tmp_path / "lib"),
             "--integration-index-root", str(tmp_path / "integrations"),
@@ -912,7 +915,7 @@ def test_browser_observed_php_script_reuses_validated_cached_body(tmp_path: Path
         "proxy_request_id": "req-17", "initiator": "script",
         "status": 200, "content_type": "application/javascript",
     }) + "\n")
-    common = ["inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(source), "--provenance-input", str(hints),
               "--target-host", "example.com", "--library-root", str(tmp_path / "lib"),
               "--integration-index-root", str(tmp_path / "integrations")]
     with patch.object(J, "http_get", return_value=(b"document.body.innerHTML = location.hash;", 200, "text/javascript")):
@@ -946,7 +949,7 @@ def test_browser_observed_php_script_does_not_reuse_cached_html(tmp_path: Path):
             return b'<script src="/assets/chunk.php"></script>', 200, "text/html"
         assert url == script
         return b"<html>Sign in</html>", 200, "text/html"
-    common = ["inventory", "demo", "--target-host", "example.com",
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--target-host", "example.com",
               "--library-root", str(tmp_path / "lib"),
               "--integration-index-root", str(tmp_path / "integrations")]
     with patch.object(J, "http_get", side_effect=fake_get):
@@ -981,7 +984,7 @@ def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):
         )
 
     args = [
-        "inventory",
+        "inventory", "--source-map-wayback", "off",
         "demo",
         "--input",
         str(input_file),
@@ -1026,7 +1029,7 @@ def test_inventory_unpacks_in_scope_source_map_into_module_packets(tmp_path: Pat
 
     with patch.object(J, "http_get", side_effect=fake_get), patch.object(J, "http_get_limited", side_effect=fake_limited):
         assert J.main([
-            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--run-id", "source-map-unit", "--chunk-size", "30", "--chunk-overlap", "5",
         ]) == 0
@@ -1069,7 +1072,7 @@ def test_identical_bundle_bodies_with_distinct_maps_keep_distinct_packets(tmp_pa
         J, "http_get_limited", side_effect=fake_limited
     ):
         assert J.main([
-            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--run-id", "same-bundle-distinct-maps",
         ]) == 0
@@ -1091,7 +1094,7 @@ def test_inventory_does_not_store_or_count_source_map_error_body(tmp_path: Path)
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
     body = b"<Error><Code>AccessDenied</Code></Error>"
-    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
               "--library-root", str(tmp_path / "library")]
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
         J, "http_get_limited", return_value=(body, 403, "application/xml", False)
@@ -1114,7 +1117,7 @@ def test_inventory_rejects_successful_non_map_body(tmp_path: Path):
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
         J, "http_get_limited", return_value=(b"{\"message\":\"AccessDenied\"}", 200, "application/json", False)
     ):
-        assert J.main(["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+        assert J.main(["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
                        "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
                        "--run-id", "invalid-map"]) == 0
     metadata = [json.loads(line) for line in (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()]
@@ -1129,7 +1132,7 @@ def test_inventory_accepts_empty_source_map_and_reuses_it(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
     map_body = json.dumps({"version": 3, "sources": []}).encode()
-    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
               "--library-root", str(tmp_path / "library")]
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
         J, "http_get_limited", return_value=(map_body, 200, "application/json", False)
@@ -1154,7 +1157,7 @@ def test_inventory_records_too_large_source_map_without_reading_it(tmp_path: Pat
         J, "http_get_limited", return_value=(b"", 200, "application/json", True)
     ):
         assert J.main([
-            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
             "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
             "--run-id", "source-map-limit-unit",
         ]) == 0
@@ -1170,7 +1173,7 @@ def test_inventory_records_source_map_packet_budget_truncation(tmp_path: Path):
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
     source_map = {"version": 3, "sources": ["src/large.ts"], "sourcesContent": ["x" * 100]}
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", return_value=(json.dumps(source_map).encode(), 200, "application/json", False)):
-        assert J.main(["inventory", "demo", "--input", str(input_file), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"), "--source-map-max-expanded-bytes", "10"]) == 0
+        assert J.main(["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"), "--source-map-max-expanded-bytes", "10"]) == 0
 
     modules = [json.loads(line) for line in (tmp_path / "out" / "source_map_modules.jsonl").read_text().splitlines()]
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -1187,7 +1190,7 @@ def test_inventory_reuses_cached_source_map(tmp_path: Path):
         source_map_calls["count"] += 1
         return json.dumps({"version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const app = 1;"]}).encode(), 200, "application/json", False
 
-    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com", "--library-root", str(tmp_path / "library")]
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com", "--library-root", str(tmp_path / "library")]
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", side_effect=fake_limited):
         assert J.main(common + ["--output-root", str(tmp_path / "run1"), "--run-id", "source-map-cache-1"]) == 0
         assert J.main(common + ["--output-root", str(tmp_path / "run2"), "--run-id", "source-map-cache-2"]) == 0
@@ -1205,7 +1208,7 @@ def test_inventory_rejects_cached_source_map_after_byte_cap_is_lowered(tmp_path:
     map_body = json.dumps({
         "version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const app = 1;"]
     }).encode()
-    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
               "--library-root", str(tmp_path / "library")]
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
         J, "http_get_limited", return_value=(map_body, 200, "application/json", False)
@@ -1228,7 +1231,7 @@ def test_inventory_refetches_legacy_cached_error_body(tmp_path: Path):
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
     map_url = "https://app.example.com/static/app.js.map"
     valid_map = json.dumps({"version": 3, "sources": ["src/app.ts"]}).encode()
-    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+    common = ["inventory", "demo", "--source-map-wayback", "off", "--input", str(input_file), "--target-host", "example.com",
               "--library-root", str(tmp_path / "library")]
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
         J, "http_get_limited", return_value=(valid_map, 200, "application/json", False)
@@ -1267,7 +1270,7 @@ def test_inventory_can_skip_cached_url_processing(tmp_path: Path):
         )
 
     args = [
-        "inventory",
+        "inventory", "--source-map-wayback", "off",
         "demo",
         "--input",
         str(input_file),
@@ -1318,7 +1321,7 @@ def test_inventory_uses_configured_program_roots(tmp_path: Path):
 
     with patch.object(J, "http_get", side_effect=fake_get):
         assert J.main([
-            "inventory",
+            "inventory", "--source-map-wayback", "off",
             "canva",
             "--input",
             str(input_file),
@@ -1353,7 +1356,7 @@ def test_inventory_target_host_accepts_url_and_keeps_external_artifacts(tmp_path
 
     with patch.object(J, "http_get", side_effect=fake_get):
         rc = J.main([
-            "inventory",
+            "inventory", "--source-map-wayback", "off",
             "demo",
             "--input",
             str(input_file),
@@ -1479,7 +1482,7 @@ def test_inventory_collects_mjs_and_cjs_modules(tmp_path: Path):
 
     with patch.object(J, "http_get", side_effect=fake_get):
         rc = J.main([
-            "inventory", "demo",
+            "inventory", "demo", "--source-map-wayback", "off",
             "--input", str(input_file),
             "--target-host", "example.com",
             "--output-root", str(output_root),

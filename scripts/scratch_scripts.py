@@ -186,10 +186,21 @@ def describe(root: Path, run_id: str, name: str, description: str) -> None:
     if not description.strip() or "\n" in description or "\r" in description:
         raise ValueError("a single-line description is required")
     record = get_record(root, run_id, name)
+    record_file = record_path(root, run_id, name)
+    run_index = safe_path(root, script_path(root, run_id, name).parent / "README.md")
+    scratch_index = safe_path(root, homes(root)[0] / "SCRATCH.md")
+    check_managed(run_index)
+    check_managed(scratch_index)
+    before = {path: path.read_bytes() if path.exists() else None for path in (record_file, run_index, scratch_index)}
     record["description"] = description.strip()
-    atomic_text(record_path(root, run_id, name), json.dumps(record, sort_keys=True) + "\n")
-    refresh_run(root, run_id)
-    refresh(root)
+    try:
+        atomic_text(record_file, json.dumps(record, sort_keys=True) + "\n")
+        refresh_run(root, run_id)
+        refresh(root)
+    except Exception:
+        for path, prior in before.items():
+            restore(path, prior)
+        raise
 
 
 def run(root: Path, run_id: str, name: str, args: list[str]) -> int:
@@ -255,9 +266,11 @@ def promote(root: Path, run_id: str, name: str, destination: str, review_ref: st
     scratch_index = safe_path(root, homes(root)[0] / "SCRATCH.md")
     prior_scratch = scratch_index.read_bytes() if scratch_index.exists() else None
     prior_index = index.read_bytes() if index.exists() else None
-    with target.open("xb") as out:
-        out.write(source_bytes)
+    created_target = False
     try:
+        with target.open("xb") as out:
+            created_target = True
+            out.write(source_bytes)
         atomic_text(index, current.rstrip() + "\n" + entry)
         record.update(status="promoted", review_ref=review_ref, verification=verification, sha256=digest)
         atomic_text(record_file, json.dumps(record, sort_keys=True) + "\n")
@@ -266,7 +279,8 @@ def promote(root: Path, run_id: str, name: str, destination: str, review_ref: st
         restore(record_file, prior_record)
         restore(scratch_index, prior_scratch)
         restore(index, prior_index)
-        target.unlink(missing_ok=True)
+        if created_target:
+            target.unlink(missing_ok=True)
         raise
     return f"Promoted to {target}"
 

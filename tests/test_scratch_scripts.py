@@ -204,3 +204,58 @@ def test_promotion_record_failure_rolls_back_maintained_index_and_copy(tmp_path,
     assert index.read_text() == "# Existing\n"
     assert record.read_bytes() == original_record
     assert not (lane / "scripts" / "helper.py").exists()
+
+
+def test_describe_refresh_failure_restores_all_descriptions(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Original").returncode == 0
+    record = helper.record_path(lane, "one", "helper")
+    run_index = lane / "working" / "_runs" / "one" / "_scratch" / "scripts" / "README.md"
+    scratch_index = lane / "scripts" / "SCRATCH.md"
+    before = {path: path.read_bytes() for path in (record, run_index, scratch_index)}
+    monkeypatch.setattr(helper, "refresh", lambda root: (_ for _ in ()).throw(OSError("injected refresh failure")))
+    try:
+        helper.describe(lane, "one", "helper", "Changed")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
+def test_promotion_partial_copy_failure_removes_copy(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+    index = lane / "scripts" / "README.md"
+    record = helper.record_path(lane, "one", "helper")
+    prior_record = record.read_bytes()
+    target = lane / "scripts" / "helper.py"
+    original_open = Path.open
+
+    class PartialWriter:
+        def __enter__(self):
+            self.handle = original_open(target, "xb")
+            return self
+
+        def write(self, data):
+            self.handle.write(data[:1])
+            raise OSError("injected partial copy failure")
+
+        def __exit__(self, *args):
+            self.handle.close()
+
+    def partial_open(path, mode="r", *args, **kwargs):
+        if path == target and mode == "xb":
+            return PartialWriter()
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", partial_open)
+    try:
+        helper.promote(lane, "one", "helper", "program", "review-1", "offline smoke", "input", "stdout", "none", "python3 helper.py", "fixture only")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert not target.exists()
+    assert not index.exists()
+    assert record.read_bytes() == prior_record

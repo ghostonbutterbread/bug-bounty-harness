@@ -76,7 +76,7 @@ def test_header_cannot_fall_back_to_comment_when_not_fetchable(tmp_path, header)
     with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(
             b'//# sourceMappingURL=comment.map', headers={'SourceMap': header})), \
          patch.object(J, 'http_get_limited') as fetch:
-        rows, _ = inventory(tmp_path)
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'off')
     fetch.assert_not_called()
     assert rows[0]['source_map_discovery'] == 'SourceMap'
 
@@ -120,6 +120,122 @@ def cdx(original, *stamps):
 
 def replay(original, stamp=STAMP):
     return f'https://web.archive.org/web/{stamp}id_/{original}'
+
+
+@pytest.mark.parametrize('live_failure', [404, b'<html>not a map</html>',
+                                         b'{"version":2,"sources":[]}', b'{"error":"expired"}'])
+def test_default_inventory_recovers_unavailable_or_invalid_map_from_wayback(tmp_path, live_failure):
+    map_url = BUNDLE + '.map'
+    calls = []
+
+    def response(request, timeout):
+        url = request.full_url
+        calls.append(url)
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map')
+        if url == map_url:
+            if live_failure == 404:
+                raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+            return Response(live_failure)
+        if '/cdx/search/cdx?' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            assert original == map_url
+            return Response(cdx(original, STAMP))
+        assert url == replay(map_url)
+        return Response(MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, manifest = inventory(tmp_path)
+    assert manifest['source_map_wayback']['mode'] == 'auto'
+    assert manifest['source_map_wayback']['requests'] == 2
+    assert manifest['historical_source_maps_recovered'] == 1
+    assert rows[0]['source_map_reason'] == ('http_404' if live_failure == 404 else 'invalid')
+    history = rows[0]['source_map_history']
+    assert history['status'] == 'recovered'
+    assert history['map_archive_timestamp'] == STAMP
+    assert not history['current_bundle_match_verified']
+    assert len(calls) == 4
+    assert calls[:2] == [BUNDLE, map_url]
+    assert calls[-1] == replay(map_url)
+    modules = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')
+    assert modules[0]['historical'] and modules[0]['has_content']
+
+
+@pytest.mark.parametrize('kind', ['map', 'bundle'])
+def test_default_recovery_skips_invalid_capture_and_uses_valid_snapshot(tmp_path, kind):
+    older = '20230102030405'
+    map_url = BUNDLE + '.map'
+    archived_bundle = b'const old = true;\n//# sourceMappingURL=app.js.map'
+    calls = []
+
+    def response(request, timeout):
+        url = request.full_url
+        calls.append(url)
+        if url == BUNDLE:
+            return Response(b'//# sourceMappingURL=app.js.map' if kind == 'map' else b'const current = true;')
+        if url == map_url:
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        if '/cdx/search/cdx?' in url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['url'][0]
+            stamps = [STAMP, older] if (original == map_url) == (kind == 'map') else [older]
+            return Response(cdx(original, *stamps))
+        if url == replay(map_url, STAMP):
+            return Response(b'<html>not a source map</html>')
+        if url == replay(BUNDLE, STAMP):
+            return Response(b'const noMapHere = true;')
+        if url == replay(BUNDLE, older):
+            return Response(archived_bundle)
+        assert url == replay(map_url, older)
+        return Response(MAP)
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, manifest = inventory(tmp_path)
+    history = rows[0]['source_map_history']
+    assert manifest['source_map_wayback']['mode'] == 'auto'
+    assert history['status'] == 'recovered'
+    assert history['map_archive_timestamp'] == older
+    assert history['map_sha256'] == hashlib.sha256(MAP).hexdigest()
+    assert not history['current_bundle_match_verified']
+    assert replay(map_url if kind == 'map' else BUNDLE, STAMP) in calls
+    assert replay(map_url, older) in calls
+    if kind == 'map':
+        assert any(a['reason'] == 'invalid' for a in history['attempts'])
+    else:
+        assert history['bundle_archive_timestamp'] == older
+    module = J.read_jsonl(tmp_path / 'out' / 'source_map_modules.jsonl')[0]
+    assert module['historical'] and module['has_content']
+    assert 'HISTORICAL' in Path(module['packet_paths'][0]).read_text()
+
+
+@pytest.mark.parametrize('limit', [None, 3])
+def test_many_404_maps_use_default_automatic_recovery_with_a_shared_run_budget(tmp_path, limit):
+    urls = [BUNDLE.replace('app.js', f'chunk-{i}.js') for i in range(13)]
+    archive_calls = []
+    map_failures = []
+
+    def response(request, timeout):
+        url = request.full_url
+        if url in urls:
+            return Response(f'//# sourceMappingURL={url}.map'.encode())
+        if url in {u + '.map' for u in urls}:
+            map_failures.append(url)
+            raise urllib.error.HTTPError(url, 404, '', Message(), io.BytesIO())
+        archive_calls.append(url)
+        assert '/cdx/search/cdx?' in url
+        return Response(b'[]')
+
+    extra = [] if limit is None else ['--source-map-wayback-max-requests', str(limit)]
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, manifest = inventory(tmp_path, *extra, urls=urls)
+    summary = manifest['source_map_wayback']
+    assert summary['mode'] == 'auto'
+    assert len(map_failures) == len(urls)
+    assert all(r['source_map_reason'] == 'http_404' for r in rows)
+    assert len(archive_calls) == summary['requests'] == summary['max_requests']
+    assert summary['stopped_reason'] == 'budget_exhausted'
+    assert summary['bytes_read'] <= summary['max_total_bytes']
+    assert any(r['source_map_history']['reason'] == 'budget_exhausted' for r in rows)
+    assert not manifest['historical_source_maps_recovered']
 
 
 def test_archived_bundle_declaration_resolves_original_relative_and_renders_history(tmp_path):
@@ -192,7 +308,7 @@ def test_exact_missing_map_recovery_is_unverified_historical_and_cached(tmp_path
         assert url == replay(map_url)
         return Response(map_body)
 
-    options = ['--source-map-wayback', 'auto', '--header', 'Cookie: session=private',
+    options = ['--header', 'Cookie: session=private',
                '--header', 'Authorization: Bearer private', '--header', 'Host: app.example.com',
                '--header', 'X-Researcher: private']
     with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
@@ -268,9 +384,9 @@ def test_unavailable_live_bundle_can_recover_historical_declaration(tmp_path):
     assert not json.loads((tmp_path / 'lib' / 'ledger.json').read_text()).get('urls', {}).get(BUNDLE)
 
 
-@pytest.mark.parametrize('extra', [[], ['--source-map-wayback', 'off'],
+@pytest.mark.parametrize('extra', [['--source-map-wayback', 'off'], ['--source-maps', 'off'],
                                   ['--source-map-wayback', 'auto', '--source-maps', 'off']])
-def test_archive_is_never_contacted_without_both_opt_ins(tmp_path, extra):
+def test_explicit_off_prevents_archive_requests(tmp_path, extra):
     calls = []
     def open_response(request, timeout):
         calls.append(request.full_url)
@@ -341,7 +457,7 @@ def test_archive_429_halts_all_later_assets(tmp_path):
         calls.append(request.full_url)
         raise urllib.error.HTTPError(request.full_url, 429, '', Message(), io.BytesIO())
     with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
-        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', urls=urls)
+        rows, manifest = inventory(tmp_path, urls=urls)
     assert len(calls) == 1
     assert [r['source_map_history']['reason'] for r in rows] == ['http_429', 'http_429']
     assert manifest['source_map_wayback']['stopped_reason'] == 'http_429'
@@ -361,7 +477,7 @@ def test_archive_run_budgets_are_enforced(tmp_path, options):
         assert '/cdx/' in request.full_url or len(calls) > 1
         return Response(cdx(BUNDLE, STAMP, '20230102030405'))
     with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
-        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto', *options)
+        rows, manifest = inventory(tmp_path, *options)
     assert manifest['historical_source_maps_recovered'] == 0
     summary = manifest['source_map_wayback']
     assert summary['requests'] <= summary['max_requests']
@@ -532,7 +648,7 @@ def test_historical_cache_never_enables_traffic_or_overrides_live_map(tmp_path, 
         return Response(cdx(map_url, STAMP) if '/cdx/' in url else MAP)
     with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=open_response):
         inventory(tmp_path, '--source-map-wayback', 'auto')
-        rows, manifest = inventory(tmp_path, *(['--source-map-wayback', 'auto'] if mode == 'live_success' else []), run='again')
+        rows, manifest = inventory(tmp_path, '--source-map-wayback', 'auto' if mode == 'live_success' else 'off', run='again')
     assert len(archive_calls) == 2
     assert manifest['source_map_wayback']['requests'] == 0
     assert rows[0]['source_map_history']['status'] == ('not_needed' if mode == 'live_success' else 'disabled')
@@ -733,7 +849,7 @@ def test_block_regex_and_expression_brace_division_keep_tail_declaration(prefix)
 def test_comment_parse_limit_is_explicit_in_inventory(tmp_path):
     with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(b'//# sourceMappingURL=real.map')), \
          patch.object(J, 'http_get_limited') as fetch:
-        rows, manifest = inventory(tmp_path, '--source-map-parse-max-bytes', '1')
+        rows, manifest = inventory(tmp_path, '--source-map-parse-max-bytes', '1', '--source-map-wayback', 'off')
     fetch.assert_not_called()
     assert rows[0]['source_map_status'] == 'scan_failed'
     assert rows[0]['source_map_reason'] == 'parse_limit'

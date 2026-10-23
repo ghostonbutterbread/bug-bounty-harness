@@ -5,7 +5,7 @@
 - Branch: `fix/js-wayback-automatic`.
 - Worktree: `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_1f629ac7`.
 - Base: `720e3e2ca8960837d891c3bfdc44396c63c139ef`; target: `beta` only.
-- Status: locally implemented/exercised; fresh independent release gate pending.
+- Status: independently ACCEPTED for beta-only integration, with exact current-beta compatibility verified; no activation or stable promotion.
 - Immutable implementation checkpoint: `16cf3d0bbb75d2d2035da037864fc970fc5c9f87`. The current feature tip contains a later dossier-only handoff commit.
 
 ## Implemented contract
@@ -74,3 +74,58 @@ This is a process-local offline test guard, not a production sandbox or a guaran
 ## Release/closeout gate
 
 Pin the implementation commit in a dossier-only successor. Obtain one fresh independent full-diff review, rerun tests, and verify exact current-beta execution compatibility using beta source first with the manifest-matching feature interpreter. Preserve the normal reviewed beta merge; exclude this branch-local dossier from its tree and confirm staged/final tree identity and tests before pushing beta. No activation or stable promotion. Parent retains remote readback, Kanban closeout and contained feature cleanup. Finish interpreter-dependent checks before completing the card, which may retire the task worktree. If review blocks, return a dossier-only recoverable checkpoint and concrete reproducer rather than repairing implementation or launching nested review.
+
+## Independent release acceptance
+
+Fresh release reviewer independently read the complete candidate diff and dossier,
+repository instructions, and existing recovery/transport contracts. Candidate
+`e60e30fa285da3399a1b06f8ff8eeb9f2d40eca7` retains implementation
+`16cf3d0bbb75d2d2035da037864fc970fc5c9f87`; the difference between them is
+dossier-only. **ACCEPTED:** no substantive new correctness or security finding.
+Automatic recovery is explicitly authorized by the user; the prior opt-in
+default is not an acceptance requirement. The one production default/help
+change retains exact-asset scoping, credentials isolation, complete-response
+validation, shared caps/429 stop, historical provenance and separate current-byte
+binding. Legacy live-only assertions are unchanged apart from explicit off.
+
+Independent feature checks using the dossier's offline runner and commands:
+- Focused: **19 passed, 291 deselected in 24.12s**.
+- Exact unfiltered broader suite: **778 passed, 2 failed in 111.08s**.
+- Exact-base export independently reproduced the same two named README failures:
+  **2 failed in 0.15s**. The README, both failure-test files and requirements were
+  byte-compared by path against exact-base Git blobs and feature/current-beta
+  sources; unchanged. No failure excluded, assertion weakened, or repair made.
+- Source import resolved from the feature checkout; core
+  `6c36ee88a60073e1b687ec32deeade24ffafdd4f`, Tree-sitter 0.26.0 and JavaScript
+  0.25.0 match the unchanged manifest. Actual inventory help and diff whitespace
+  checks passed.
+
+Current-beta compatibility was exercised on the real integration root after a
+fresh fetch, not on a stale root environment or export. Target parent:
+`43a81c325750c09ebe1ce51c0f78a086c12de032` (local beta equals origin/beta).
+Its only tree change since feature base is the intentional SCRIPT_POLICY.md
+16-line coverage-preserving resource-safety addition, retained without conflict.
+No-commit/no-ff merge had one MERGE_HEAD:
+`e60e30fa285da3399a1b06f8ff8eeb9f2d40eca7`. Removing this dossier produced accepted
+staged tree **`4100f158e9bb9a20c901162410bcc3cbcc221cf5`**.
+
+With beta cwd and beta source first on PYTHONPATH, the absolute feature
+interpreter resolved `agents.js_analyzer` from the integration root and the same
+matching core/parser dependencies. On that exact staged tree:
+- Focused: **19 passed, 291 deselected in 24.99s**.
+- Exact unfiltered broader suite: **778 passed, 2 failed in 96.29s**, only the same
+  baseline failures above. This is not unfiltered green.
+- Unstaged diff empty, staged whitespace clean, staged tree unchanged after tests.
+
+Preflight was aborted normally. This successor acceptance checkpoint changes
+only the dossier. Resume by freshly fetching beta, stopping on target movement,
+owned tracked dirt, source changes or material conflicts; recreate the intentional
+no-commit/no-ff merge using this dossier-only accepted feature tip, remove this
+dossier again, require exact tree identity above, rerun focused and full broader
+commands with beta source first, then commit and push only beta from the root.
+Read back the exact remote beta ref. Parent retains final external readback,
+Kanban closure and contained feature cleanup; leave this feature worktree intact.
+No live archive/program smoke, private corpus, installed projection, Hoster or
+runtime activation was performed or authorized. Live availability/recovery remains
+deferred until separately authorized scoped validation; no latest/exhaustive,
+historical-to-current-build or execution proof is claimed.

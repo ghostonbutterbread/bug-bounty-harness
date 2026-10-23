@@ -7,9 +7,9 @@
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` fetched `origin/beta`
 - **Intended integration target:** local `beta` (parent handles integration; no push)
 - **Owning feature branch/ref:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `8c0667d21e4160a6f6096560e0922dd8921c7072` (earlier implementation `cb311e1`; repair commit follows)
-- **Feature implementation commit(s):** `f734ec1`, `edbbd5b`, `cb311e1` plus pending repair commit
-- **Fetched beta for final reconciliation:** `6a45a0d5a77a33bf82a174b2c19c46c742f546c5` (merge after repair checkpoint)
+- **Latest immutable recovery checkpoint:** `aab36c6` (repair implementation `6049f55`; dossier-only final handoff follows).
+- **Feature implementation commit(s):** `f734ec1`, `edbbd5b`, `cb311e1`, `6049f55`
+- **Reconciled fetched beta:** `6a45a0d5a77a33bf82a174b2c19c46c742f546c5` via merge `aab36c6` (local beta unchanged)
 
 ## Intent and implemented contract
 
@@ -19,7 +19,7 @@ Remove the fixed 45-second parser deadline and isolate every comment scan under 
 
 - RED: torn two-hint append resumed with one shared provenance row and no SQLite table; mid-finalization mock at 91 bytes free/90-byte floor returned complete with a 4 KiB manifest. GREEN: both cases and fully-appended/missing-SQLite replay are covered by new fixtures. Initial below-floor checkpoint is now a nonzero pause with no manifest; free space and retry without `--resume` (no checkpoint exists).
 - Finalization streams run-local JSONL into atomic sibling files, preserves the configured floor through the ledger, shared append, SQLite, external index, checkpoint, and atomic manifest. A floor failure exits 2 with no new complete manifest; durable URL checkpoint supports `--resume` after mid-finalization pressure. Shared provenance identity uses the SQLite unique tuple and always reconciles SQLite from durable shared rows. No fixed parser deadline was introduced.
-- Focused `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 548 passed before latest fetched-beta merge; final receipt follows after reconciliation.
+- Focused `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 549 passed before and after merge `aab36c6`; `git diff --check` clean. No beta merge/push.
 
 ## Blockers and deferred work
 
@@ -31,9 +31,9 @@ Remove the fixed 45-second parser deadline and isolate every comment scan under 
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** pending repair commit (prior `8c0667d21e4160a6f6096560e0922dd8921c7072`).
-- **Exact resume point:** merge fetched `origin/beta` into this clean feature branch, rerun focused suite, update this dossier, hand off to parent for independent release review; do not integrate or push.
-- **Working tree:** clean after repair checkpoint commit.
+- **Latest immutable recovery checkpoint:** `aab36c6` (implementation `6049f55`; this dossier-only commit follows).
+- **Exact resume point:** parent independent review of reconciled feature branch for integration; no beta merge/push performed.
+- **Working tree:** clean after final dossier handoff commit.
 
 ## Decision gates
 

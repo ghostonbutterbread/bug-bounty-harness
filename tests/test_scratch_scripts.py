@@ -1,0 +1,261 @@
+"""Offline contract for program-lane scratch script management."""
+import json
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "scratch_scripts.py"
+
+
+def call(profile, *args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--profile", str(profile), *args],
+        capture_output=True, text=True,
+    )
+
+
+def profile(tmp_path):
+    lane = tmp_path / "Shared" / "web_bounty" / "example" / "web"
+    context = lane / "context"
+    context.mkdir(parents=True)
+    path = context / "target_profile.json"
+    path.write_text(json.dumps({"program": "example", "family": "web_bounty", "lane": "web", "canonical_root": str(lane)}))
+    return path, lane
+
+
+DETAILS = ("--inputs", "Explicit fixture input", "--outputs", "stdout JSON", "--mutates", "No files; stdout only", "--invocation", "python3 <resolved-program-lane>/scripts/helper.py fixture.json", "--coverage", "Only fixture grammar")
+
+
+def module():
+    spec = importlib.util.spec_from_file_location("scratch_scripts", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+def test_create_indexes_shared_run_scratch_without_overwriting(tmp_path):
+    selected, lane = profile(tmp_path)
+    created = call(selected, "create", "--run-id", "run-1", "--name", "parse-js", "--description", "Extract named JS fields")
+    assert created.returncode == 0, created.stderr
+    script = lane / "working" / "_runs" / "run-1" / "_scratch" / "scripts" / "parse-js.py"
+    assert script.is_file()
+    assert "Extract named JS fields" in (lane / "scripts" / "SCRATCH.md").read_text()
+    assert "parse-js.py" in (script.parent / "README.md").read_text()
+    assert call(selected, "create", "--run-id", "run-1", "--name", "parse-js", "--description", "Different").returncode != 0
+    assert "Extract named JS fields" in (lane / "scripts" / "SCRATCH.md").read_text()
+    listed = call(selected, "list")
+    assert listed.returncode == 0 and "parse-js" in listed.stdout
+
+
+def test_recorded_use_count_only_after_helper_run(tmp_path):
+    selected, lane = profile(tmp_path)
+    assert call(selected, "create", "--run-id", "run-1", "--name", "hello", "--description", "A fixture").returncode == 0
+    script = lane / "working" / "_runs" / "run-1" / "_scratch" / "scripts" / "hello.py"
+    script.write_text("print('hello from fixture')\n")
+    used = call(selected, "run", "--run-id", "run-1", "--name", "hello")
+    assert used.returncode == 0 and "hello from fixture" in used.stdout
+    assert "1 uses" in call(selected, "list").stdout
+    assert call(selected, "run", "--run-id", "run-1", "--name", "hello").returncode == 0
+    assert "2 uses" in call(selected, "list").stdout
+    events = list((lane / "scripts" / "_scratch_uses").glob("*/*.json"))
+    assert len(events) == 2
+    assert all(json.loads(event.read_text())["returncode"] == 0 for event in events)
+
+
+def test_promotion_requires_review_and_does_not_auto_publish_bbh(tmp_path):
+    selected, lane = profile(tmp_path)
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "A fixture").returncode == 0
+    denied = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program")
+    assert denied.returncode != 0
+    assert not (lane / "scripts" / "helper.py").exists()
+    proposed = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "bbh")
+    assert proposed.returncode == 0
+    assert "proposal" in proposed.stdout.lower()
+    assert not (lane / "scripts" / "helper.py").exists()
+    promoted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke passed", *DETAILS)
+    assert promoted.returncode == 0, promoted.stderr
+    assert (lane / "scripts" / "helper.py").exists()
+    assert "review-1" in (lane / "scripts" / "README.md").read_text()
+    assert "promoted" in (lane / "scripts" / "SCRATCH.md").read_text()
+
+
+def test_description_update_rebuilds_both_indexes(tmp_path):
+    selected, lane = profile(tmp_path)
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "First purpose").returncode == 0
+    result = call(selected, "describe", "--run-id", "run-1", "--name", "helper", "--description", "Revised purpose")
+    assert result.returncode == 0, result.stderr
+    assert "Revised purpose" in (lane / "scripts" / "SCRATCH.md").read_text()
+    assert "Revised purpose" in (lane / "working" / "_runs" / "run-1" / "_scratch" / "scripts" / "README.md").read_text()
+
+
+def test_rejects_path_escape_and_missing_script_without_counting(tmp_path):
+    selected, lane = profile(tmp_path)
+    assert call(selected, "create", "--run-id", "../outside", "--name", "helper", "--description", "No").returncode != 0
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode == 0
+    script = lane / "working" / "_runs" / "run-1" / "_scratch" / "scripts" / "helper.py"
+    script.unlink()
+    script.symlink_to(tmp_path / "outside.py")
+    assert call(selected, "run", "--run-id", "run-1", "--name", "helper").returncode != 0
+    assert not list((lane / "scripts" / "_scratch_uses").glob("*/*.json"))
+
+
+def test_rejects_symlinked_parent_and_dangling_promotion_target(tmp_path):
+    selected, lane = profile(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (lane / "working").symlink_to(outside, target_is_directory=True)
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode != 0
+    assert not list(outside.rglob("helper.py"))
+    (lane / "working").unlink()
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode == 0
+    (lane / "scripts" / "helper.py").symlink_to(outside / "victim.py")
+    attempted = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
+    assert attempted.returncode != 0
+    assert not (outside / "victim.py").exists()
+
+
+def test_promotion_preserves_existing_program_index_and_records_contract(tmp_path):
+    selected, lane = profile(tmp_path)
+    index = lane / "scripts" / "README.md"
+    index.parent.mkdir(parents=True)
+    index.write_text("# Curated program tools\n\nExisting helper remains.\n")
+    assert call(selected, "create", "--run-id", "run-1", "--name", "helper", "--description", "Fixture").returncode == 0
+    result = call(selected, "promote", "--run-id", "run-1", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
+    assert result.returncode == 0, result.stderr
+    text = index.read_text()
+    assert "Existing helper remains." in text
+    assert all(field in text for field in ("**Purpose:**", "**Inputs:**", "**Outputs:**", "**Mutates:**", "**Verification:**", "**Owner/scope:**", "**Last verified:**", "**Coverage:**"))
+    assert "Explicit fixture input" in text and "stdout JSON" in text and "No files; stdout only" in text
+
+
+def test_failed_index_preflight_does_not_leave_partial_create(tmp_path):
+    selected, lane = profile(tmp_path)
+    index = lane / "scripts" / "SCRATCH.md"
+    index.parent.mkdir(parents=True)
+    index.write_text("Operator content\n")
+    failed = call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture")
+    assert failed.returncode != 0
+    assert not (lane / "working" / "_runs" / "one" / "_scratch" / "scripts" / "helper.py").exists()
+    assert not list((lane / "scripts" / "_scratch_records").rglob("*.json"))
+    index.unlink()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+
+
+def test_failed_program_index_preflight_does_not_leave_partial_promotion(tmp_path):
+    selected, lane = profile(tmp_path)
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+    index = lane / "scripts" / "README.md"
+    index.mkdir()
+    args = ("promote", "--run-id", "one", "--name", "helper", "--to", "program", "--review-ref", "review-1", "--verification", "offline smoke", *DETAILS)
+    assert call(selected, *args).returncode != 0
+    assert not (lane / "scripts" / "helper.py").exists()
+    index.rmdir()
+    assert call(selected, *args).returncode == 0
+
+
+def test_record_keys_do_not_collide_for_distinct_run_name_pairs(tmp_path):
+    selected, lane = profile(tmp_path)
+    for run_id, name in (("a--b", "c"), ("a", "b--c")):
+        result = call(selected, "create", "--run-id", run_id, "--name", name, "--description", "Fixture")
+        assert result.returncode == 0, result.stderr
+    assert len(list((lane / "scripts" / "_scratch_records").glob("*.json"))) == 2
+
+
+def test_index_failure_rolls_back_created_script_and_readmes(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "first", "--description", "Fixture").returncode == 0
+    run_index = lane / "working" / "_runs" / "one" / "_scratch" / "scripts" / "README.md"
+    before = run_index.read_bytes()
+    monkeypatch.setattr(helper, "refresh", lambda root: (_ for _ in ()).throw(OSError("injected refresh failure")))
+    try:
+        helper.create(lane, "one", "second", "Fixture")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert run_index.read_bytes() == before
+    assert not (run_index.parent / "second.py").exists()
+    assert not helper.record_path(lane, "one", "second").exists()
+
+
+def test_promotion_record_failure_rolls_back_maintained_index_and_copy(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+    index = lane / "scripts" / "README.md"
+    index.write_text("# Existing\n")
+    record = helper.record_path(lane, "one", "helper")
+    original_record = record.read_bytes()
+    original_write = helper.atomic_text
+
+    def fail_record(path, text):
+        if path == record:
+            raise OSError("injected record failure")
+        return original_write(path, text)
+
+    monkeypatch.setattr(helper, "atomic_text", fail_record)
+    try:
+        helper.promote(lane, "one", "helper", "program", "review-1", "offline smoke", "input", "stdout", "none", "python3 helper.py", "fixture only")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert index.read_text() == "# Existing\n"
+    assert record.read_bytes() == original_record
+    assert not (lane / "scripts" / "helper.py").exists()
+
+
+def test_describe_refresh_failure_restores_all_descriptions(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Original").returncode == 0
+    record = helper.record_path(lane, "one", "helper")
+    run_index = lane / "working" / "_runs" / "one" / "_scratch" / "scripts" / "README.md"
+    scratch_index = lane / "scripts" / "SCRATCH.md"
+    before = {path: path.read_bytes() for path in (record, run_index, scratch_index)}
+    monkeypatch.setattr(helper, "refresh", lambda root: (_ for _ in ()).throw(OSError("injected refresh failure")))
+    try:
+        helper.describe(lane, "one", "helper", "Changed")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
+def test_promotion_partial_copy_failure_removes_copy(tmp_path, monkeypatch):
+    selected, lane = profile(tmp_path)
+    helper = module()
+    assert call(selected, "create", "--run-id", "one", "--name", "helper", "--description", "Fixture").returncode == 0
+    index = lane / "scripts" / "README.md"
+    record = helper.record_path(lane, "one", "helper")
+    prior_record = record.read_bytes()
+    target = lane / "scripts" / "helper.py"
+    original_open = Path.open
+
+    class PartialWriter:
+        def __enter__(self):
+            self.handle = original_open(target, "xb")
+            return self
+
+        def write(self, data):
+            self.handle.write(data[:1])
+            raise OSError("injected partial copy failure")
+
+        def __exit__(self, *args):
+            self.handle.close()
+
+    def partial_open(path, mode="r", *args, **kwargs):
+        if path == target and mode == "xb":
+            return PartialWriter()
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", partial_open)
+    try:
+        helper.promote(lane, "one", "helper", "program", "review-1", "offline smoke", "input", "stdout", "none", "python3 helper.py", "fixture only")
+        assert False, "expected injected failure"
+    except OSError:
+        pass
+    assert not target.exists()
+    assert not index.exists()
+    assert record.read_bytes() == prior_record

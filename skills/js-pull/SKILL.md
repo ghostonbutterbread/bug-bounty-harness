@@ -67,7 +67,13 @@ output is not an endpoint contract.
 Do not equate `not_detected` or `fetch_failed` with maps never having existed.
 Read `source_map_discovery`, `source_map_reason`, and `source_map_http_status`
 first: 404, rate limits, TLS failures, invalid data and size caps need different
-follow-ups. Reprocessing existing cached JS uses the repaired detector; omit
+follow-ups. `scan_failed` means comment discovery was incomplete, not that a map
+was absent: check `parse_limit`, `parser_unavailable` or `parser_memory`. The
+pinned parser comes from the checkout's root requirements; provision it with
+`bash setup.sh --install-python-deps` before selecting that checkout for use.
+Keep `--source-map-parse-max-bytes` at its 8 MiB default unless a selected bundle
+justifies more AST memory. Response headers bypass comment parsing and its cap.
+Reprocessing existing cached JS uses the repaired detector; omit
 `--skip-cached-processing` when checking map coverage.
 
 When live maps are unavailable and disclosing the scoped asset URLs to Internet

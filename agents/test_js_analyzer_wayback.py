@@ -716,10 +716,93 @@ def test_spread_keyword_regex_does_not_create_map_comment(expression):
     'const obj={if(){ function g(){} /`/.test("x"); }};',
     'class C { function={} / 2; }',
     'class C { class={} / 2; }',
+    'try {} catch {} /`/.test("x");',
+    'label: {} /`/.test("x");',
+    'export function f() {} /`/.test("x");',
+    'export class C {} /`/.test("x");',
+    'export default function f() {} /`/.test("x");',
+    'try {} catch (e) {} /`/.test("x");',
+    'export default class {} /`/.test("x");',
+    'function outer(){ const n=1\nfunction f(){} /`/.test("x"); }',
 ])
 def test_block_regex_and_expression_brace_division_keep_tail_declaration(prefix):
     body = prefix + '\n' + 'var a=1;\n' * 500 + '//# sourceMappingURL=real.map\n'
     assert J.last_source_map_directive(body) == 'real.map'
+
+
+def test_comment_parse_limit_is_explicit_in_inventory(tmp_path):
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(b'//# sourceMappingURL=real.map')), \
+         patch.object(J, 'http_get_limited') as fetch:
+        rows, manifest = inventory(tmp_path, '--source-map-parse-max-bytes', '1')
+    fetch.assert_not_called()
+    assert rows[0]['source_map_status'] == 'scan_failed'
+    assert rows[0]['source_map_reason'] == 'parse_limit'
+    assert manifest['source_map_scans_failed'] == 1
+
+
+def test_header_precedence_bypasses_comment_parser_budget(tmp_path):
+    with patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(
+            b'//# sourceMappingURL=decoy.map', headers={'SourceMap': 'header.map'})), \
+         patch.object(J, 'last_source_map_directive', side_effect=AssertionError('header needs no parser')), \
+         patch.object(J, 'http_get_limited', return_value=(MAP, 200, 'application/json', False)):
+        rows, manifest = inventory(tmp_path, '--source-map-parse-max-bytes', '1')
+    assert rows[0]['source_map'] == BUNDLE.rsplit('/', 1)[0] + '/header.map'
+    assert rows[0]['source_map_status'] == 'downloaded'
+    assert manifest['source_map_scans_failed'] == 0
+
+
+@pytest.mark.parametrize('dependency', ['tree_sitter', 'tree_sitter_javascript'])
+def test_missing_parser_does_not_fall_back_to_lexical_guesses(tmp_path, dependency):
+    with patch.dict('sys.modules', {dependency: None}), \
+         patch.object(J.urllib.request.OpenerDirector, 'open', return_value=Response(b'//# sourceMappingURL=real.map')):
+        rows, manifest = inventory(tmp_path)
+    assert rows[0]['source_map_status'] == 'scan_failed'
+    assert rows[0]['source_map_reason'] == 'parser_unavailable'
+    assert manifest['source_map_scans_failed'] == 1
+
+
+@pytest.mark.parametrize('limit', ['0', '-1'])
+def test_parser_budget_must_be_positive_before_any_paths_or_io(limit):
+    with patch.object(J, 'resolve_inventory_paths', side_effect=AssertionError('validation must precede I/O')) as paths, \
+         pytest.raises(SystemExit, match='positive'):
+        J.main(['inventory', 'demo', '--input', 'unused', '--source-map-parse-max-bytes', limit])
+    paths.assert_not_called()
+
+
+def test_parser_limit_uses_utf8_bytes_and_accepts_exact_boundary():
+    text = 'const x="é";\n//# sourceMappingURL=real.map'
+    with pytest.raises(J.SourceMapScanError, match='parse_limit'):
+        J.last_source_map_directive(text, max_bytes=len(text))
+    assert J.last_source_map_directive(text, max_bytes=len(text.encode())) == 'real.map'
+
+
+def test_absent_marker_needs_no_ast_or_parser_dependency():
+    with patch.dict('sys.modules', {'tree_sitter': None}):
+        assert J.last_source_map_directive('const value=1;' * 100, max_bytes=1) == ''
+
+
+def test_parser_memory_failure_is_explicit_not_no_declaration():
+    with patch('tree_sitter.Parser', side_effect=MemoryError()):
+        signals = J.extract_signals('//# sourceMappingURL=real.map', BUNDLE)
+    assert signals['source_map'] == ''
+    assert signals['source_map_scan_reason'] == 'parser_memory'
+
+
+def test_archived_bundle_parser_budget_is_reported(tmp_path):
+    def response(request, timeout):
+        if request.full_url == BUNDLE:
+            return Response(b'const current=1;')
+        if '/cdx/' in request.full_url:
+            original = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)['url'][0]
+            return Response(cdx(original, STAMP))
+        assert request.full_url == replay(BUNDLE)
+        return Response(b'//# sourceMappingURL=real.map')
+
+    with patch.object(J.urllib.request.OpenerDirector, 'open', side_effect=response):
+        rows, _ = inventory(tmp_path, '--source-map-wayback', 'auto', '--source-map-parse-max-bytes', '1')
+    assert rows[0]['source_map_history']['status'] == 'not_recovered'
+    assert rows[0]['source_map_history']['reason'] == 'parse_limit'
+    assert any(a['reason'] == 'parse_limit' for a in rows[0]['source_map_history']['attempts'])
 
 
 def test_partial_archive_reads_are_charged_to_total_budget(tmp_path):

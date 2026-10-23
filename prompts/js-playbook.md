@@ -345,10 +345,12 @@ Script responsibilities:
   files for agents
 - when an in-scope bundle declares a map, prefer the response `SourceMap`
   header, then legacy `X-SourceMap`, then the last actual-comment
-  `sourceMappingURL`. Scan from the bundle's initial lexical state rather than
-  resetting inside an arbitrary tail slice. Retain the selected response header
-  per URL for cached runs; an authoritative invalid/external header does not
-  silently fall back to a comment. Fetch live maps by default, retain them
+  `sourceMappingURL`. Select actual comment nodes using the pinned JavaScript
+  grammar on the whole bundle, not an arbitrary tail slice or handwritten
+  keyword/regex guesses. Template contents remain conservatively excluded.
+  Retain the selected response header per URL for cached runs; an authoritative
+  invalid/external header does not silently fall back to a comment. Fetch live
+  maps by default, retain them
   content-addressed under `_library/sourcemaps/`, and inventory every original
   module name in `source_map_modules.jsonl`
 - turn embedded `sourcesContent` into bounded, module-level review packets so
@@ -410,6 +412,21 @@ Read `source_map_discovery`, `source_map_reason`, and `source_map_http_status`
 in metadata before interpreting `not_detected` or `fetch_failed`: HTTP 404/429,
 TLS/timeout/transport failures, invalid documents and oversize responses are
 not equivalent. A failed fetch does not prove a map was never published.
+
+Comment discovery uses the pinned `tree-sitter` and JavaScript grammar packages
+in the root `requirements.txt`. Provision the selected checkout with
+`bash setup.sh --install-python-deps`; a missing parser is reported, never
+replaced by the old lexical guesses. `--source-map-parse-max-bytes` defaults to
+8 MiB of UTF-8 bundle text for both live and archived comment scans. Bundles
+without a literal marker need no AST; response `SourceMap`/`X-SourceMap` headers
+also bypass this parse budget. Larger ASTs need materially more memory: raise
+the cap only for a selected bundle with available capacity. Parser omission or
+failure yields `source_map_status: scan_failed` and `source_map_reason` of
+`parse_limit`, `parser_unavailable` or `parser_memory`, not `not_detected`.
+Manifest `source_map_parse_max_bytes` and `source_map_scans_failed` record the
+limit and incomplete live scans; archive attempts retain the same reasons in
+`source_map_history`. These are coverage gaps, not evidence that maps do not
+exist. Source parsing does not verify execution or map-to-build association.
 
 ### Wayback source-map fallback
 

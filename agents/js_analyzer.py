@@ -742,203 +742,67 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
     return dedupe(js_urls), page_records, inline_bodies
 
 
-def last_source_map_directive(text: str) -> str:
-    """Scan the already-loaded body from a known lexical context in linear time.
+SOURCE_MAP_PARSE_MAX_BYTES = 8 * 1024 * 1024
 
-    An arbitrary tail slice may start inside a string, template, regex or comment;
-    resetting lexical state there can hide real declarations or admit decoys.
+
+class SourceMapScanError(RuntimeError):
+    """A comment scan could not complete; never report this as no declaration."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        action = ("install this checkout's requirements with bash setup.sh --install-python-deps"
+                  if reason == "parser_unavailable" else "review --source-map-parse-max-bytes and available memory")
+        super().__init__(f"source-map comment scan incomplete ({reason}); {action}")
+
+
+def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES) -> str:
+    """Read actual JavaScript comment nodes, preserving last-comment selection.
+
+    Parse the whole generated source rather than guessing lexical state from a
+    tail slice. Bound AST input and walk with a cursor, not a materialized node
+    list. Preserve conservative exclusion of all template-string contents.
     """
-    found = ""
-    i = 0
-    regex_allowed = True
-    control_keyword = False
-    member_property = False
-    parens: list[bool] = []
-    statement_start = True
-    previous_punct = ""
-    # Closing statement/declaration bodies permit a regex; expression bodies
-    # and object literals instead remain complete operands for division.
-    braces: list[bool] = []
-    declarations: list[tuple[int, bool]] = []
-    # Each template frame is raw text (0) or interpolation brace depth (>0).
-    # Preserve the detector's conservative exclusion of all template content.
-    templates: list[int] = []
-    while i < len(text):
-        char = text[i]
-        if templates and templates[-1] == 0:
-            if char == "\\":
-                i += 2
-            elif char == "`":
-                templates.pop()
-                regex_allowed = False
-                member_property = False
-                statement_start = False
-                previous_punct = ""
-                i += 1
-            elif text.startswith("${", i):
-                templates[-1] = 1
-                regex_allowed = True
-                member_property = False
-                statement_start = False
-                previous_punct = ""
-                i += 2
-            else:
-                i += 1
-            continue
-        if char.isspace():
-            i += 1
-            continue
-        if char == "`":
-            templates.append(0)
-            statement_start = False
-            previous_punct = ""
-            i += 1
-            continue
-        if char in "'\"":
-            quote = char
-            i += 1
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                elif text[i] == quote:
-                    i += 1
-                    break
-                else:
-                    i += 1
-            regex_allowed = False
-            control_keyword = False
-            member_property = False
-            statement_start = False
-            previous_punct = ""
-            continue
-        if char == "/" and i + 1 < len(text) and text[i + 1] in ("/", "*"):
-            if text[i + 1] == "/":
-                end = text.find("\n", i + 2)
-                end = len(text) if end < 0 else end
-            else:
-                end = text.find("*/", i + 2)
-                end = len(text) if end < 0 else end
-            directive = SOURCE_MAP_RE.match(text[i + 2:end].lstrip())
-            if directive and not templates:
-                found = directive.group("url")
-            i = end if text[i + 1] == "/" or end == len(text) else end + 2
-            continue
-        if text.startswith("...", i):
-            # Spread expects an expression; it is not member access.
-            regex_allowed = True
-            control_keyword = False
-            member_property = False
-            statement_start = False
-            previous_punct = "..."
-            i += 3
-            continue
-        if char == "#" and member_property:
-            # Private member names have the same IdentifierName keyword rules.
-            i += 1
-            continue
-        if text.startswith(("++", "--"), i):
-            # Prefix updates keep expecting an operand; postfix updates keep
-            # the preceding expression complete, so a following '/' is division.
-            control_keyword = False
-            member_property = False
-            statement_start = False
-            previous_punct = ""
-            i += 2
-            continue
-        if char == "/" and regex_allowed:
-            i += 1
-            in_class = False
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                elif text[i] == "[":
-                    in_class = True
-                    i += 1
-                elif text[i] == "]" and in_class:
-                    in_class = False
-                    i += 1
-                elif text[i] == "/" and not in_class:
-                    i += 1
-                    break
-                else:
-                    i += 1
-            regex_allowed = False
-            member_property = False
-            statement_start = False
-            previous_punct = ""
-            continue
-        if char.isalpha() or char in "_$":
-            end = i + 1
-            while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
-                end += 1
-            word = text[i:end]
-            if not member_property and word in {"function", "class"}:
-                declarations.append((len(parens), statement_start))
-            # After '.' (also '?.'), keywords are property identifiers. Keep
-            # this context across trivia but consume it at the property name.
-            control_keyword = not member_property and (word in {"if", "while", "for", "with", "switch", "catch"} or word == "await" and control_keyword)
-            regex_allowed = not member_property and word in {"return", "throw", "case", "else", "do", "delete", "void", "typeof", "yield", "await"}
-            statement_start = not member_property and (word in {"else", "do", "try", "finally"} or word == "async" and statement_start)
-            member_property = False
-            previous_punct = ""
-            i = end
-            continue
-        if char.isdigit():
-            i += 1
-            while i < len(text) and (text[i].isalnum() or text[i] in "._"):
-                i += 1
-            regex_allowed = False
-            control_keyword = False
-            member_property = False
-            statement_start = False
-            previous_punct = ""
-            continue
-        if templates and char in "{}":
-            templates[-1] += 1 if char == "{" else -1
-            if templates[-1] == 0:
-                # '${' is not a block opener in the outer brace stack.
-                regex_allowed = False
-                statement_start = False
-                previous_punct = ""
-                i += 1
+    if "sourceMappingURL" not in text:
+        return ""
+    if len(text) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    data = text.encode("utf-8")
+    if len(data) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    try:
+        from tree_sitter import Language, Parser
+        import tree_sitter_javascript
+    except ImportError as exc:
+        raise SourceMapScanError("parser_unavailable") from exc
+    try:
+        tree = Parser(Language(tree_sitter_javascript.language())).parse(data)
+        cursor = tree.walk()
+        found = ""
+        while True:
+            node = cursor.node
+            if node.type == "comment":
+                prefix = data[node.start_byte:node.start_byte + 2]
+                if prefix in (b"//", b"/*"):
+                    content = data[node.start_byte + 2:node.end_byte]
+                    if prefix == b"/*" and content.endswith(b"*/"):
+                        content = content[:-2]
+                    directive = SOURCE_MAP_RE.match(content.decode("utf-8").lstrip())
+                    if directive:
+                        found = directive.group("url")
+            if node.type != "template_string" and cursor.goto_first_child():
                 continue
-        if text.startswith("=>", i):
-            regex_allowed = True
-            statement_start = False
-            control_keyword = member_property = False
-            previous_punct = "=>"
-            i += 2
-            continue
-        if char == "(":
-            parens.append(control_keyword)
-            regex_allowed = True
-            statement_start = False
-        elif char == ")":
-            regex_allowed = parens.pop() if parens else False
-            statement_start = regex_allowed
-        elif char == "{":
-            declaration_body = bool(declarations and declarations[-1][0] == len(parens))
-            closes_statement = declarations.pop()[1] if declaration_body else statement_start
-            braces.append(closes_statement)
-            statement_start = closes_statement or declaration_body or previous_punct in {")", "=>"}
-            regex_allowed = True
-        elif char == "}":
-            regex_allowed = braces.pop() if braces else False
-            statement_start = regex_allowed
-        else:
-            regex_allowed = char not in "].}"
-            statement_start = char == ";"
-            if char in ":;=" and declarations and declarations[-1][0] == len(parens):
-                # Keyword-named keys/fields are not pending declarations.
-                declarations.pop()
-        control_keyword = False
-        member_property = char == "."
-        previous_punct = char
-        i += 1
-    return found
+            while not cursor.goto_next_sibling():
+                if not cursor.goto_parent():
+                    return found
+    except MemoryError as exc:
+        raise SourceMapScanError("parser_memory") from exc
 
 
-def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
+def extract_signals(
+    text: str, base_url: str, scope_hosts: list[str] | None = None, *,
+    source_map_header: tuple[str, str] = ("", ""),
+    source_map_parse_max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES,
+) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
         normalized = normalize_url(match.rstrip(".,;)"), base_url)
@@ -956,9 +820,20 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         params.update(name for name, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
     source_map = ""
-    directive = last_source_map_directive(text)
-    if directive:
-        source_map = normalize_url(directive, base_url) or ""
+    source_map_discovery = source_map_header[1]
+    source_map_scan_reason = ""
+    if source_map_discovery:
+        # Authoritative response headers need no syntax tree, even for a bundle
+        # larger than the comment parser budget or an unavailable parser.
+        source_map = normalize_url(source_map_header[0], base_url) or ""
+    else:
+        try:
+            directive = last_source_map_directive(text, max_bytes=source_map_parse_max_bytes)
+            if directive:
+                source_map = normalize_url(directive, base_url) or ""
+                source_map_discovery = "comment"
+        except SourceMapScanError as exc:
+            source_map_scan_reason = exc.reason
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
@@ -997,6 +872,8 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         "external_endpoints": external_endpoints[:500],
         "params": sorted(params)[:300],
         "source_map": source_map,
+        "source_map_discovery": source_map_discovery,
+        "source_map_scan_reason": source_map_scan_reason,
         "imports": imports,
         "secret_hints": secret_hints,
         "sources": sources,
@@ -1177,7 +1054,14 @@ class WaybackRecovery:
                 continue
             declaration, header_name = getattr(archived, "map_header", ("", ""))
             if not header_name:
-                declaration = last_source_map_directive(archived[0].decode("utf-8", errors="ignore"))
+                try:
+                    declaration = last_source_map_directive(
+                        archived[0].decode("utf-8", errors="ignore"),
+                        max_bytes=self.args.source_map_parse_max_bytes,
+                    )
+                except SourceMapScanError as exc:
+                    attempts.append({"operation": "declaration", "reason": exc.reason})
+                    continue
             original_map = normalize_url(declaration, record.url) if declaration else None
             if not original_map or not self.allowed(original_map):
                 attempts.append({"operation": "declaration", "reason": "missing_or_out_of_scope"})
@@ -2314,7 +2198,8 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 def command_inventory(args: argparse.Namespace) -> int:
     if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
-            or args.source_map_max_bytes <= 0 or args.delay < 0 or args.timeout <= 0):
+            or args.source_map_max_bytes <= 0 or args.source_map_parse_max_bytes <= 0
+            or args.delay < 0 or args.timeout <= 0):
         raise SystemExit("source-map byte/capture/time limits must be positive; request limit and delay must be non-negative")
     if args.chunk_size <= 0 or args.chunk_overlap < 0 or args.chunk_overlap >= args.chunk_size:
         raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
@@ -2454,13 +2339,14 @@ def command_inventory(args: argparse.Namespace) -> int:
             else:
                 artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
-        signals = extract_signals(text, url, scope_hosts)
-        source_map_discovery = "comment" if signals["source_map"] else ""
-        if map_header[1]:
-            signals["source_map"] = normalize_url(map_header[0], url) or ""
-            source_map_discovery = map_header[1]
-        source_map_status = "not_detected"
-        source_map_reason = "invalid_declaration" if map_header[1] and not signals["source_map"] else "not_detected"
+        signals = extract_signals(text, url, scope_hosts, source_map_header=map_header,
+                                  source_map_parse_max_bytes=args.source_map_parse_max_bytes)
+        source_map_discovery = signals["source_map_discovery"]
+        scan_reason = signals["source_map_scan_reason"]
+        if scan_reason:
+            print(f"[{index}/{len(normalized_urls)}] {url} -> {SourceMapScanError(scan_reason)}", file=sys.stderr)
+        source_map_status = "scan_failed" if scan_reason else "not_detected"
+        source_map_reason = scan_reason or ("invalid_declaration" if map_header[1] and not signals["source_map"] else "not_detected")
         source_map_http_status = None
         source_map_sha256 = ""
         source_map_artifact_path = ""
@@ -2752,6 +2638,8 @@ def command_inventory(args: argparse.Namespace) -> int:
         "source_maps_downloaded": source_maps_downloaded,
         "source_maps_reused": source_maps_reused,
         "source_maps_too_large": source_maps_too_large,
+        "source_map_parse_max_bytes": args.source_map_parse_max_bytes,
+        "source_map_scans_failed": sum(record.source_map_status == "scan_failed" for record in records),
         "source_map_wayback": {
             "mode": args.source_map_wayback, "requests": wayback.requests, "bytes_read": wayback.bytes_read,
             "stopped_reason": wayback.stopped, "max_requests": args.source_map_wayback_max_requests,
@@ -2872,6 +2760,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=500,
         help="Maximum embedded source modules to turn into review packets; all module names remain inventoried",
     )
+    inv.add_argument("--source-map-parse-max-bytes", type=int, default=SOURCE_MAP_PARSE_MAX_BYTES,
+                     help="Maximum UTF-8 bundle bytes to parse for comment declarations (default: 8 MiB); response headers bypass this budget; omitted scans are reported explicitly")
     inv.add_argument("--source-map-max-packets", type=int, default=1000, help="Maximum source-map review packets per bundle")
     inv.add_argument("--source-map-wayback", choices=("off", "auto"), default="off", help="Opt in to bounded historical map/bundle recovery from Internet Archive; sends original asset URLs to archive (default: off; ignored with --source-maps off); program headers are never sent")
     inv.add_argument("--source-map-wayback-max-requests", type=int, default=20, help="Maximum archive requests for the entire run")

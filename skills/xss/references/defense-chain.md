@@ -39,12 +39,11 @@ bypass candidate guarantees XSS.
   a browser-interpreted executable context. Read the delivered enforcing policy
   (not only a Report-Only header or static configuration), its directives,
   nonce/hash/source relationships, and any relevant Trusted Types behavior.
-  Compare the blocked execution with what the actual page loads, trusts, or
-  delegates to; ask whether a different permitted path or later consumer changes
-  the outcome. Route context-specific candidate work to
-  `xss-payload-engineering` and stack-specific research to
-  `xss-technology-research`. A console violation or markup injection alone is
-  not execution proof.
+  Load `csp-bypass` to map the effective policy and browser trust mechanism, then
+  derive a candidate from the actual allowed path or a trusted-script/data-flow
+  weakness. Return to the selected XSS lane for source-to-consumer tracing and
+  browser execution proof; a console violation or markup injection alone is not
+  proof.
 - **WAF / request filter:** Use `waf-live-policy` to classify block, challenge,
   rate, and edge-versus-origin effects, then `waf` and `xss-waf-evasion` for the
   measured representation/control loop. Passing the filter only advances the

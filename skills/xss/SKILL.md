@@ -70,7 +70,7 @@ the selected lane and inherited live-testing policy decide which probes to run,
 not the tree's leaf count. A negative for one tested edge does not close sibling
 feeders, consumers, or representations.
 
-### Defense signals deepen the same XSS lane
+### When to investigate a blocker or bypass
 
 A sanitizer hit, CSP violation, or WAF/filter block on an XSS vector is signal,
 not an independent failed XSS attempt. When a controllable value has a
@@ -82,7 +82,7 @@ the ceiling of XSS coverage, and a blocked string without a plausible consumer
 is not automatically a bypass lead.
 
 - Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
-- CSP behavior: distinguish delivered enforcement from Report-Only and establish an executable browser context before researching permitted execution paths with `xss-technology-research` and `xss-payload-engineering`.
+- CSP behavior: when a delivered enforcing policy appears to block a plausible controlled execution path, load `csp-bypass` to resolve the effective policy/browser trust mechanism and derive a mechanism-matched candidate. Then return to the selected XSS lane for end-to-end source-to-consumer tracing and browser proof; use `xss-technology-research` or `xss-payload-engineering` for separate stack- or payload-specific questions.
 - WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue. Once a plausible consumer and reproducible filter differential exist, load `waf` plus `xss-waf-evasion` for the adaptive card → research → candidate → proof loop; a vendor label alone is not a bypass plan.
 - Changed or later consumer: load `xss-lifecycle` and branch the original producer into the new render path rather than calling the first inert view a negative for all views.
 

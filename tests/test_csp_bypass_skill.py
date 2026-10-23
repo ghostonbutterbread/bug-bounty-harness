@@ -18,6 +18,37 @@ class CspBypassSkillTests(unittest.TestCase):
         self.assertIn("## CSP reference", router)
         self.assertIn("`csp-bypass` (`skills/csp-bypass/SKILL.md`)", router)
 
+    def test_xss_routes_csp_blocker_to_specialist_and_keeps_proof_in_lane(self):
+        xss = (ROOT / "skills/xss/SKILL.md").read_text(encoding="utf-8")
+        chain = (ROOT / "skills/xss/references/defense-chain.md").read_text(encoding="utf-8")
+        xss_sanitizer_route = (
+            xss.partition("- Sanitizer behavior:")[2]
+            .partition("- CSP behavior:")[0]
+        )
+        xss_csp_route = (
+            xss.partition("- CSP behavior:")[2]
+            .partition("- WAF/filter behavior:")[0]
+        )
+        xss_waf_route = (
+            xss.partition("- WAF/filter behavior:")[2]
+            .partition("- Changed or later consumer:")[0]
+        )
+        chain_csp_route = (
+            chain.partition("- **CSP / browser execution:**")[2]
+            .partition("- **WAF / request filter:**")[0]
+        )
+
+        self.assertIn("`xss-technology-research`", xss_sanitizer_route)
+        self.assertIn("`xss-payload-engineering`", xss_sanitizer_route)
+        self.assertIn("`csp-bypass`", xss_csp_route)
+        self.assertIn("selected XSS lane", xss_csp_route)
+        self.assertIn("`waf-live-policy`", xss_waf_route)
+        self.assertIn("`waf`", xss_waf_route)
+        self.assertIn("`xss-waf-evasion`", xss_waf_route)
+        self.assertIn("`csp-bypass`", chain_csp_route)
+        self.assertIn("selected XSS lane", chain_csp_route)
+
+
     def test_skill_covers_distinct_policy_bypass_mechanisms(self):
         skill = (ROOT / "skills/csp-bypass/SKILL.md").read_text(encoding="utf-8")
         frontmatter = re.match(r"---\n(.*?)\n---\n", skill, flags=re.DOTALL)

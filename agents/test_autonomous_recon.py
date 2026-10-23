@@ -118,8 +118,10 @@ def test_crawl_checkpoint_resumes_frontier_and_retryable_failures(monkeypatch, t
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     monkeypatch.setattr(autonomous_recon, "CRAWL_PAGE_BUDGET", 2)
     calls = []
-    def fake_get(url, timeout=10):
+    def fake_get(url, timeout=10, *, effective_url=None):
         calls.append((url, timeout))
+        if effective_url is not None:
+            effective_url.append(url)
         if url.endswith("/retry") and calls.count((url, 10)) == 1:
             return b"", {}
         path = url.rsplit("/", 1)[-1]
@@ -168,7 +170,10 @@ def test_frontier_limit_pauses_without_publishing(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(autonomous_recon.Path, "home", lambda: tmp_path)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     monkeypatch.setattr(autonomous_recon, "CRAWL_URL_LIMIT", 2)
-    monkeypatch.setattr(autonomous_recon, "_http_get", lambda url, timeout=10: (b'<a href="/one">1</a><a href="/two">2</a>', {}))
+    def get(url, timeout=10, *, effective_url=None):
+        if effective_url is not None: effective_url.append(url)
+        return b'<a href="/one">1</a><a href="/two">2</a>', {}
+    monkeypatch.setattr(autonomous_recon, "_http_get", get)
     published = []
     monkeypatch.setattr(autonomous_recon, "record_recon_artifacts", lambda **kw: published.append(kw))
     result = ReconResult("demo", "https://example.com", "example.com")
@@ -190,7 +195,10 @@ def test_changed_scope_blocks_checkpoint_replay(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(autonomous_recon.Path, "home", lambda: tmp_path)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     monkeypatch.setattr(autonomous_recon, "CRAWL_PAGE_BUDGET", 1)
-    monkeypatch.setattr(autonomous_recon, "_http_get", lambda url, timeout=10: (b'<a href="/next">next</a>', {}))
+    def get(url, timeout=10, *, effective_url=None):
+        if effective_url is not None: effective_url.append(url)
+        return b'<a href="/next">next</a>', {}
+    monkeypatch.setattr(autonomous_recon, "_http_get", get)
     result = ReconResult("demo", "https://example.com", "example.com")
     autonomous_recon.phase_crawl(result)
     scope = type("Scope", (), {"is_in_scope": lambda self, url: not url.endswith("/next")})()
@@ -269,6 +277,83 @@ def test_urllib_local_redirect_fixture_blocks_excluded_hop_and_rates_allowed(mon
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def test_crawl_resolves_relative_links_against_scoped_redirect_destination(monkeypatch):
+    import sys
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    hits = []
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            if self.path == "/old/start":
+                self.send_response(302)
+                self.send_header("Location", "/new/index")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'<a href="detail">detail</a>' if self.path == "/new/index" else b"ok")
+        def log_message(self, format, *args): pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        monkeypatch.setattr(autonomous_recon, "_g_target_host", origin.removeprefix("http://"))
+        monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+        monkeypatch.setattr(autonomous_recon, "CRAWL_PAGE_BUDGET", 2)
+        class Limiter:
+            calls = 0
+            def wait(self): self.calls += 1
+        limiter = Limiter()
+        monkeypatch.setattr(autonomous_recon, "_g_limiter", limiter)
+        scope = type("Scope", (), {"is_in_scope": lambda self, u: u.startswith(origin) and "/private" not in u})()
+        result = ReconResult("demo", origin + "/old/start", origin.removeprefix("http://"))
+        autonomous_recon.phase_crawl(result, scope)
+        assert result.crawl_status == "complete"
+        assert origin + "/new/detail" in result.urls
+        assert origin + "/old/detail" not in result.urls
+        assert hits == ["/old/start", "/new/index", "/new/detail"]
+        assert limiter.calls == len(hits)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_analyze_filters_extracted_paths_by_saved_scope_and_checkpoint(monkeypatch):
+    monkeypatch.setattr(autonomous_recon, "INTERESTING_PATHS", [])
+    fetched = []
+    def get(url, timeout=10):
+        fetched.append(url)
+        return b"const paths=['/api/private', 'https://example.com/allowed/api/public'];", {}
+    monkeypatch.setattr(autonomous_recon, "_http_get", get)
+    scope = type("Scope", (), {"is_in_scope": lambda self, u: u.startswith("https://example.com/allowed/")})()
+    result = ReconResult("demo", "https://example.com/allowed/", "example.com")
+    result.js_files = ["https://example.com/allowed/app.js"]
+    phase_analyze(result, scope)
+    assert fetched == result.js_files
+    assert result.api_endpoints == ["https://example.com/allowed/api/public"]
+    resumed = ReconResult("demo", result.target, result.target_host)
+    resumed.js_files = result.js_files
+    phase_analyze(resumed, scope)
+    assert fetched == result.js_files
+    assert resumed.api_endpoints == result.api_endpoints
+
+
+def test_crawl_missing_effective_url_is_retryable_not_complete(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+    monkeypatch.setattr(autonomous_recon, "_http_get", lambda url, timeout=10, *, effective_url=None: (b'<a href="detail">x</a>', {}))
+    result = ReconResult("demo", "https://example.com/old/start", "example.com")
+    autonomous_recon.phase_crawl(result)
+    assert result.crawl_status == "paused"
+    assert result.crawl_pages_pending == 1
+    assert result.urls == []
+    assert any("effective URL" in error for error in result.errors)
 
 
 def test_browser_route_blocks_redirects_and_subrequests_and_retries(monkeypatch):
@@ -372,7 +457,10 @@ def test_browser_redirects_pause_excluded_hop_and_urllib_resumes_allowed_navigat
     monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace(sync_playwright=lambda: Manager()))
     monkeypatch.setattr(autonomous_recon, "CRAWL_PAGE_BUDGET", 2)
     scope = type("Scope", (), {"is_in_scope": lambda self, u: "/private" not in u})()
-    monkeypatch.setattr(autonomous_recon, "_http_get", lambda url, timeout=10: (b'<a href="/second">next</a>', {}))
+    def get(url, timeout=10, *, effective_url=None):
+        if effective_url is not None: effective_url.append("https://example.com/new/index")
+        return b'<a href="detail">next</a>', {}
+    monkeypatch.setattr(autonomous_recon, "_http_get", get)
     result = ReconResult("demo", "https://example.com/start", "example.com")
     autonomous_recon.phase_crawl(result, scope)
     assert result.crawl_status == "paused"
@@ -380,7 +468,8 @@ def test_browser_redirects_pause_excluded_hop_and_urllib_resumes_allowed_navigat
     assert ("abort", "https://example.com/start") in calls
     assert ("abort", "https://example.com/script.js") in calls
     assert ("fetch", "https://example.com/private-redirect") not in calls
-    assert "https://example.com/second" in json.loads((autonomous_recon._output_dir(result) / "crawl_checkpoint.json").read_text())["retryable_failed"]
+    assert "https://example.com/new/detail" in json.loads((autonomous_recon._output_dir(result) / "crawl_checkpoint.json").read_text())["retryable_failed"]
+    assert "https://example.com/old/detail" not in result.urls
     assert any("Browser redirect not followed" in error for error in result.errors)
 
 

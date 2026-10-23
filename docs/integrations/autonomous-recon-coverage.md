@@ -1,14 +1,14 @@
 # Autonomous recon coverage repair integration dossier
 
-- **Status:** redirect-scope repair verified locally; awaiting independent review, not integrated
+- **Status:** two independent-review blockers repaired locally; awaiting re-review, not integrated
 - **Owner:** Hermes focused subagent / card `t_b317a8e8`
 - **Branch:** `fix/autonomous-recon-coverage-tb317a8e8`
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `f90d2be` (follow-up to reconciled feature `9111c1f`; final dossier-only receipt follows)
-- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture), `f90d2be` (navigation fallback invariant)
+- **Latest immutable recovery checkpoint:** `c6b8672` before this blocker repair; the new implementation/dossier commit will be the current branch tip
+- **Feature implementation commit(s):** `2f20ce3` (initial coverage), `4f4ae40` (prior scope/checkpoint repair), `eba94f7` (redirect fence and fixture), `f90d2be` (navigation fallback invariant), current tip (effective URL and endpoint scope repair)
 - **Inspiration / canonical references:** User request and policy-reviewer stop-boundary note; `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -18,6 +18,8 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 ## Implemented contract
 
 - Crawl uses a bounded BFS frontier. Browser routes use `route.fetch(max_redirects=0)` and fulfill only non-redirect responses; `route.continue_()` and fulfilled 30x responses can follow redirects without another route callback and are forbidden. Excluded redirects and redirected subresources abort before the destination request, mark the page retryable and pause with a persisted checkpoint; scoped navigation redirects abort in Chromium then use the existing urllib scoped redirect handler for the document. urllib validates and rate-limits every allowed redirect hop. Service workers are blocked; the browser falls back to urllib when WebSocket interception is unavailable. Restored crawl inventory is revalidated against saved scope.
+- Relative links, scripts, and forms in a redirected document resolve against its final scoped response URL (both browser/urllib fallback and urllib-only). A document with no effective URL remains retryable rather than completing with wrongly based links. The scoped redirect handler still fences and rates every hop.
+- JS-derived root-relative API endpoints are admitted only if their resolved URL passes the same host and saved scope checks as generic extracted URLs; analysis checkpoint and result carry only admitted endpoints.
 - Crawl checkpoint persists through analysis and publication; JS analysis checkpoints successful files and extracted findings/endpoints per file so interrupted analysis resumes without recrawling or refetching completed JS. Failed JS fetches retry on next invocation. The checkpoint is removed only after successful output/publication; publication failure retains it. `summary.json` records partial/paused/discovery status and disk-floor reason. CLI returns 2 on incomplete, 0 only on complete. Recon Bus promotion requires complete discovery, crawl, JS analysis, and no disk pause.
 - The output filesystem must have at least 5 GiB free before normal artifact writes. At disk-floor pause, keep the pending crawl checkpoint and write only a small atomic summary; do not publish. Existing per-attempt timeouts remain for browser/urllib requests and subprocess discovery (90/120/30 seconds); subprocess timeouts mark discovery partial/retryable rather than complete. The 10,000-URL overflow still requires operator intervention; results remain memory-resident.
 
@@ -27,7 +29,10 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 - `node --test agents/test_autonomous_recon_redirect_browser.cjs`: 1 passed using installed Node Playwright and `/usr/bin/google-chrome` against loopback HTTP: 302 `/out-redirect` to excluded `/private-redirect` records zero destination hits; a scoped redirect is aborted by browser and the allowed path succeeds through HTTP fallback. The Node fixture exercises the transport strategy; Python Playwright is absent here, so the Python application browser path is covered by mocks rather than an end-to-end Python browser run.
 - `python3 -m pytest agents/test_autonomous_recon.py tests/test_script_policy.py tests/test_scratch_scripts.py -q` after merging `origin/beta` at `6a45a0d`: 55 passed, 1 unrelated pre-existing beta failure (`test_each_skill_index_has_complete_nonstale_records`: `skills/stack-to-program/scripts/README.md` lacks `**Outputs:**`/`**Mutates:**`). Do not claim combined suite green.
 - `git diff --check origin/beta...HEAD`: clean. No live target probes.
-- Independent release review: pending parent reviewer; no beta integration or push.
+- Blocker RED: `python3 -m pytest agents/test_autonomous_recon.py -q -k 'resolves_relative_links_against_scoped_redirect_destination or filters_extracted_paths_by_saved_scope'` failed at `/old/detail` versus `/new/detail` and emitted `/api/private` outside `/allowed/`.
+- Blocker GREEN: `python3 -m pytest agents/test_autonomous_recon.py -q` 20 passed including missing-effective-URL retryable negative fixture; combined `python3 -m pytest agents/test_autonomous_recon.py tests/test_script_policy.py tests/test_scratch_scripts.py -q` before the final fixture: 58 passed, 1 pre-existing unrelated failure in the stack-to-program index (same missing Outputs/Mutates fields). `git diff --check` clean.
+- `node --test agents/test_autonomous_recon_redirect_browser.cjs`: 1 passed post-fix on loopback Chrome. No live targets. Fetched `origin/beta` remains `6a45a0d`, already merged as `9111c1f`.
+- Independent release re-review: pending parent reviewer; no beta integration or push.
 - Reconciliation: merged `origin/beta` `6a45a0d` into feature as `9111c1f`; no conflict. Re-run tests as above.
 
 
@@ -42,9 +47,9 @@ Remove silent first-80 JS and first-50/60 page/depth truncation. Keep the existi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/autonomous-recon-coverage-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `f90d2be` (reconciled feature plus navigation invariant before this dossier-only receipt)
-- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`, `f90d2be`.
-- **Exact resume point:** independent release review of redirect fixture and Python-runtime gap; resolve unrelated beta script-index failure with its owner; no integration/push authorized.
+- **Latest immutable recovery checkpoint:** `c6b8672` before repair; current branch tip after committing this repair.
+- **Feature implementation commit(s):** `2f20ce3`, `4f4ae40`, `eba94f7`, `f90d2be`, current tip.
+- **Exact resume point:** independent re-review of both blocker fixes and Python-runtime gap; resolve unrelated beta script-index failure with its owner; no integration/push authorized.
 - **Working-tree state at handoff:** commit and verify clean worktree.
 
 ## Decision gates

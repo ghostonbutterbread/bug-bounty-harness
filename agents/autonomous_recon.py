@@ -207,7 +207,7 @@ def _safe_log_span(**fields) -> None:
         pass
 
 
-def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
+def _http_get(url: str, timeout: int = 15, *, effective_url: list[str] | None = None) -> tuple[bytes, dict]:
     """Simple HTTP GET, returns (body_bytes, headers_dict)."""
     if _g_limiter is not None:
         _g_limiter.wait()
@@ -223,6 +223,8 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
     try:
         with _open_scoped(req, timeout=timeout) as resp:
             body = resp.read()
+            if effective_url is not None:
+                effective_url.append(resp.geturl())
             _safe_log_span(
                 span_type="tool",
                 level="STEP",
@@ -238,6 +240,8 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
             return body, dict(resp.headers)
     except urllib.error.HTTPError as e:
         body = e.read()
+        if effective_url is not None:
+            effective_url.append(e.geturl())
         _safe_log_span(
             span_type="tool",
             level="STEP",
@@ -638,6 +642,7 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
             _log(f"  Crawling: {url[:80]}")
             if browser is not None:
                 navigation_redirect.clear()
+                document_url = url
                 try:
                     page.goto(url, timeout=15000, wait_until="domcontentloaded")
                     if not _same_host(page.url, result.target_host) or not is_in_scope(page.url, scope):
@@ -648,14 +653,17 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                     if route_failure:
                         raise RuntimeError("; ".join(route_failure))
                     text = page.content()
+                    document_url = page.url
                     links = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
                     scripts = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
                 except Exception as exc:
                     if navigation_redirect and not route_failure:
                         # The browser must not follow its own redirect; urllib's
                         # scoped redirect handler safely obtains the document.
-                        body, _ = _http_get(url, timeout=10)
-                        if body:
+                        final_urls: list[str] = []
+                        body, _ = _http_get(url, timeout=10, effective_url=final_urls)
+                        if body and final_urls:
+                            document_url = final_urls[0]
                             text = body.decode(errors="ignore")
                             links, scripts = HREF_RE.findall(text), SRC_RE.findall(text)
                         else:
@@ -667,17 +675,19 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                         failed.add(url)
                         text, links, scripts = "", [], []
             else:
-                body, _ = _http_get(url, timeout=10)
-                if not body:
-                    result.errors.append(f"Crawl page returned no body (retryable): {url}")
+                final_urls = []
+                body, _ = _http_get(url, timeout=10, effective_url=final_urls)
+                document_url = final_urls[0] if final_urls else url
+                if not body or not final_urls:
+                    result.errors.append(f"Crawl page returned no body or effective URL (retryable): {url}")
                     failed.add(url)
-                text = body.decode(errors="ignore")
+                text = body.decode(errors="ignore") if url not in failed else ""
                 links = HREF_RE.findall(text)
                 scripts = SRC_RE.findall(text)
             if url not in failed:
                 succeeded.add(url)
             for link in links:
-                u = _normalize_url(link, url)
+                u = _normalize_url(link, document_url)
                 if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
                     if u not in queued:
                         if len(queued) < CRAWL_URL_LIMIT:
@@ -691,7 +701,7 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                     for param in PARAM_RE.finditer(u):
                         all_params.add(param.group(1))
             for script in scripts:
-                u = _normalize_url(script, url)
+                u = _normalize_url(script, document_url)
                 if u and _same_host(u, result.target_host) and is_in_scope(u, scope):
                     all_js.add(u)
             for m in URL_RE.finditer(text):
@@ -704,7 +714,7 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                     all_urls.add(u)
                     for param in PARAM_RE.finditer(u):
                         all_params.add(param.group(1))
-            _extract_forms(text, url, result)
+            _extract_forms(text, document_url, result)
             for m in PARAM_RE.finditer(url):
                 all_params.add(m.group(1))
             save()
@@ -812,7 +822,8 @@ def phase_analyze(result: ReconResult, scope=None) -> None:
         for m in api_endpoint_re.finditer(text):
             path = m.group("path")
             full = urllib.parse.urljoin(result.target, path)
-            endpoint_set.add(full)
+            if _same_host(full, result.target_host) and is_in_scope(full, active_scope):
+                endpoint_set.add(full)
 
         # Generic URL extraction from JS
         for m in URL_RE.finditer(text):

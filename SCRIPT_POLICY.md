@@ -34,6 +34,20 @@ promotion is reviewed. Repeated program-only utility belongs in that program's
 indexed script home; a generally useful pattern belongs in a BBH owner, not
 copied into several programs.
 
+For **new program-lane Python scratch scripts**, use the indexed
+`bbh scripts/scratch_scripts.py` helper (`create`, `describe`, `list`, `run`,
+`promote`; see `scripts/README.md`). It keeps a short candidate index at the
+resolved lane's `scripts/SCRATCH.md` and a per-run README under the existing
+Shared `working/_runs/<run-id>/_scratch/scripts/` path. Supply a description
+at creation and update it with `describe` when the purpose changes. Discover
+and inspect indexed candidates before reuse; indexing does not review their
+code. The `run` command records one invocation event and exit status, so its
+displayed count excludes direct launches. `promote --to bbh` is a proposal for
+the normal feature/review/integration lifecycle; a reviewed program-only script
+may be copied into the program's maintained `scripts/` home with its review and
+verification receipt. Do not silently promote a scratch script over a mature
+BBH owner.
+
 Multiple cohesive scripts are encouraged when they perform different jobs, have
 different interfaces, or need independent tests and lifecycles. Do not force
 unrelated behavior into one giant script merely to reuse a filename.

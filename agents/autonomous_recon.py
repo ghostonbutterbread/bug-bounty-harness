@@ -643,6 +643,8 @@ def phase_crawl(result: ReconResult, scope=None) -> None:
                     if not _same_host(page.url, result.target_host) or not is_in_scope(page.url, scope):
                         raise ValueError("Browser navigation left saved scope")
                     page.wait_for_timeout(1000)
+                    if navigation_redirect:
+                        raise RuntimeError("Scoped browser navigation redirect requires urllib fallback")
                     if route_failure:
                         raise RuntimeError("; ".join(route_failure))
                     text = page.content()

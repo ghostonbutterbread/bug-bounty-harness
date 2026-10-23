@@ -17,6 +17,7 @@ Treat the reference examples as idea patterns, not a fixed checklist. Adapt them
 4. Capture the baseline request, delivered link/code behavior, and final redemption/account result without storing raw links, tokens, cookies, passwords, or private email bodies.
 5. Read `references/ato-patterns.md`.
 6. Route focused lanes:
+   - whitespace/encoding, multiple emails, duplicate fields, or lookup-versus-delivery disagreement -> `references/recipient-parsing.md`; use `/bypass` for the observed parser/filter boundary
    - host/header-generated reset links -> `/headers`
    - user/account ID swapping -> `/access-control` or `/idor`
    - reset race or token mix-up -> `/race`

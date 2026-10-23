@@ -8,6 +8,8 @@ These are examples to adapt to the observed application. They are not mandatory 
 
 ## Email Recipient Confusion
 
+For whitespace/encoding, recipient lists, parameter pollution, or JSON shape signals, open [Recipient parsing mechanisms](recipient-parsing.md). It explains the transformations, owned-account controls, benign alternatives, and proof boundaries behind these examples; the strings below are not universal bypasses.
+
 Goal: determine whether the reset request parser can be confused into generating a victim-bound token while delivering mail to an attacker-controlled inbox.
 
 Examples to adapt:

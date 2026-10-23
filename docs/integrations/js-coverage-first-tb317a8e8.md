@@ -7,9 +7,9 @@
 - **Base commit:** `720e3e2ca8960837d891c3bfdc44396c63c139ef` fetched `origin/beta`
 - **Intended integration target:** local `beta` (parent handles integration; no push)
 - **Owning feature branch/ref:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `edbbd5b15b04270100404b4450cb2b30a897d3ce` (implementation `f734ec1`, merge `7403f01`, follow-up `edbbd5b`)
-- **Feature implementation commit(s):** `f734ec1`, `edbbd5b`
-- **Reconciled fetched beta:** `fbcf83efea7dc9a8091f3a7f77dcb42f71e77dbe` via merge `bee5fa4` (local beta unchanged)
+- **Latest immutable recovery checkpoint:** `8c0667d21e4160a6f6096560e0922dd8921c7072` (implementation `cb311e1`; integration still blocked)
+- **Feature implementation commit(s):** `f734ec1`, `edbbd5b`, `cb311e1`
+- **Reconciled fetched beta:** `218e86bcad37e6788cb8ecb326bb731afff81efa` via merge `8c0667d` (local beta unchanged)
 
 ## Intent and implemented contract
 
@@ -17,9 +17,9 @@ Remove the fixed 45-second parser deadline and isolate every comment scan under 
 
 ## Evidence and review
 
-- Fetched beta merge `bee5fa4`; `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 546 passed after repair; `git diff --check` clean. New regressions cover failed resume publication, paused unchanged budget, per-write floor, bounded bundle read and uncapped endpoint/parameter seeds.
+- Latest fetched beta merge `8c0667d`; `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_js_analyzer_wayback.py -q --tb=short` → 546 passed after that merge; `git diff --check` clean. New regressions cover failed resume publication, paused unchanged budget, per-write floor, bounded bundle read and uncapped endpoint/parameter seeds.
 - New local fixtures cover >8 MiB grammar scan, URL-limit resume and failed-attempt bound, disk-floor pause, retry after empty fetch, and interrupt before checkpoint commit.
-- Fetched `origin/beta` `fbcf83e` merged into this branch without conflict; no integration or push.
+- Fetched `origin/beta` `218e86b` merged into this branch without conflict; no integration or push.
 
 ## Blockers and deferred work
 
@@ -31,9 +31,9 @@ Remove the fixed 45-second parser deadline and isolate every comment scan under 
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/js-coverage-first-tb317a8e8`
-- **Latest immutable recovery checkpoint:** `bee5fa4` (beta reconciliation; follow-up implementation commit will supersede this checkpoint).
+- **Latest immutable recovery checkpoint:** `8c0667d21e4160a6f6096560e0922dd8921c7072` (implementation `cb311e1`; a dossier-only handoff commit follows).
 - **Exact resume point:** parent review of the release residuals before any integration; no feature integration or push performed.
-- **Working tree:** commit follow-up before handoff.
+- **Working tree:** clean after dossier handoff commit.
 
 ## Decision gates
 

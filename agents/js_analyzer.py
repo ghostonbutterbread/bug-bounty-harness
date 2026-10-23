@@ -13,8 +13,11 @@ import hashlib
 import html.parser
 import http.client
 import json
+import multiprocessing
 import os
 import re
+import resource
+import shutil
 import secrets
 import sqlite3
 import ssl
@@ -763,7 +766,11 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
     return dedupe(js_urls), page_records, inline_bodies
 
 
-SOURCE_MAP_PARSE_MAX_BYTES = 8 * 1024 * 1024
+# Dispatch threshold, not a coverage cutoff: every byte is parsed or reported.
+SOURCE_MAP_ISOLATE_BYTES = 8 * 1024 * 1024
+SOURCE_MAP_PARSE_MAX_BYTES = 0  # 0 disables the optional operator byte cap.
+SOURCE_MAP_WORKER_MEMORY = 1024 * 1024 * 1024
+SOURCE_MAP_WORKER_SECONDS = 45
 
 
 class SourceMapScanError(RuntimeError):
@@ -771,25 +778,17 @@ class SourceMapScanError(RuntimeError):
 
     def __init__(self, reason: str):
         self.reason = reason
-        action = ("install this checkout's requirements with bash setup.sh --install-python-deps"
-                  if reason == "parser_unavailable" else "review --source-map-parse-max-bytes and available memory")
+        action = {
+            "parser_unavailable": "install this checkout's requirements with bash setup.sh --install-python-deps",
+            "parse_limit": "raise --source-map-parse-max-bytes or omit it to scan the full bundle",
+            "parser_timeout": "review the oversized bundle locally; per-parse CPU fence was reached",
+            "parser_memory": "review the oversized bundle locally; per-parse memory fence was reached",
+        }.get(reason, "review parser diagnostics")
         super().__init__(f"source-map comment scan incomplete ({reason}); {action}")
 
 
-def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES) -> str:
-    """Read actual JavaScript comment nodes, preserving last-comment selection.
-
-    Parse the whole generated source rather than guessing lexical state from a
-    tail slice. Bound AST input and walk with a cursor, not a materialized node
-    list. Preserve conservative exclusion of all template-string contents.
-    """
-    if "sourceMappingURL" not in text:
-        return ""
-    if len(text) > max_bytes:
-        raise SourceMapScanError("parse_limit")
-    data = text.encode("utf-8")
-    if len(data) > max_bytes:
-        raise SourceMapScanError("parse_limit")
+def _parse_source_map_comments(data: bytes) -> str:
+    """Use the full JS grammar so regexes, templates and division cannot spoof comments."""
     try:
         from tree_sitter import Language, Parser
         import tree_sitter_javascript
@@ -817,6 +816,59 @@ def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MA
                     return found
     except MemoryError as exc:
         raise SourceMapScanError("parser_memory") from exc
+
+
+def _source_map_worker(data: bytes, connection) -> None:
+    """Fence one large AST; never let a malformed bundle exhaust the inventory."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        cap = min(SOURCE_MAP_WORKER_MEMORY, hard) if hard != resource.RLIM_INFINITY else SOURCE_MAP_WORKER_MEMORY
+        resource.setrlimit(resource.RLIMIT_AS, (cap, hard))
+        connection.send(("ok", _parse_source_map_comments(data)))
+    except SourceMapScanError as exc:
+        connection.send(("error", exc.reason))
+    except (MemoryError, OSError):
+        connection.send(("error", "parser_memory"))
+    finally:
+        connection.close()
+
+
+def last_source_map_directive(text: str, *, max_bytes: int = SOURCE_MAP_PARSE_MAX_BYTES) -> str:
+    """Scan the complete bundle; large ASTs are memory/CPU fenced per attempt.
+
+    An operator-supplied max_bytes may intentionally limit coverage; the default
+    has no byte cutoff. All unsuccessful scans have an explicit reason.
+    """
+    if "sourceMappingURL" not in text:
+        return ""
+    if max_bytes and len(text) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    data = text.encode("utf-8")
+    if max_bytes and len(data) > max_bytes:
+        raise SourceMapScanError("parse_limit")
+    if len(data) <= SOURCE_MAP_ISOLATE_BYTES:
+        return _parse_source_map_comments(data)
+    parent, child = multiprocessing.get_context("fork").Pipe(duplex=False)
+    worker = multiprocessing.get_context("fork").Process(target=_source_map_worker, args=(data, child))
+    try:
+        worker.start()
+        child.close()
+        if not parent.poll(SOURCE_MAP_WORKER_SECONDS):
+            raise SourceMapScanError("parser_timeout")
+        try:
+            status, result = parent.recv()
+        except EOFError as exc:
+            raise SourceMapScanError("parser_memory") from exc
+        if status == "error":
+            raise SourceMapScanError(result)
+        return result
+    finally:
+        if worker.pid and worker.is_alive():
+            worker.terminate()
+        if worker.pid:
+            worker.join()
+        parent.close()
+        child.close()
 
 
 def extract_signals(
@@ -2219,9 +2271,12 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 def command_inventory(args: argparse.Namespace) -> int:
     if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
-            or args.source_map_max_bytes <= 0 or args.source_map_parse_max_bytes <= 0
+            or args.source_map_max_bytes <= 0 or (args.source_map_parse_max_bytes is not None and args.source_map_parse_max_bytes <= 0)
+            or args.disk_free_floor_gib < 0
             or args.delay < 0 or args.timeout <= 0):
         raise SystemExit("source-map byte/capture/time limits must be positive; request limit and delay must be non-negative")
+    if args.source_map_parse_max_bytes is None:
+        args.source_map_parse_max_bytes = SOURCE_MAP_PARSE_MAX_BYTES
     if args.chunk_size <= 0 or args.chunk_overlap < 0 or args.chunk_overlap >= args.chunk_size:
         raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
     if args.source_map_max_packets < 0 or args.source_map_max_expanded_bytes < 0:
@@ -2276,16 +2331,45 @@ def command_inventory(args: argparse.Namespace) -> int:
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
     normalized_urls.extend(inline_bodies)
-    if args.limit:
-        normalized_urls = normalized_urls[: args.limit]
+    input_id = hashlib.sha256(json.dumps(normalized_urls, ensure_ascii=False).encode("utf-8")).hexdigest()
+    checkpoint_path = root / "checkpoint.json"
+    checkpoint = None
+    if args.resume:
+        if not args.run_id or not checkpoint_path.exists():
+            raise SystemExit("--resume requires the original --run-id and checkpoint.json")
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if checkpoint.get("input_id") != input_id or checkpoint.get("run_id") != run_id:
+            raise SystemExit("resume input/run id differs from the checkpoint; original URL order is required")
 
-    records: list[JsRecord] = []
-    packet_rows: list[dict] = []
-    source_map_module_rows: list[dict] = []
-    source_map_packet_budgets: list[dict] = []
-    external_integration_rows: list[ExternalIntegration] = []
-    provenance_rows: list[JsProvenance] = []
-    provenance_rows_by_url: dict[str, list[dict]] = {}
+    records: list[JsRecord] = [JsRecord(**row) for row in checkpoint["records"]] if checkpoint else []
+    packet_rows: list[dict] = checkpoint["packet_rows"] if checkpoint else []
+    source_map_module_rows: list[dict] = checkpoint["source_map_module_rows"] if checkpoint else []
+    source_map_packet_budgets: list[dict] = checkpoint["source_map_packet_budgets"] if checkpoint else []
+    external_integration_rows: list[ExternalIntegration] = [ExternalIntegration(**row) for row in checkpoint["external_integration_rows"]] if checkpoint else []
+    provenance_rows: list[JsProvenance] = [JsProvenance(**row) for row in checkpoint["provenance_rows"]] if checkpoint else []
+    provenance_rows_by_url: dict[str, list[dict]] = checkpoint["provenance_rows_by_url"] if checkpoint else {}
+    succeeded: list[str] = checkpoint["succeeded"] if checkpoint else []
+    published_urls: list[str] = checkpoint.get("published_urls", []) if checkpoint else []
+    retryable_failed: dict[str, str] = checkpoint["retryable_failed"] if checkpoint else {}
+    paused_reason = ""
+
+    def save_checkpoint() -> None:
+        # Publish only after all artifacts for a URL have been written. A crash
+        # before this point retries that URL; deterministic packet paths are safe.
+        write_text_atomic(checkpoint_path, json.dumps({
+            "run_id": run_id, "input_id": input_id, "intended_urls": normalized_urls,
+            "succeeded": succeeded, "retryable_failed": retryable_failed,
+            "published_urls": published_urls,
+            "records": [asdict(row) for row in records], "packet_rows": packet_rows,
+            "source_map_module_rows": source_map_module_rows,
+            "source_map_packet_budgets": source_map_packet_budgets,
+            "external_integration_rows": [asdict(row) for row in external_integration_rows],
+            "provenance_rows": [asdict(row) for row in provenance_rows],
+            "provenance_rows_by_url": provenance_rows_by_url,
+        }, ensure_ascii=False) + "\n")
+
+    if not checkpoint:
+        save_checkpoint()
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
@@ -2293,6 +2377,27 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_maps_reused = 0
     source_maps_too_large = 0
     for index, url in enumerate(normalized_urls, start=1):
+        if url in succeeded:
+            continue
+        if args.limit and len(succeeded) >= args.limit:
+            paused_reason = "url_limit"
+            break
+        if args.disk_free_floor_gib:
+            floor = args.disk_free_floor_gib * 1024 ** 3
+            if any(shutil.disk_usage(path if path.exists() else next(parent for parent in path.parents if parent.exists())).free < floor
+                   for path in (root, library_root, integration_index_root)):
+                paused_reason = "disk_floor"
+                break
+        # An earlier failed attempt may have produced partial metadata. Replace
+        # its rows on retry, leaving immutable content-addressed artifacts intact.
+        if url in retryable_failed:
+            records[:] = [row for row in records if row.url != url]
+            packet_rows[:] = [row for row in packet_rows if row.get("url") != url]
+            source_map_module_rows[:] = [row for row in source_map_module_rows if row.get("bundle_url") != url]
+            provenance_rows[:] = [row for row in provenance_rows if row.js_url != url]
+            provenance_rows_by_url.pop(url, None)
+            external_integration_rows[:] = [row for row in external_integration_rows if row.found_in_js_url != url]
+            retryable_failed.pop(url)
         observed_non_js_suffix = (
             url not in page_urls and url not in inline_bodies
             and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
@@ -2301,6 +2406,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
             if cached_artifact:
                 skipped_cached_urls += 1
+                succeeded.append(url)
+                save_checkpoint()
                 sha, artifact_path = cached_artifact
                 print(
                     f"[{index}/{len(normalized_urls)}] {url} -> skipped cached "
@@ -2330,12 +2437,16 @@ def command_inventory(args: argparse.Namespace) -> int:
                 body, status, content_type = response
                 map_header = getattr(response, "map_header", ("", ""))
             if not body and (args.source_map_wayback == "off" or args.source_maps == "off"):
+                retryable_failed[url] = "bundle_unavailable"
+                save_checkpoint()
                 continue
         current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
         if not current_available:
             # An HTTP error body (or an empty/failed fetch) is not JavaScript.
             # Retain status/history metadata for archive fallback, not live bytes.
             if args.source_map_wayback == "off" or args.source_maps == "off":
+                retryable_failed[url] = "bundle_unavailable"
+                save_checkpoint()
                 continue
             body = b""
             map_header = ("", "")
@@ -2345,6 +2456,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             if (not isinstance(status, int) or not 200 <= status < 300
                     or not is_js_content_type(content_type)):
                 print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
+                retryable_failed[url] = "non_js_response"
+                save_checkpoint()
                 continue
         digest = ""
         artifact_path: Path | None = None
@@ -2607,6 +2720,16 @@ def command_inventory(args: argparse.Namespace) -> int:
             print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
         else:
             print(f"[{index}/{len(normalized_urls)}] {url} -> current unavailable ({status}), historical={record.source_map_history.get('status', 'off')}", file=sys.stderr)
+        if source_map_status in {"scan_failed", "fetch_failed", "too_large", "invalid"}:
+            retryable_failed[url] = f"source_map_{source_map_status}"
+        elif any(row["packet_status"] == "truncated_by_budget" for row in source_map_module_rows if row["bundle_url"] == url):
+            retryable_failed[url] = "module_budget"
+        elif not current_available and record.source_map_history.get("status") not in {"recovered", "cached"}:
+            retryable_failed[url] = "bundle_unavailable"
+        else:
+            succeeded.append(url)
+        save_ledger(ledger_path, ledger)
+        save_checkpoint()
 
     save_ledger(ledger_path, ledger)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -2631,16 +2754,35 @@ def command_inventory(args: argparse.Namespace) -> int:
     write_jsonl(root / "page_context.jsonl", page_records)
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
-    if metadata_rows:
-        append_jsonl(library_metadata_path, metadata_rows)
-    if provenance_rows:
-        append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
+    new_metadata = [row for row in metadata_rows if row["url"] not in published_urls]
+    new_provenance = [row for row in provenance_rows if row.js_url not in published_urls]
+    if new_metadata:
+        append_jsonl(library_metadata_path, new_metadata)
+    if new_provenance:
+        append_jsonl(library_provenance_path, (asdict(row) for row in new_provenance))
         write_provenance_table(js_info_db_path, iter_jsonl(library_provenance_path))
     if metadata_rows or packet_rows:
         write_metadata_db(js_info_db_path, iter_jsonl(library_metadata_path), packet_rows)
         write_observations_table(js_info_db_path, iter_jsonl(library_observations_path))
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
+    published_urls.extend(row["url"] for row in new_metadata if row["url"] in succeeded and row["url"] not in published_urls)
+    save_checkpoint()
+    pending_urls = [url for url in normalized_urls if url not in succeeded]
+    pending_path = root / "pending_urls.txt"
+    write_text_atomic(pending_path, "".join(f"{url}\n" for url in pending_urls))
     manifest = {
+        "coverage_state": {
+            "status": "complete" if not pending_urls else "incomplete",
+            "input_id": input_id,
+            "intended_count": len(normalized_urls),
+            "succeeded": succeeded,
+            "retryable_failed": retryable_failed,
+            "pending": pending_urls,
+            "pause_reason": paused_reason,
+            "checkpoint": str(checkpoint_path),
+            "pending_input": str(pending_path),
+        },
+        "disk_free_floor_gib": args.disk_free_floor_gib,
         "program": args.program,
         "run_id": run_id,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -2741,6 +2883,7 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--page-context", default="", help="Short context such as login/auth, billing, editor")
     inv.add_argument("--target-host", help="Host or parent domain to constrain JS URLs")
     inv.add_argument("--run-id", help="Stable run id")
+    inv.add_argument("--resume", action="store_true", help="Resume a partial run from its checkpoint; requires the same input and run id")
     inv.add_argument("--output-root", help="Override output root")
     inv.add_argument("--library-root", help="Override shared JS library root")
     inv.add_argument("--config", help="Optional JSON config for default roots")
@@ -2753,7 +2896,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="For exact URL aliases already mapped to an existing cached artifact, skip signal extraction, chunking, packet generation, metadata, provenance, and DB updates",
     )
-    inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
+    inv.add_argument("--limit", type=int, help="Maximum JS URLs per run; remaining URLs are written to pending_urls.txt")
+    inv.add_argument("--disk-free-floor-gib", type=float, default=5.0,
+                     help="Pause before the next URL if output or library filesystem has less free space (default: 5 GiB; 0 disables)")
     inv.add_argument(
         "--header",
         action="append",
@@ -2781,8 +2926,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=500,
         help="Maximum embedded source modules to turn into review packets; all module names remain inventoried",
     )
-    inv.add_argument("--source-map-parse-max-bytes", type=int, default=SOURCE_MAP_PARSE_MAX_BYTES,
-                     help="Maximum UTF-8 bundle bytes to parse for comment declarations (default: 8 MiB); response headers bypass this budget; omitted scans are reported explicitly")
+    inv.add_argument("--source-map-parse-max-bytes", type=int, default=None,
+                     help="Optional explicit UTF-8 bundle byte cap; default parses full bundle in a resource-fenced child above 8 MiB; response headers bypass parsing")
     inv.add_argument("--source-map-max-packets", type=int, default=1000, help="Maximum source-map review packets per bundle")
     inv.add_argument("--source-map-wayback", choices=("off", "auto"), default="off", help="Opt in to bounded historical map/bundle recovery from Internet Archive; sends original asset URLs to archive (default: off; ignored with --source-maps off); program headers are never sent")
     inv.add_argument("--source-map-wayback-max-requests", type=int, default=20, help="Maximum archive requests for the entire run")

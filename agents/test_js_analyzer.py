@@ -774,7 +774,10 @@ def test_limit_bounds_inline_script_inventory(tmp_path: Path):
     rows = (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert len(rows) == 1
-    assert manifest["js_urls_seen"] == 1
+    assert manifest["js_urls_seen"] == 2
+    assert manifest["coverage_state"]["status"] == "incomplete"
+    assert manifest["coverage_state"]["pause_reason"] == "url_limit"
+    assert len(manifest["coverage_state"]["pending"]) == 1
 
 
 def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
@@ -1515,3 +1518,77 @@ def test_param_name_does_not_backtrack_on_inline_base64_source_map():
     start = time.monotonic()
     J.extract_signals(snippet, "https://app.example/app.js")
     assert time.monotonic() - start < 5.0
+
+
+def test_large_bundle_comment_scan_uses_full_input_and_ignores_decoy():
+    body = 'const decoy="//# sourceMappingURL=fake.map";\n' + '/*' + 'x' * (8 * 1024 * 1024) + '*/\n//# sourceMappingURL=real.map\n'
+    assert J.last_source_map_directive(body) == 'real.map'
+
+
+def test_inventory_resume_after_url_limit_keeps_intended_boundary(tmp_path: Path):
+    urls = [f'https://app.example.com/{i}.js' for i in range(2)]
+    source = tmp_path / 'urls.txt'
+    source.write_text('\n'.join(urls) + '\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        assert J.main(base + ['--limit', '1']) == 0
+        first = json.loads((tmp_path / 'out' / 'manifest.json').read_text())
+        assert first['coverage_state']['pending'] == [urls[1]]
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 2
+    final = json.loads((tmp_path / 'out' / 'manifest.json').read_text())
+    assert final['coverage_state']['status'] == 'complete'
+    assert len(J.read_jsonl(tmp_path / 'out' / 'metadata.jsonl')) == 2
+    assert len(J.read_jsonl(tmp_path / 'lib' / 'metadata.jsonl')) == 2
+    assert (tmp_path / 'out' / 'pending_urls.txt').read_text() == ''
+
+
+def test_inventory_disk_floor_pause_then_resume(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        assert J.main(base + ['--disk-free-floor-gib', '999999']) == 0
+        state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+        assert state['status'] == 'incomplete' and state['pause_reason'] == 'disk_floor'
+        fetch.assert_not_called()
+        assert J.main(base + ['--resume']) == 0
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_inventory_failed_fetch_remains_partial_and_retryable(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    with patch.object(J, 'http_get', side_effect=[(b'', None, ''), (b'const ok = 1;', 200, 'application/javascript')]) as fetch:
+        assert J.main(base) == 0
+        state = json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']
+        assert state['status'] == 'incomplete' and len(state['retryable_failed']) == 1
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 2
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'
+
+
+def test_checkpoint_after_artifact_before_commit_retries_url(tmp_path: Path):
+    source = tmp_path / 'urls.txt'
+    source.write_text('https://app.example.com/a.js\n')
+    base = ['inventory', 'demo', '--input', str(source), '--target-host', 'example.com',
+            '--run-id', 'stable', '--output-root', str(tmp_path / 'out'),
+            '--library-root', str(tmp_path / 'lib'), '--integration-index-root', str(tmp_path / 'integrations')]
+    real = J.write_text_atomic
+    def interrupt(path, text):
+        if path.name == 'checkpoint.json' and '"succeeded": ["https://app.example.com/a.js"]' in text:
+            raise RuntimeError('interrupted before checkpoint commit')
+        return real(path, text)
+    with patch.object(J, 'http_get', return_value=(b'const ok = 1;', 200, 'application/javascript')) as fetch:
+        with patch.object(J, 'write_text_atomic', side_effect=interrupt), pytest.raises(RuntimeError):
+            J.main(base)
+        assert J.main(base + ['--resume']) == 0
+        assert fetch.call_count == 1  # replay uses the saved content-addressed download
+    assert json.loads((tmp_path / 'out' / 'manifest.json').read_text())['coverage_state']['status'] == 'complete'

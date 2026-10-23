@@ -118,6 +118,22 @@ When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
 exhaustive or correct.
 
+## Coverage-Preserving Resource Safety
+
+For BBH inventory, crawl, extraction, and analysis scripts, follow the shared
+`script-manager` coverage contract: define a scoped input snapshot or discovery
+stop condition, preserve discovered and pending work, and report partial runs
+honestly. An open-ended crawl must not expand beyond authorized scope or claim
+completion merely because a depth, page, or JS-count budget stopped discovery.
+Heuristic static seeds remain non-exhaustive even after every discovered item
+is processed.
+
+Apply `resource-safety-policy` to memory, CPU, output-filesystem free space,
+and finite per-attempt network calls. Preserve BBH's applicable scope, rate,
+cleanup, and evidence rules. A resource pause or failed request must leave a
+retryable checkpoint; no batch limit or whole-run speed deadline should silently
+remove a scoped item from the run.
+
 ## Manager and Other-Agent Maintenance Boundary
 
 Hermes is the repository manager and may edit code, skills, and policies within

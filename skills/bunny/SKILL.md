@@ -35,6 +35,16 @@ Use a worker-spawn mechanism that really applies the selected model/provider to 
 
 Follow `agents/index.md`, `general-security-testing-policy`, published program scope/rules, and the relevant live, account, browser, proxy, attempts, class, recon, verification, and reporting owners. Every live worker gets its own selected policy chain, scoped packet, rate/ownership limits, evidence destination, and stop condition; it does not inherit the coordinator's context or authority. The coordinator accounts for **aggregate** program traffic, conflicting owned fixtures, and distinct surface leases. Use existing BBH memory and evidence stores; MapStore is not a task queue.
 
+If assigning a specific script job, the coordinator follows `agents/index.md`
+→ `SCRIPT_POLICY.md` **before naming tooling** and includes the short
+`reuse <owner and index> | extend <owner and missing case> | new <distinct job,
+home, and gap>` decision. For exploratory packets without a known script job,
+the worker checks the relevant skill's script map when scripting becomes useful
+and reports its choice before creating or promoting a helper. A worker may
+revise the coordinator's selection on evidence rather than blindly building it.
+This applies to recon as well as hunters; temporary scratch exploration remains
+possible.
+
 Begin with one exact owned account when authentication is needed. Request another approved owned account for distinct roles/principals, cross-account comparisons, or incompatible sessions—not as a universal start gate. Never put secrets in packets, silently switch identity, or share a browser controller. A logout is a diagnostic event for the browser provisioner, not proof of a same-account session rule. Docker isolation is a separate decision, not a prerequisite of Bunny.
 
 Workers' observations and evidence are not findings by themselves. Independently verify credible candidates before report preparation; after ledger/FID capture and populated `EVIDENCE.md`, load the standalone `bunny-report-and-triage` skill directly for the final FID-named report. Return it for independent review and path registration; do not automatically submit externally. This report skill is also used for ordinary hunts without enabling Bunny campaign orchestration. The coordinator records the next decision and preserves exact attempts, stable facts, and deferred hypotheses through their existing owners.

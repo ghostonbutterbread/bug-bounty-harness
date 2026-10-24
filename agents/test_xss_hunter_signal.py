@@ -90,3 +90,121 @@ def test_script_tag_inside_html_comment_remains_comment() -> None:
         assert not result.likely_executable
     finally:
         hunter.close()
+
+
+def test_js_string_code_token_remains_data_not_finding() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = "alert(1)"
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_STRING
+        assert result.reflected
+        assert not result.likely_executable
+        assert not hunter._is_finding(result)
+    finally:
+        hunter.close()
+
+
+def test_js_string_matching_quote_breakout_remains_candidate_not_browser_proof() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '";alert(1)//'
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_STRING
+        assert result.likely_executable
+        assert hunter._is_finding(result)
+        assert hunter._build_finding(result).type == "reflected"
+    finally:
+        hunter.close()
+
+
+def test_escaped_quote_in_js_string_does_not_break_out() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '\\";alert(1)//'
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.reflected
+        assert not result.likely_executable
+    finally:
+        hunter.close()
+
+
+def test_js_template_escaped_interpolation_remains_data() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = r'\${alert(1)}'
+    baseline = httpx.Response(200, text='<script>const v = `baseline`;</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = `{payload}`;</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_TEMPLATE
+        assert not result.likely_executable
+    finally:
+        hunter.close()
+
+
+def test_js_template_interpolation_is_distinct_candidate() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '${alert(1)}'
+    baseline = httpx.Response(200, text='<script>const v = `baseline`;</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = `{payload}`;</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_TEMPLATE
+        assert result.likely_executable
+        assert hunter._is_finding(result)
+    finally:
+        hunter.close()
+
+
+def test_template_syntax_inside_ordinary_js_string_remains_data() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '${alert(1)}'
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_STRING
+        assert not result.likely_executable
+    finally:
+        hunter.close()
+
+
+def test_script_tag_breakout_is_separate_candidate() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '</ScRiPt><svg onload=alert(1)>'
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.reflected
+        assert result.likely_executable
+        assert hunter._is_finding(result)
+    finally:
+        hunter.close()
+
+
+def test_other_quote_inside_js_string_does_not_break_out() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = "';alert(1)//"
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "{payload}";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.reflected
+        assert not result.likely_executable
+    finally:
+        hunter.close()

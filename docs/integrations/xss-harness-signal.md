@@ -1,6 +1,6 @@
 # XSS harness signal repair integration dossier
 
-- **Status:** feature (final comment/query-mode release blockers repaired; awaiting independent re-review)
+- **Status:** feature (comment/query-mode and JS-string false-positive repairs verified offline; awaiting independent re-review)
 - **Owner:** bugfix subagent
 - **Branch / owning ref:** `fix/xss-harness-signal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-harness-signal`
@@ -13,7 +13,7 @@
 
 ## Intent and implemented contract
 
-Correct marker-context classification from the marker's actual location, including unquoted attributes and JS strings containing HTML comment delimiters; preserve discovered parameter identity by route and non-probe query fields (such as `view=html` versus `view=json`) and probe that URL through screening, reflected, adaptive, and stored phases. Probe value changes and query-order changes within the same mode still dedupe by priority. Final finding dedupe retains distinct routes. Escaped markup and raw markup inside an HTML comment are not executable hunter candidates. Intact framework echoes wholly inside HTML comments remain Attempts, not findings; HTML comment breakouts and active echoes outside the comment remain candidates. This applies to standard and adaptive reflected paths. Blocked HTTP echoes produce Attempts, not findings, and tier progression continues past three blocked probes to deeper plausible variants. Framework HTTP probes record `reflected_intact`, never `executed`; only the optional Playwright browser verifier may set `confirmed`. CLI flags and JSON finding fields are unchanged. Heuristic candidates remain unconfirmed and require consumer/browser proof. No live target requests were made in this task.
+Correct marker-context classification from the marker's actual location, including unquoted attributes and JS strings containing HTML comment delimiters; preserve discovered parameter identity by route and non-probe query fields (such as `view=html` versus `view=json`) and probe that URL through screening, reflected, adaptive, and stored phases. Probe value changes and query-order changes within the same mode still dedupe by priority. Final finding dedupe retains distinct routes. Escaped markup and raw markup inside an HTML comment are not executable hunter candidates. Intact framework echoes wholly inside HTML comments remain Attempts, not findings; HTML comment breakouts and active echoes outside the comment remain candidates. This applies to standard and adaptive reflected paths. Blocked HTTP echoes produce Attempts, not findings, and tier progression continues past three blocked probes to deeper plausible variants. Framework HTTP probes record `reflected_intact`, never `executed`; only the optional Playwright browser verifier may set `confirmed`. CLI flags and JSON finding fields are unchanged. Heuristic candidates remain unconfirmed and require consumer/browser proof. JS-string/template reflections are now candidates only with a matching unescaped quote plus a statement-shaped call, active markup after an HTML script close, or an unescaped interpolation in an actual backtick template; inert `alert(1)` data and `${...}` in ordinary strings remain Attempts, not findings. Distinct quote, script-tag and interpolation mechanisms remain eligible independently. This is a conservative heuristic, not a full JavaScript parser or browser proof. No live target requests were made in this task.
 
 ## Evidence and review
 
@@ -25,6 +25,8 @@ Correct marker-context classification from the marker's actual location, includi
 - Independent re-review: pending parent/integration owner. Merge/ancestry evidence: base exactly `origin/beta` at branch creation and after fresh fetch; no merge or push. Source branch is this feature branch; no affected integrated descendants or propagation yet.
 - Final release review regressions: `python3 -m pytest agents/test_xss_framework.py -q -k 'preserves_render_mode or reflected_comment_echo'` → 2 failed before fixes (query-mode merge and inert comment promoted to finding). Adaptive comment fixture also failed before its repair. Final offline suite: `python3 -m pytest agents/test_xss_framework.py agents/test_xss_hunter_signal.py agents/test_xss_source_sites.py agents/test_xss_sink_sites.py -q` → 208 passed; `git diff --check` clean. `origin/beta` remains `ca76506` after fetch. No target traffic.
 
+- JS-string reviewer follow-up: offline `alert(1)` inside `const v = "..."` and mismatched quote both failed as false-positive candidates before the patch. Escaped template interpolation and mixed-case script close had focused red receipts during the repair. Final `python3 -m pytest agents/test_xss_hunter_signal.py agents/test_xss_framework.py agents/test_xss_source_sites.py agents/test_xss_sink_sites.py -q` → 216 passed; `git diff --check` clean. No browser proof, target traffic, merge, or push.
+
 ## Blockers and deferred work
 
 - Independent release review and beta integration are reserved for parent; rerun focused suite after integration. No browser/target execution was authorized. Browser proof is a per-finding downstream gate, not an integration test performed here.
@@ -34,8 +36,8 @@ Correct marker-context classification from the marker's actual location, includi
 
 - **Owning ref:** `fix/xss-harness-signal`
 - **Latest immutable recovery checkpoint:** `2a8ff65ad75d387f52c29ee0c4787ddcbedc2039` (a subsequent dossier-only commit records this SHA).
-- **Exact resume point:** independently re-review the comment/query-mode repair and focused tests; fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
-- **Working-tree state at handoff:** clean after repair commit.
+- **Exact resume point:** independently re-review the JS-string/template candidate heuristic and prior comment/query-mode repair; rerun focused tests and fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
+- **Working-tree state at handoff:** commit and verify clean before handing off.
 
 ## Decision gates
 
@@ -48,3 +50,4 @@ Correct marker-context classification from the marker's actual location, includi
 - 2026-10-24 — Created branch-local repair, offline regression tests and scoped docs clarification; review found P1/P2 regressions.
 - 2026-10-24 — Corrected comment/blocked response candidate gating, deep-tier continuation, route-aware final dedupe, and context classification; re-review required before integration.
 - 2026-10-24 — Final review blocked on inert framework comment finding and collapsed query render modes. Repaired both with offline red/green fixtures; independent re-review remains required.
+- 2026-10-24 — Subsequent review found JS quoted data `alert(1)` promoted by token-only classification. Restricted candidate evidence to context breaks, covered inert and distinct breakout fixtures offline; independent review remains required.

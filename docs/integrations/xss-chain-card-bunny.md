@@ -1,6 +1,6 @@
 # XSS chain-card Bunny integration dossier
 
-- **Status:** feature
+- **Status:** review-ready (independent Bunny contract review passed; integration pending)
 - **Owner:** Hermes
 - **Branch:** `feat/xss-chain-cards-harness`
 - **Base commit:** `ca76506b830880c691316e8912a83ec50e4d313f`
@@ -21,8 +21,8 @@ The existing campaign record carries mapped/connected/defended path cards with w
 
 ## Evidence and review
 
-- Tests and commands: pending focused static review and independent reviewer.
-- Independent review: pending.
+- Tests and commands: `git diff --check` clean; skill contract reviewed for evidence ownership and no automatic target traffic. No live cohort executed.
+- Independent review: bounded external review found no concrete blocker in Bunny card contract at `9f51669`; distinct hybrid/Hunter branches independently passed focused acceptance review.
 - Replay/cohort/fixture evidence: no target traffic; a live campaign uptake check is deferred until beta projection is activated separately.
 - Merge/ancestry evidence: feature starts at fetched `origin/beta` `ca76506`.
 

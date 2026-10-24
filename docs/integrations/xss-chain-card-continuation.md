@@ -1,6 +1,6 @@
 # XSS chain-card continuation integration dossier
 
-- **Status:** feature (handoff for independent review)
+- **Status:** feature (review fixes applied; handoff for independent re-review)
 - **Owner:** focused hybrid-runner agent
 - **Branch / owning ref:** `feat/xss-chain-card-continuation`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-chain-card-continuation`
@@ -19,15 +19,15 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 
 - Planning creates `worker_packets/<id>-mapped.md` from selected route and literal parameter names, citing `classification.jsonl`, marking consumer unknown and no connected edge. Query values are not copied into this card.
 - The worker packet routes through `xss`, not just DOM/reflected classes; it specifies one optional `handoff.json` with source/field route, consumer, mapped/connected state, observed basis, candidate chain, blocker, exact unknown, discriminator, and existing run-relative evidence pointers.
-- After a **completed** worker, the runner validates a single XSS handoff against that packet's routes and named fields, ensures referenced files resolve within the run, and requires worker-owned evidence for a worker-reported connected edge. It emits `continuations/<id>.md` and `continuation_state.json`; invalid or incomplete input yields no continuation. These are ephemeral review packets, not MapStore/Leads/Coverage records. The reviewer must inspect the cited evidence and use canonical writers for reusable facts and deliberate tests.
+- After a **completed** worker, the runner validates a single XSS handoff against that packet's routes and named query fields; body fields are optional observed enrichment only when a separate worker-owned structured JSON observation records the exact route/location/key and is cited by the handoff. It ensures referenced files resolve within the run and requires worker-owned evidence for a worker-reported connected edge. A connected card requires an explicit sink-context category; absence remains usable for a mapped card. Generated cards retain structural provenance and review pointers, but never copy untrusted handoff prose or raw evidence pointers. Worker observations are claims for reviewer verification, not independently proven request captures. On rerun, the runner clears prior continuation and state before execution, including when the worker fails or is incomplete. It emits `continuations/<id>.md` and `continuation_state.json`; invalid or incomplete input yields no continuation. These are ephemeral review packets, not MapStore/Leads/Coverage records. The reviewer must inspect the cited evidence and use canonical writers for reusable facts and deliberate tests.
 - `execute_plan` return shape and deep-dive stdout remain unchanged. The runner never starts a continuation worker from untrusted handoff content.
 
 ## Evidence and review
 
-- `python3 -m pytest -q agents/test_hybrid_runner.py` → 15 passed (offline, mock CLI for continuation path).
+- `python3 -m pytest -q agents/test_hybrid_runner.py` → 17 passed (offline, mock CLI for continuation path; rerun after review repairs).
 - `git diff --check` → clean.
-- Tests cover route/field pairing, absent consumer, connected handoff packet, rejected wrong field/route, missing/escaped evidence, malformed JSON, and incomplete worker skip. No target traffic occurred.
-- Independent review: pending parent/reviewer.
+- Tests cover route/field pairing, absent consumer, connected handoff packet, rejected wrong field/route, missing/escaped evidence, malformed JSON, incomplete worker skip, body-key observation mismatch, free-text omission, explicit connected sink context, and failed-rerun stale-card cleanup. No target traffic occurred.
+- Independent review: prior P1/P2 feedback addressed; re-review pending parent/reviewer.
 - Merge/ancestry: feature based on fetched `origin/beta` at base SHA; no merge/push requested.
 
 ## Blockers and deferred work
@@ -40,7 +40,7 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 - **Owning feature branch/ref:** `feat/xss-chain-card-continuation`
 - **Latest immutable recovery checkpoint:** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`; inspect any later dossier-only tip too.
 - **Feature implementation commit(s):** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`.
-- **Exact resume point:** review `agents/hybrid_runner.py` and tests, then decide integration into `beta`.
+- **Exact resume point:** independently re-review P1/P2 repair against the implementation and offline tests, then decide integration into `beta`.
 - **Working-tree state at handoff:** expected clean after feature commit.
 
 ## Decision gates
@@ -51,4 +51,5 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 
 ## Decision record
 
-- 2026-10-24 — implemented bounded review-only continuation, offline suite green; implementation checkpoint committed, independent review pending.
+- 2026-10-24 — implemented bounded review-only continuation, offline suite green; implementation checkpoint committed, independent review found P1/P2 issues.
+- 2026-10-24 — addressed body-key provenance, generated-card text safety, explicit connected sink context, and stale rerun cleanup; offline suite 17 passed, re-review pending.

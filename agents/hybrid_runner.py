@@ -502,11 +502,22 @@ Required files:
 
 For an XSS continuation, write one `handoff.json` object with `source_route`
 (host + path, without query values), `input_field` (literal named parameter or
-`(path only)`), `consumer` (`unknown` if not observed), `chain_state` (`mapped`
-or `connected`), `observed_basis`, `candidate_chain`, `blocker` (`none` if no
-prerequisite), `unknown`, `next_discriminator`, and `evidence_refs` (nonempty
-list of existing run-relative artifact paths, e.g. `classification.jsonl` and
-`workers/{packet.packet_id}/summary.md`). A mapped name or sink is not a
+`(path only)`), optional `input_location` (`query`, `path`, or `body`; default
+`query` for named URL parameters), and `input_evidence_ref` for a body key
+(an existing worker-owned run-relative JSON observation containing the same
+`source_route`, `input_location: body`, and `input_field`; record names only,
+never request values). Body keys are not inferred
+from an API route: cite the observed request/key and leave it for reviewer
+verification. Include `consumer` (`unknown` if not observed), `sink_context`
+(`unknown`, `HTML text`, `HTML attribute`, `JavaScript`, `URL`, `DOM HTML`,
+or `other`; name the precise sink in the cited handoff/evidence),
+`chain_state` (`mapped` or `connected`), `observed_basis`, `candidate_chain`,
+`blocker` (`none` if no prerequisite), `unknown`, `next_discriminator`, and
+`evidence_refs` (nonempty list of existing run-relative artifact paths, e.g.
+`classification.jsonl` and `workers/{packet.packet_id}/summary.md`). Do not
+place credentials, query values, or synthetic examples in these fields. The
+review card does not reproduce free-text handoff claims; inspect handoff and
+cited evidence before promoting any observation. A mapped name or sink is not a
 connected source-to-consumer edge. `connected` requires evidence for the actual
 edge, not a name/proximity match. Do not claim XSS without execution proof.
 The runner validates this handoff and writes a review-only follow-up packet;
@@ -704,12 +715,25 @@ def _validated_xss_handoff(path: Path, packet: Mapping[str, Any], output_root: P
         raise ValueError("missing-or-invalid-card-field")
     if handoff["chain_state"] not in {"mapped", "connected"}:
         raise ValueError("invalid-chain-state")
+    context = handoff.get("sink_context", "unknown")
+    if not isinstance(context, str) or context not in {"unknown", "HTML text", "HTML attribute", "JavaScript", "URL", "DOM HTML", "other"}:
+        raise ValueError("invalid-sink-context")
     routes = _xss_routes(packet)
     route = handoff["source_route"]
-    if route not in routes or handoff["input_field"] not in (routes[route] or {"(path only)"}):
+    field = handoff["input_field"]
+    location = handoff.get("input_location", "path" if field == "(path only)" else "query")
+    if not isinstance(location, str) or route not in routes or location not in {"query", "path", "body"}:
+        raise ValueError("source-not-in-packet")
+    if location == "query" and field not in routes[route]:
+        raise ValueError("source-not-in-packet")
+    if location == "path" and (field != "(path only)" or routes[route]):
+        raise ValueError("source-not-in-packet")
+    if location == "body" and (field == "(path only)" or not field.strip()):
         raise ValueError("source-not-in-packet")
     if handoff["chain_state"] == "connected" and handoff["consumer"] == "unknown":
         raise ValueError("connected-without-consumer")
+    if handoff["chain_state"] == "connected" and context == "unknown":
+        raise ValueError("connected-without-sink-context")
     refs = handoff.get("evidence_refs")
     if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
         raise ValueError("missing-evidence")
@@ -719,11 +743,24 @@ def _validated_xss_handoff(path: Path, packet: Mapping[str, Any], output_root: P
         target = (output_root / ref).resolve()
         if not target.is_relative_to(output_root.resolve()) or not target.is_file():
             raise ValueError("evidence-outside-run-or-missing")
+    worker_prefix = f"workers/{packet['packet_id']}/"
     if handoff["chain_state"] == "connected" and not any(
-        ref.startswith(f"workers/{packet['packet_id']}/") and ref != f"workers/{packet['packet_id']}/handoff.json"
-        for ref in refs
+        ref.startswith(worker_prefix) and ref != f"{worker_prefix}handoff.json" for ref in refs
     ):
         raise ValueError("connected-without-worker-evidence")
+    if location == "body":
+        observation = handoff.get("input_evidence_ref")
+        if (not isinstance(observation, str) or observation not in refs or
+                not observation.startswith(worker_prefix) or observation == f"{worker_prefix}handoff.json"):
+            raise ValueError("body-without-worker-observation")
+        try:
+            observed = json.loads((output_root / observation).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            raise ValueError("invalid-body-observation") from None
+        if not isinstance(observed, dict) or any(observed.get(key) != value for key, value in (
+            ("source_route", route), ("input_location", "body"), ("input_field", field)
+        )):
+            raise ValueError("body-observation-mismatch")
     return handoff
 
 def write_xss_continuation(output_root: Path, packet: Mapping[str, Any]) -> str:
@@ -742,12 +779,14 @@ def write_xss_continuation(output_root: Path, packet: Mapping[str, Any]) -> str:
     card_path.write_text("\n".join((
         f"# XSS chain card / review-only follow-up: {packet_id}", "",
         "Owner: XSS specialist (manual admission required). No automatic dispatch or target traffic.",
-        f"Source/field route: {card['source_route']} / {card['input_field']}",
-        f"Consumer: {card['consumer']}", f"Worker-reported state: {card['chain_state']} (not XSS proof)",
-        f"Observed basis: {card['observed_basis']}", f"Candidate chain: {card['candidate_chain']}",
-        f"Blocker: {card['blocker']}", f"Exact unknown: {card['unknown']}",
-        f"Next discriminator: {card['next_discriminator']}",
-        "Evidence pointers (run-relative): " + ", ".join(card["evidence_refs"]), "",
+        f"Source/field route (worker-reported): {card['source_route']} / {card['input_field']}",
+        f"Input location: {card.get('input_location', 'path' if card['input_field'] == '(path only)' else 'query')}",
+        "Consumer: see worker handoff and cited evidence (not independently verified).",
+        f"Sink context (worker-reported): {card.get('sink_context', 'unknown')}",
+        f"Worker-reported state: {card['chain_state']} (not XSS proof)",
+        "Observed basis, candidate chain, blocker, unknown, and discriminator: review",
+        f"workers/{packet_id}/handoff.json against cited evidence; free text is not copied here.",
+        "Evidence pointers: see handoff.json (run-relative; existence checked, not proof).", "",
         "Follow-up packet: verify the cited edge and scope/ownership first; choose the XSS lane via",
         "the xss router, then apply live-testing policy before any probe. Record actual tests in",
         "Attempts, mapped questions in Coverage, and reusable unresolved observations in Leads/MapStore.",
@@ -774,6 +813,10 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
         for packet_payload in plan.get("worker_packets", [])
     }
     processes: dict[str, subprocess.Popen[Any]] = {}
+    for packet_payload in plan.get("worker_packets", []):
+        if packet_payload.get("lane") == "xss":
+            (output_root / "continuations" / f"{packet_payload['packet_id']}.md").unlink(missing_ok=True)
+    (output_root / "continuation_state.json").unlink(missing_ok=True)
     write_monitor_state(output_root, plan, worker_status=statuses)
 
     for packet_payload in plan.get("worker_packets", []):

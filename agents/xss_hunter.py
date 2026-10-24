@@ -255,7 +255,7 @@ class XSSHunter:
         reflected_fragment = context.reflected_fragment
         filter_type = self.bypass_generator.detect_filter_type(payload, reflected_fragment, response.text)
         truncated = bool(reflected_fragment) and len(reflected_fragment) < len(payload)
-        likely_executable = self._looks_executable(context.type, reflected_fragment or payload)
+        likely_executable = context.reflected and self._looks_executable(context.type, reflected_fragment)
         blocked = filter_type != "NO_BLOCK" and not likely_executable
 
         return ScanResult(
@@ -345,8 +345,13 @@ class XSSHunter:
         return re.findall(r"<script[^>]*>(.*?)</script>", html_text, re.IGNORECASE | re.DOTALL)
 
     def _looks_executable(self, context_type: str, fragment: str) -> bool:
-        lowered = html.unescape(fragment).lower()
-        if context_type in {ContextType.HTML_BODY, ContextType.HTML_ATTRIBUTE, ContextType.HTML_COMMENT}:
+        # Entity-escaped markup is text in an HTML response, not an active tag.
+        lowered = fragment.lower()
+        if context_type == ContextType.HTML_BODY:
+            return any(token in lowered for token in ("<script", "<svg", "<img", "<iframe"))
+        if context_type in {ContextType.HTML_ATTRIBUTE, ContextType.HTML_COMMENT}:
+            if "&lt;" in lowered and "<" not in lowered:
+                return False
             return any(token in lowered for token in ("<script", "onerror", "onload", "onfocus", "javascript:", "<svg", "<img", "<iframe"))
         if context_type in {ContextType.JS_STRING, ContextType.JS_TEMPLATE}:
             return any(token in lowered for token in ("alert(", "confirm(", "prompt(", "constructor(", "</script>", "${"))

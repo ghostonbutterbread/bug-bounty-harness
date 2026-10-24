@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agents.xss_framework import DiscoveredParam, ScreenResult, XSSFramework, XSSScreener
+from agents.xss_framework import DiscoveredParam, ParameterDiscovery, ReflectedTester, ScreenResult, StoredTester, XSSFramework, XSSScreener
 
 
 class _Response:
@@ -14,6 +14,88 @@ class _Response:
 class _Session:
     def get(self, url: str, **kwargs):
         return _Response()
+
+
+def test_context_classifies_marker_by_actual_html_location() -> None:
+    screener = XSSScreener(_Session())
+    marker = "XSSUNIQUE"
+    assert screener._detect_context(f'<div title="{marker}">text</div>', marker) == "html_attr"
+    assert screener._detect_context(f'<a href="/search?q={marker}">link</a>', marker) == "url_param"
+    assert screener._detect_context(f'<script>const v = "{marker}";</script>', marker) == "js_string"
+    assert screener._detect_context(f'<script>const v = `{marker}`;</script>', marker) == "js_template"
+    assert screener._detect_context(f'<!-- {marker} -->', marker) == "comment"
+    assert screener._detect_context(f'<p>{marker}</p>', marker) == "html_body"
+    assert screener._detect_context('MARKER <p>irrelevant</p>', marker) == "none"
+
+
+def test_discovery_preserves_same_name_on_distinct_routes() -> None:
+    discovery = ParameterDiscovery(_Session())
+    params = discovery._dedupe_and_rank([
+        DiscoveredParam("q", "url", url="https://example.test/search?q=old", priority=10),
+        DiscoveredParam("q", "wayback", url="https://example.test/archive?q=old", priority=7),
+        DiscoveredParam("q", "js", url="https://example.test/search", priority=6),
+    ])
+    assert [(p.name, p.source) for p in params] == [("q", "url"), ("q", "wayback")]
+
+
+def test_screener_probes_discovered_route_not_base_target(monkeypatch) -> None:
+    class Session:
+        urls = []
+        def get(self, url, **kwargs):
+            self.urls.append(url)
+            return type("Response", (), {"text": "<p>XSSMARKER</p>", "status_code": 200})()
+
+    session = Session()
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setattr("agents.xss_framework.uuid4", lambda: type("UUID", (), {"hex": "marker"})())
+    results = XSSScreener(session).screen("https://example.test/root", [
+        DiscoveredParam("q", "wayback", url="https://example.test/archive?q=old")
+    ])
+    assert results[0].url.startswith("https://example.test/archive?q=")
+    assert session.urls[-1].startswith("https://example.test/archive?q=")
+
+
+def test_http_reflection_never_claims_browser_execution() -> None:
+    payload = "<img src=x onerror=alert(1)>"
+    class Session:
+        def __init__(self, text):
+            self.text = text
+        def get(self, url, **kwargs):
+            return type("Response", (), {"text": self.text, "status_code": 200})()
+
+    screen = ScreenResult("q", "https://example.test/route?q=marker", True, "html_body", "", False, "MED")
+    escaped = ReflectedTester(Session("<p>&lt;img src=x onerror=alert(1)&gt;</p>"))
+    assert escaped._send(screen.url, "q", payload)["reflected_intact"] is False
+    raw = ReflectedTester(Session(f"<p>{payload}</p>"))
+    assert raw._send(screen.url, "q", payload)["executed"] is False
+    assert raw._send(screen.url, "q", payload)["reflected_intact"] is True
+    stored = StoredTester(Session(f"<p>{payload}</p>"))
+    assert stored._check_execution(screen.url, payload, "token")["executed"] is False
+
+
+def test_reflected_probe_retains_route_and_records_reflection_not_execution(monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+
+    class Session:
+        urls = []
+        def get(self, url, **kwargs):
+            self.urls.append(url)
+            return type("Response", (), {"text": "<img src=x onerror=alert(1)>", "status_code": 200})()
+
+    session = Session()
+    records = []
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", ["<img src=x onerror=alert(1)>"])
+    tester = ReflectedTester(session, attempt_recorder=records.append)
+    tester.TIERS = ["standard"]
+    result = tester.test("https://example.test/root", ScreenResult(
+        "q", "https://example.test/archive?q=marker", True, "html_body", "", False, "MED"
+    ))
+    assert len(result) == 1
+    assert result[0].url.startswith("https://example.test/archive?q=")
+    assert result[0].confirmed is False
+    assert session.urls == [result[0].url]
+    assert records[0]["outcome"] == "reflected_intact"
 
 
 def test_screener_returns_structured_cold_result_when_marker_is_absent() -> None:

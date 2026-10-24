@@ -357,42 +357,18 @@ class ParameterDiscovery:
         ]
 
     def _dedupe_and_rank(self, params: list[DiscoveredParam]) -> list[DiscoveredParam]:
-        seen: dict[str, DiscoveredParam] = {}
+        seen: dict[tuple[str, str, str, str], DiscoveredParam] = {}
         for p in params:
-            if p.name not in seen or p.priority > seen[p.name].priority:
-                seen[p.name] = p
+            route = urlsplit(p.url)
+            key = (route.scheme, route.netloc, route.path, p.name)
+            if key not in seen or p.priority > seen[key].priority:
+                seen[key] = p
         return sorted(seen.values(), key=lambda x: x.priority, reverse=True)
 
 
 # ---------------------------------------------------------------------------
 # Phase 2: Screening
 # ---------------------------------------------------------------------------
-
-CONTEXT_PATTERNS = {
-    "html_body": [
-        re.compile(r"<[^>]*MARKER[^>]*>", re.I),
-        re.compile(r"MARKER\s*</", re.I),
-    ],
-    "html_attr": [
-        re.compile(r'(?:value|placeholder|title|alt|href|src|action)=["\'][^"\']*MARKER'),
-        re.compile(r"MARKER[^\"'>]*[\"']"),
-    ],
-    "js_string": [
-        re.compile(r"""['"]\s*[+,]\s*MARKER|MARKER\s*[+,]\s*['"]"""),
-        re.compile(r"""var\s+\w+\s*=\s*['"]\s*MARKER"""),
-        re.compile(r"""MARKER['"]\s*[;,)]"""),
-    ],
-    "js_template": [
-        re.compile(r"`[^`]*MARKER[^`]*`"),
-        re.compile(r"\$\{[^}]*MARKER[^}]*\}"),
-    ],
-    "url_param": [
-        re.compile(r"(?:href|src|action|redirect)[^\"'>]*MARKER"),
-    ],
-    "comment": [
-        re.compile(r"<!--[^>]*MARKER"),
-    ],
-}
 
 DANGEROUS_SINKS = [
     "innerHTML", "outerHTML", "document.write", "document.writeln",
@@ -415,7 +391,7 @@ class XSSScreener:
 
         for param in params:
             marker = f"XSS{uuid4().hex[:10].upper()}"
-            result = self._test_reflection(target, param.name, marker, baseline_html)
+            result = self._test_reflection(param.url or target, param.name, marker, baseline_html)
             if result:
                 candidates.append(result)
             time.sleep(self._delay)
@@ -463,19 +439,24 @@ class XSSScreener:
         )
 
     def _detect_context(self, body: str, marker: str) -> str:
-        for ctx_name, patterns in CONTEXT_PATTERNS.items():
-            for pattern in patterns:
-                if pattern.search(body.replace("MARKER", marker)):
-                    return ctx_name
-        # Fallback: just find where it appears
         idx = body.find(marker)
         if idx == -1:
             return "none"
-        snippet = body[max(0, idx - 30):idx + len(marker) + 30]
-        if "<script" in snippet.lower() or "function" in snippet.lower():
-            return "js_string"
-        if "<!--" in snippet:
+        if body.rfind("<!--", 0, idx) > body.rfind("-->", 0, idx):
             return "comment"
+        lower = body.lower()
+        script_start = lower.rfind("<script", 0, idx)
+        if script_start > lower.rfind("</script", 0, idx) and ">" in body[script_start:idx]:
+            prefix = body[body.find(">", script_start) + 1:idx]
+            return "js_template" if prefix.count("`") % 2 else "js_string"
+        tag_start = body.rfind("<", 0, idx)
+        if tag_start > body.rfind(">", 0, idx):
+            tag_end = body.find(">", idx)
+            if tag_end != -1:
+                tag = body[tag_start:tag_end + 1]
+                for match in re.finditer(r"([\w-]+)\s*=\s*(['\"])(.*?)\2", tag, re.S):
+                    if marker in match.group(3) and match.start(3) <= idx - tag_start < match.end(3):
+                        return "url_param" if match.group(1).lower() in {"href", "src", "action", "formaction", "data", "poster"} else "html_attr"
         return "html_body"
 
     def _near_sink(self, body: str) -> bool:
@@ -594,11 +575,11 @@ class ReflectedTester:
                 break  # WAF is blocking aggressively, skip remaining tiers
 
             for payload in REFLECTED_PAYLOADS.get(tier, []):
-                result = self._send(target, screen_result.param, payload)
+                result = self._send(screen_result.url or target, screen_result.param, payload)
                 self._record_probe(tier, payload, screen_result, result)
                 time.sleep(self._delay)
 
-                if result["executed"] or result["reflected_intact"]:
+                if result["reflected_intact"]:
                     findings.append(XSSFinding(
                         type="reflected",
                         url=result["url"],
@@ -630,9 +611,7 @@ class ReflectedTester:
     ) -> None:
         if self._attempt_recorder is None:
             return
-        if result["executed"]:
-            outcome, stop_reason = "executed", "execution_signal_observed"
-        elif result["reflected_intact"]:
+        if result["reflected_intact"]:
             outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
         elif result["blocked"]:
             outcome, stop_reason = "blocked", "response_blocked"
@@ -662,8 +641,8 @@ class ReflectedTester:
 
         body = resp.text
         blocked = _is_blocked(resp.status_code, body)
-        reflected_intact = (payload in body or html.unescape(payload) in html.unescape(body))
-        executed = reflected_intact and _looks_executable(payload, body)
+        reflected_intact = payload in body
+        executed = False  # Only verify_with_browser can observe execution.
 
         evidence = _snippet(body, payload)
         return {
@@ -786,8 +765,8 @@ class StoredTester:
         try:
             resp = self.session.get(url, timeout=12)
             body = resp.text
-            reflected = payload in body or f"STORED_{token}" in body
-            executed = reflected and _looks_executable(payload, body)
+            reflected = payload in body
+            executed = False  # Raw HTTP response is not browser execution.
             return {"reflected": reflected, "executed": executed, "evidence": _snippet(body, token)}
         except Exception:
             return {"reflected": False, "executed": False, "evidence": ""}
@@ -1237,10 +1216,10 @@ class XSSFramework:
         # Phase 3B: Stored XSS
         if self.mode in ("full", "stored") and self.stored_urls:
             print("\n[Phase 3B] Testing Stored XSS...")
-            for candidate in (candidates or self.screener.screen(self.target, self.discovery.run(self.target))):
+            for candidate in (candidates or self.screener.screen(self.target, params)):
                 self._log(f"  Testing stored param: {candidate.param}")
                 new_findings = self.stored_tester.test(
-                    submit_url=self.target,
+                    submit_url=candidate.url,
                     render_urls=self.stored_urls,
                     param=candidate.param,
                 )
@@ -1314,7 +1293,7 @@ class XSSFramework:
         findings: list[XSSFinding] = []
 
         for base_payload in REFLECTED_PAYLOADS["standard"]:
-            url = _inject_param(self.target, candidate.param, base_payload)
+            url = _inject_param(candidate.url, candidate.param, base_payload)
             try:
                 resp = self.session.get(url, timeout=12)
             except Exception as exc:
@@ -1330,7 +1309,7 @@ class XSSFramework:
             variants = self.bypass_engine.adapt(base_payload, block_type)
 
             for variant in variants:
-                url = _inject_param(self.target, candidate.param, variant)
+                url = _inject_param(candidate.url, candidate.param, variant)
                 try:
                     resp = self.session.get(url, timeout=12)
                     time.sleep(1.0 / max(self.rate_limit, 0.1))
@@ -1340,7 +1319,7 @@ class XSSFramework:
 
                 self._record_bypass_probe(candidate, variant, url, f"bypass:{block_type}", response=resp)
                 body = resp.text
-                if variant in body and _looks_executable(variant, body) and not _is_blocked(resp.status_code, body):
+                if variant in body and not _is_blocked(resp.status_code, body):
                     findings.append(XSSFinding(
                         type="reflected",
                         url=url,
@@ -1373,9 +1352,7 @@ class XSSFramework:
             assert response is not None
             body = response.text
             status = response.status_code
-            if payload in body and _looks_executable(payload, body) and not _is_blocked(status, body):
-                outcome, stop_reason = "executed", "execution_signal_observed"
-            elif _is_blocked(status, body):
+            if _is_blocked(status, body):
                 outcome, stop_reason = "blocked", "response_blocked"
             elif payload in body:
                 outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
@@ -1503,27 +1480,12 @@ WAF_BODY_SIGS = [
     "web application firewall", "reference #",
 ]
 
-EXECUTABLE_TOKENS = [
-    "<script", "onerror=", "onload=", "onfocus=", "ontoggle=", "onbegin=",
-    "onstart=", "onanimation", "onpointer", "javascript:", "eval(",
-    "alert(", "confirm(", "prompt(", "<svg", "<img", "<iframe", "<details",
-]
-
 
 def _is_blocked(status_code: int, body: str) -> bool:
     if status_code in WAF_BLOCK_CODES:
         return True
     lowered = body.lower()
     return any(sig in lowered for sig in WAF_BODY_SIGS)
-
-
-def _looks_executable(payload: str, body: str) -> bool:
-    lowered = html.unescape(body).lower()
-    payload_lower = payload.lower()
-    return any(
-        token in payload_lower and token in lowered
-        for token in EXECUTABLE_TOKENS
-    )
 
 
 def _inject_param(base_url: str, param: str, value: str) -> str:

@@ -1,6 +1,6 @@
 # XSS harness signal repair integration dossier
 
-- **Status:** feature (JS comment/quote false-negative repair verified offline; awaiting independent re-review)
+- **Status:** review-ready (independent acceptance review passed offline; integration pending)
 - **Owner:** bugfix subagent
 - **Branch / owning ref:** `fix/xss-harness-signal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-harness-signal`
@@ -54,4 +54,5 @@ Correct marker-context classification from the marker's actual location, includi
 - 2026-10-24 — Corrected comment/blocked response candidate gating, deep-tier continuation, route-aware final dedupe, and context classification; re-review required before integration.
 - 2026-10-24 — Final review blocked on inert framework comment finding and collapsed query render modes. Repaired both with offline red/green fixtures; independent re-review remains required.
 - 2026-10-24 — Subsequent review found JS quoted data `alert(1)` promoted by token-only classification. Restricted candidate evidence to context breaks, covered inert and distinct breakout fixtures offline; independent review remains required.
-- 2026-10-23 — Final reviewer found the framework's inert quoted script echo still promoted to a finding. Repaired both reflected and adaptive outputs at one predicate; offline red/green and breakout controls verified. Re-review remains required.
+- 2026-10-23 — Final reviewer found the framework's inert quoted script echo still promoted to a finding. Repaired both reflected and adaptive outputs at one predicate; offline red/green and breakout controls verified.
+- 2026-10-24 — Independent bounded acceptance review of `9559172` found no reproducible blocker in the requested signal/chain-card scope; 222 focused tests passed. Approved for beta integration from feature ref; post-merge tests and activation remain separate.

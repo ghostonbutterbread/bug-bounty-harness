@@ -7,8 +7,8 @@
 - **Base commit:** `ca76506b830880c691316e8912a83ec50e4d313f` (`origin/beta`, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-24
-- **Latest immutable recovery checkpoint:** this implementation+dossier commit (SHA in handoff)
-- **Feature implementation commit(s):** this implementation+dossier commit (SHA in handoff)
+- **Latest immutable recovery checkpoint:** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`
+- **Feature implementation commit(s):** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`
 - **Inspiration:** audited XSS framework/hunter signal defects and existing `agents/test_xss_framework.py` contracts.
 
 ## Intent and implemented contract
@@ -31,7 +31,7 @@ Correct marker-context classification from the marker's actual location; preserv
 ## Interruption / resume handoff
 
 - **Owning ref:** `fix/xss-harness-signal`
-- **Latest immutable recovery checkpoint:** this implementation+dossier commit (SHA in handoff).
+- **Latest immutable recovery checkpoint:** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`.
 - **Exact resume point:** review committed diff and test receipts; fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
 - **Working-tree state at handoff:** clean after commit.
 

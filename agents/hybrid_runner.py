@@ -691,7 +691,8 @@ def _xss_routes(packet: Mapping[str, Any]) -> dict[str, set[str]]:
 
 def _safe_card_value(value: Any) -> str:
     """Redact each derived-card value before interpolating it into Markdown."""
-    return redact_sensitive_text(str(value))
+    redacted = redact_sensitive_text(str(value))
+    return re.sub(r"(\bapi[_-]?key%3D)[^;\s\"',`/?&#]+", r"\1REDACTED", redacted, flags=re.IGNORECASE)
 
 
 def write_xss_mapping_cards(output_root: Path, packets: Sequence[WorkerPacket]) -> None:

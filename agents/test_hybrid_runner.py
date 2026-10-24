@@ -361,9 +361,12 @@ def test_xss_mapping_keeps_field_route_and_does_not_infer_a_sink(tmp_path: Path)
 
 def test_xss_initial_mapping_redacts_derived_route_and_field_without_query_values(tmp_path: Path) -> None:
     secret = "api_key=do-not-copy"
+    encoded_secret = "api_key%3Ddo-not-copy"
     source = tmp_path / "urls.txt"
     source.write_text(
         f"https://example.test/{secret}?api_key%3Ddo-not-copy=private-query-value&q=ordinary-query-value\n"
+        f"https://example.test/{encoded_secret}?q=encoded-route-value\n"
+        "https://example.test/API_KEY%3dother-secret/help?q=case-value\n"
         "https://example.test/help?title=another-query-value\n",
         encoding="utf-8",
     )
@@ -373,11 +376,17 @@ def test_xss_initial_mapping_redacts_derived_route_and_field_without_query_value
     card = (root / "worker_packets" / "W001-xss-mapped.md").read_text(encoding="utf-8")
     assert "example.test/api_key=REDACTED` / `api_key=REDACTED" in card
     assert "example.test/api_key=REDACTED` / `q" in card
+    assert "example.test/api_key%3DREDACTED` / `q" in card
+    assert "example.test/API_KEY%3dREDACTED/help` / `q" in card
     assert "example.test/help` / `title" in card
     assert secret not in card
+    assert encoded_secret not in card
     assert "private-query-value" not in card
     assert "ordinary-query-value" not in card
     assert "another-query-value" not in card
+    assert "encoded-route-value" not in card
+    assert "case-value" not in card
+    assert "API_KEY%3dother-secret" in source.read_text(encoding="utf-8")
     assert "Consumer: unknown; chain: mapped, not connected" in card
 
 
@@ -495,9 +504,9 @@ def test_xss_body_key_observation_and_safe_card(tmp_path: Path) -> None:
 
 
 def test_xss_card_redacts_every_emitted_value_without_erasing_useful_text(tmp_path: Path) -> None:
-    secret = "api_key=do-not-copy"
+    secret = "api_key%3Ddo-not-copy"
     source = tmp_path / "urls.txt"
-    source.write_text(f"https://example.test/{secret}?api_key%3Ddo-not-copy=marker\n", encoding="utf-8")
+    source.write_text(f"https://example.test/{secret}?api_key%253Ddo-not-copy=marker\n", encoding="utf-8")
     root = tmp_path / "run"
     plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
                              output_root=root, config=hybrid.HybridConfig(worker_limit=1))
@@ -515,13 +524,18 @@ def test_xss_card_redacts_every_emitted_value_without_erasing_useful_text(tmp_pa
     assert hybrid.write_xss_continuation(root, packet) == "planned"
     generated = (root / "continuations" / f"{packet['packet_id']}.md").read_text()
     assert secret not in generated
-    for expected in ("example.test/api_key=REDACTED / api_key=REDACTED", "owned preview api_key=REDACTED",
-                     "marker rendered api_key=REDACTED", "title to preview api_key=REDACTED",
-                     "awaiting review api_key=REDACTED", "encoding context api_key=REDACTED",
-                     "inspect preview api_key=REDACTED",
-                     f"- workers/{packet['packet_id']}/api_key=REDACTED"):
+    assert secret in (worker / "handoff.json").read_text(encoding="utf-8")
+    assert secret in (root / "classification.jsonl").read_text(encoding="utf-8")
+    for expected in ("example.test/api_key%3DREDACTED / api_key%3DREDACTED", "owned preview api_key%3DREDACTED",
+                     "marker rendered api_key%3DREDACTED", "title to preview api_key%3DREDACTED",
+                     "awaiting review api_key%3DREDACTED", "encoding context api_key%3DREDACTED",
+                     "inspect preview api_key%3DREDACTED",
+                     f"- workers/{packet['packet_id']}/api_key%3DREDACTED"):
         assert expected in generated
     assert hybrid.redact_sensitive_text("ordinary route and preview label") == "ordinary route and preview label"
+    assert hybrid.redact_sensitive_text("example.test/search/results") == "example.test/search/results"
+    assert hybrid._safe_card_value("example.test/API_KEY%3dother-secret/help") == "example.test/API_KEY%3dREDACTED/help"
+    assert hybrid.redact_sensitive_text("example.test/API_KEY%3dother-secret/help") == "example.test/API_KEY%3dother-secret/help"
     assert hybrid.redact_sensitive_text('"api_key": "do-not-copy"') == '"api_key": "REDACTED"'
 
 

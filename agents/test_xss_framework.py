@@ -146,6 +146,72 @@ def test_reflected_comment_echo_is_not_a_finding_but_escape_is(monkeypatch) -> N
     assert tester.test(screen.url, screen) == []
 
 
+def test_reflected_js_string_echo_is_attempt_not_finding_but_quote_breakout_is_candidate(monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    from urllib.parse import parse_qs, urlsplit
+
+    class Session:
+        def get(self, url, **kwargs):
+            payload = parse_qs(urlsplit(url).query)["q"][0]
+            return type("Response", (), {"text": f"<script>const v = '{payload}';</script>", "status_code": 200})()
+
+    inert = "<script>alert(1)</script>"
+    breakout = "';alert(1);//"
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", [inert, breakout])
+    screen = ScreenResult("q", "https://example.test/search?q=marker", True, "js_string", "", False, "HIGH")
+    records = []
+    tester = ReflectedTester(Session(), attempt_recorder=records.append)
+    tester.TIERS = ["standard"]
+    findings = tester.test(screen.url, screen)
+    assert [finding.payload for finding in findings] == [breakout]
+    assert findings[0].confirmed is False
+    assert [record["outcome"] for record in records] == ["reflected_intact", "reflected_intact"]
+
+
+def test_adaptive_js_string_echo_is_attempt_not_finding_but_script_breakout_is_candidate(tmp_path: Path, monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    from urllib.parse import parse_qs, urlsplit
+
+    class Session:
+        def get(self, url, **kwargs):
+            payload = parse_qs(urlsplit(url).query)["q"][0]
+            status = 403 if payload == "<base-probe>" else 200
+            return type("Response", (), {"status_code": status, "text": f"<script>const v = '{payload}';</script>"})()
+        def close(self):
+            pass
+
+    inert = "<script>alert(1)</script>"
+    breakout = "</script><img src=x onerror=alert(1)>"
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", ["<base-probe>"])
+    framework = XSSFramework("https://example.test/search?q=old", skip_scope=True, attempts_path=tmp_path / "attempts.jsonl")
+    framework.session = Session()
+    framework.bypass_engine.detect_block_type = lambda body, status: "WAF"
+    framework.bypass_engine.adapt = lambda payload, block_type: [inert, breakout]
+    try:
+        screen = ScreenResult("q", framework.target, True, "js_string", "", False, "HIGH")
+        findings = framework._adaptive_bypass(screen)
+        assert [finding.payload for finding in findings] == [breakout]
+        assert findings[0].confirmed is False
+    finally:
+        framework.close()
+    rows = [json.loads(line) for line in (tmp_path / "attempts.jsonl").read_text().splitlines()]
+    assert [row["outcome"] for row in rows] == ["blocked", "reflected_intact", "reflected_intact"]
+
+
+def test_js_literal_guard_requires_every_echo_inert_and_keeps_distinct_breakouts() -> None:
+    from agents.xss_framework import _only_in_inert_contexts
+
+    payload = "<script>alert(1)</script>"
+    assert _only_in_inert_contexts(f'<script>const v = "{payload}";</script>', payload)
+    assert _only_in_inert_contexts(f'<!-- {payload} --><script>const v = \'{payload}\';</script>', payload)
+    assert not _only_in_inert_contexts(f'<script>const v = \'{payload}\';</script><div>{payload}</div>', payload)
+    assert not _only_in_inert_contexts(f'<script>const v = `{payload}`;</script>', payload)
+    assert _only_in_inert_contexts("<script>const v = '\\';alert(1);//';</script>", "\\';alert(1);//")
+    assert not _only_in_inert_contexts("<script>const v = '</script><svg onload=alert(1)>';</script>", "</script><svg onload=alert(1)>")
+
+
 def test_comment_delimiters_in_script_and_active_second_echo_are_not_inert() -> None:
     from agents.xss_framework import _only_in_html_comments
     payload = "<img src=x onerror=alert(1)>"

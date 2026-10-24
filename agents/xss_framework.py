@@ -580,7 +580,7 @@ class ReflectedTester:
                 self._record_probe(tier, payload, screen_result, result)
                 time.sleep(self._delay)
 
-                if result["reflected_intact"] and not result["blocked"] and not result["inert_comment"]:
+                if result["reflected_intact"] and not result["blocked"] and not result["inert_echo"]:
                     findings.append(XSSFinding(
                         type="reflected",
                         url=result["url"],
@@ -638,7 +638,7 @@ class ReflectedTester:
         body = resp.text
         blocked = _is_blocked(resp.status_code, body)
         reflected_intact = payload in body
-        inert_comment = reflected_intact and _only_in_html_comments(body, payload)
+        inert_echo = reflected_intact and _only_in_inert_contexts(body, payload)
         executed = False  # Only verify_with_browser can observe execution.
 
         evidence = _snippet(body, payload)
@@ -646,7 +646,7 @@ class ReflectedTester:
             "url": url,
             "blocked": blocked,
             "reflected_intact": reflected_intact,
-            "inert_comment": inert_comment,
+            "inert_echo": inert_echo,
             "executed": executed,
             "evidence": evidence,
             "status": resp.status_code,
@@ -1317,7 +1317,7 @@ class XSSFramework:
 
                 self._record_bypass_probe(candidate, variant, url, f"bypass:{block_type}", response=resp)
                 body = resp.text
-                if variant in body and not _is_blocked(resp.status_code, body) and not _only_in_html_comments(body, variant):
+                if variant in body and not _is_blocked(resp.status_code, body) and not _only_in_inert_contexts(body, variant):
                     findings.append(XSSFinding(
                         type="reflected",
                         url=url,
@@ -1510,8 +1510,7 @@ def _snippet(body: str, marker: str, radius: int = 100) -> str:
     return body[start:end].replace("\n", " ").strip()
 
 
-def _only_in_html_comments(body: str, payload: str) -> bool:
-    """True only when every intact echo sits wholly inside an HTML comment."""
+def _html_comment_spans(body: str) -> list[tuple[int, int]]:
     line_starts = [0]
     for match in re.finditer("\n", body):
         line_starts.append(match.end())
@@ -1528,10 +1527,61 @@ def _only_in_html_comments(body: str, payload: str) -> bool:
 
     parser = CommentSpans()
     parser.feed(body)
+    return parser.spans
+
+
+def _only_in_html_comments(body: str, payload: str) -> bool:
+    """True only when every intact echo sits wholly inside an HTML comment."""
+    spans = _html_comment_spans(body)
     return all(
-        any(start <= match.start() and match.end() <= end for start, end in parser.spans)
+        any(start <= match.start() and match.end() <= end for start, end in spans)
         for match in re.finditer(re.escape(payload), body)
     )
+
+
+def _only_in_inert_contexts(body: str, payload: str) -> bool:
+    """True only when every intact echo is comment text or quoted JS data."""
+    spans = _html_comment_spans(body)
+    for match in re.finditer(re.escape(payload), body):
+        if any(start <= match.start() and match.end() <= end for start, end in spans):
+            continue
+        # Only classify a clearly open single/double-quoted script literal.
+        opens = list(re.finditer(r"<script\b[^>]*>", body[:match.start()], re.IGNORECASE))
+        if not opens:
+            return False
+        start = opens[-1].end()
+        close = re.search(r"</script\s*>", body[start:], re.IGNORECASE)
+        close_at = start + close.start() if close else len(body)
+        if close_at < match.start():
+            return False
+
+        quote = ""
+        escaped = False
+        for char in body[start:match.start()]:
+            if escaped:
+                escaped = False
+            elif quote and char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            elif not quote and char in ("'", '"', "`"):
+                quote = char
+        if quote not in ("'", '"'):
+            return False
+
+        # A script close inside the payload may activate later markup. Do not
+        # suppress it unless the rest of the payload has no further opening tag.
+        if close is not None and close_at < match.end() and "<" in body[close_at + len(close.group()):match.end()]:
+            return False
+        escaped = False
+        for char in body[match.start():min(close_at, match.end())]:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                return False
+    return True
 
 
 def _empty_result(url: str, error: str = "") -> dict:
@@ -1539,7 +1589,7 @@ def _empty_result(url: str, error: str = "") -> dict:
         "url": url,
         "blocked": False,
         "reflected_intact": False,
-        "inert_comment": False,
+        "inert_echo": False,
         "executed": False,
         "evidence": error,
         "status": 0,

@@ -7,8 +7,8 @@
 - **Base commit:** `ca76506b830880c691316e8912a83ec50e4d313f` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-24 UTC
-- **Latest immutable recovery checkpoint:** pending feature commit
-- **Feature implementation commit(s):** pending feature commit
+- **Latest immutable recovery checkpoint:** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`
+- **Feature implementation commit(s):** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`
 - **Inspiration / canonical references:** `agents/hybrid_runner.py`, `agents/leads.py`, XSS router, Coverage and MapStore/Leads policies.
 
 ## Intent
@@ -38,8 +38,8 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-chain-card-continuation`
-- **Latest immutable recovery checkpoint:** pending feature commit; inspect branch tip after handoff.
-- **Feature implementation commit(s):** pending feature commit.
+- **Latest immutable recovery checkpoint:** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`; inspect any later dossier-only tip too.
+- **Feature implementation commit(s):** `3b4d4b86a541add63f6ab6a6bd88f3d3d8897e86`.
 - **Exact resume point:** review `agents/hybrid_runner.py` and tests, then decide integration into `beta`.
 - **Working-tree state at handoff:** expected clean after feature commit.
 
@@ -51,4 +51,4 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 
 ## Decision record
 
-- 2026-10-24 — implemented bounded review-only continuation, offline suite green; pending commit/review.
+- 2026-10-24 — implemented bounded review-only continuation, offline suite green; implementation checkpoint committed, independent review pending.

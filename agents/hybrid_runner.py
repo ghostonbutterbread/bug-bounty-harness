@@ -689,6 +689,11 @@ def _xss_routes(packet: Mapping[str, Any]) -> dict[str, set[str]]:
         routes.setdefault(route, set()).update(key for key, _ in parse_qsl(parsed.query, keep_blank_values=True))
     return routes
 
+def _safe_card_value(value: Any) -> str:
+    """Redact each derived-card value before interpolating it into Markdown."""
+    return redact_sensitive_text(str(value))
+
+
 def write_xss_mapping_cards(output_root: Path, packets: Sequence[WorkerPacket]) -> None:
     """Run-local, non-canonical inventory; no sink or edge is inferred."""
     for packet in packets:
@@ -697,7 +702,7 @@ def write_xss_mapping_cards(output_root: Path, packets: Sequence[WorkerPacket]) 
         lines = ["# XSS mapped inputs (not a finding)", "", "Evidence: `classification.jsonl` (URL inventory only).", ""]
         for route, fields in _xss_routes(packet_to_json(packet)).items():
             for field_name in sorted(fields) if fields else ["(path only)"]:
-                lines.extend((f"- Source/field route: `{route}` / `{field_name}`", "  Consumer: unknown; chain: mapped, not connected.",
+                lines.extend((f"- Source/field route: `{_safe_card_value(route)}` / `{_safe_card_value(field_name)}`", "  Consumer: unknown; chain: mapped, not connected.",
                               "  Blocker: no observed input-to-consumer edge; unknown: render destination/context.",
                               "  Next discriminator: trace this named input to an owned consumer under the selected policy.", ""))
         (output_root / "worker_packets" / f"{packet.packet_id}-mapped.md").write_text("\n".join(lines), encoding="utf-8")
@@ -777,7 +782,7 @@ def write_xss_continuation(output_root: Path, packet: Mapping[str, Any]) -> str:
         return f"rejected:{str(exc) if isinstance(exc, ValueError) else 'invalid-json'}"
     # Redact each dynamic value before interpolation, including provenance and paths.
     # Sanitizing worker artifacts alone does not protect cards written afterwards.
-    safe = lambda value: redact_sensitive_text(str(value))
+    safe = _safe_card_value
     card_path.parent.mkdir(parents=True, exist_ok=True)
     card_path.write_text("\n".join((
         f"# XSS chain card / review-only follow-up: {safe(packet_id)}", "",

@@ -359,6 +359,28 @@ def test_xss_mapping_keeps_field_route_and_does_not_infer_a_sink(tmp_path: Path)
     assert hybrid._xss_routes(packet) == {"example.test/search": {"q"}, "example.test/help": {"title"}}
 
 
+def test_xss_initial_mapping_redacts_derived_route_and_field_without_query_values(tmp_path: Path) -> None:
+    secret = "api_key=do-not-copy"
+    source = tmp_path / "urls.txt"
+    source.write_text(
+        f"https://example.test/{secret}?api_key%3Ddo-not-copy=private-query-value&q=ordinary-query-value\n"
+        "https://example.test/help?title=another-query-value\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / "run"
+    hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                      output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    card = (root / "worker_packets" / "W001-xss-mapped.md").read_text(encoding="utf-8")
+    assert "example.test/api_key=REDACTED` / `api_key=REDACTED" in card
+    assert "example.test/api_key=REDACTED` / `q" in card
+    assert "example.test/help` / `title" in card
+    assert secret not in card
+    assert "private-query-value" not in card
+    assert "ordinary-query-value" not in card
+    assert "another-query-value" not in card
+    assert "Consumer: unknown; chain: mapped, not connected" in card
+
+
 def test_xss_continuation_validates_provenance_and_never_spawns_followup(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "urls.txt"
     source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")

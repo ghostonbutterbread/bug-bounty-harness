@@ -9,6 +9,11 @@ from urllib.parse import quote, quote_plus
 
 import httpx
 
+try:
+    from .js_literal_context import literal_at
+except ImportError:  # direct script imports
+    from js_literal_context import literal_at
+
 
 class ContextType:
     HTML_BODY = "HTML_BODY"
@@ -179,22 +184,6 @@ class ContextDetector:
         open_end = text.find(">", script_open)
         script_prefix = text[open_end + 1:start]
 
-        if self._in_unclosed_literal(script_prefix, "`"):
+        if literal_at(script_prefix, len(script_prefix)) == "`":
             return ContextType.JS_TEMPLATE
-        if self._in_unclosed_literal(script_prefix, "'") or self._in_unclosed_literal(script_prefix, '"'):
-            return ContextType.JS_STRING
         return ContextType.JS_STRING
-
-    def _in_unclosed_literal(self, prefix: str, quote_char: str) -> bool:
-        escaped = False
-        count = 0
-        for char in prefix:
-            if escaped:
-                escaped = False
-                continue
-            if char == "\\":
-                escaped = True
-                continue
-            if char == quote_char:
-                count += 1
-        return count % 2 == 1

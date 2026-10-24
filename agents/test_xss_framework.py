@@ -212,6 +212,15 @@ def test_js_literal_guard_requires_every_echo_inert_and_keeps_distinct_breakouts
     assert not _only_in_inert_contexts("<script>const v = '</script><svg onload=alert(1)>';</script>", "</script><svg onload=alert(1)>")
 
 
+def test_line_comment_quote_does_not_hide_active_template_interpolation() -> None:
+    from agents.xss_framework import _only_in_inert_contexts
+
+    payload = "${alert(1)}"
+    assert not _only_in_inert_contexts(f"<script>// '\nconst v = `{payload}`;</script>", payload)
+    assert _only_in_inert_contexts(f"<script>// '\nconst v = '{payload}';</script>", payload)
+    assert not _only_in_inert_contexts(f"<script>/* ' */ const v = `{payload}`;</script>", payload)
+    assert _only_in_inert_contexts(f"<script>/* ' */ const v = \"{payload}\";</script>", payload)
+
 def test_comment_delimiters_in_script_and_active_second_echo_are_not_inert() -> None:
     from agents.xss_framework import _only_in_html_comments
     payload = "<img src=x onerror=alert(1)>"

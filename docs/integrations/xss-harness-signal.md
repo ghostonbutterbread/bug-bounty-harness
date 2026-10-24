@@ -1,13 +1,13 @@
 # XSS harness signal repair integration dossier
 
-- **Status:** feature (framework inert JS-string echo repair verified offline; awaiting independent re-review)
+- **Status:** feature (JS comment/quote false-negative repair verified offline; awaiting independent re-review)
 - **Owner:** bugfix subagent
 - **Branch / owning ref:** `fix/xss-harness-signal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-harness-signal`
 - **Base commit:** `ca76506b830880c691316e8912a83ec50e4d313f` (`origin/beta`, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
-- **Latest immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be` (the subsequent dossier-only commit records this SHA).
+- **Prior immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be`; current repair and dossier are committed together at branch tip.
 - **Feature implementation commit(s):** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`, `a5f1407c6403f793f61c24c19d73fdde211c6899`, `2a8ff65ad75d387f52c29ee0c4787ddcbedc2039`, `6471c93fd998f36ac673737fb2f7f34f0bfe8d3d`, `3b2648e959d006758c74aa994f981e4357cda9be`
 - **Inspiration:** audited XSS framework/hunter signal defects and existing `agents/test_xss_framework.py` contracts.
 
@@ -17,6 +17,7 @@ Correct marker-context classification from the marker's actual location, includi
 
 ## Evidence and review
 
+- Reviewer follow-up: a quote in a JavaScript `//` comment made both the framework inert-echo guard and hunter delimiter heuristic misread `<script>// '\nconst v = `${alert(1)}`;</script>` as an ordinary string. Offline regressions failed before repair (framework and hunter active-template paths; ordinary string control passed). Shared `agents/js_literal_context.py` now skips line/block comments while tracking quote/escape state; template-expression prefixes are not classified as inert by the lexer. Detector and both gates use the same boundary. Ordinary quoted `${alert(1)}` remains inert; this is heuristic candidate classification, not browser proof. `python3 -m pytest agents/test_xss_framework.py agents/test_xss_hunter_signal.py agents/test_xss_source_sites.py agents/test_xss_sink_sites.py -q` → 222 passed; both CLI help entrypoints and `git diff --check` passed. No target traffic, merge, or push.
 - Final reviewer reproduced the framework false finding from `<script>const v = '<script>alert(1)</script>';</script>`: `_only_in_html_comments` did not classify quoted JS data. Two offline path regressions went red (reflected and adaptive). Shared `_only_in_inert_contexts` now excludes only all-inert comment/quoted-script echoes; quote and script-close breakout controls remain candidates, while attempt outcomes remain `reflected_intact`. `python3 -m pytest agents/test_xss_framework.py agents/test_xss_hunter_signal.py agents/test_xss_source_sites.py agents/test_xss_sink_sites.py -q` → 219 passed; `git diff --check` clean. No browser-confirmation claim or live traffic.
 
 - Red: `python3 -m pytest agents/test_xss_framework.py -q` → four expected regressions failed before implementation.
@@ -37,9 +38,9 @@ Correct marker-context classification from the marker's actual location, includi
 ## Interruption / resume handoff
 
 - **Owning ref:** `fix/xss-harness-signal`
-- **Latest immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be` (the subsequent dossier-only commit records this SHA).
-- **Exact resume point:** independently review the new shared framework inert-echo predicate and prior JS-string/template heuristic, rerun focused tests and fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
-- **Working-tree state at handoff:** clean after the dossier-only handoff commit.
+- **Prior immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be`; current repair and dossier are committed together at branch tip.
+- **Exact resume point:** independently review shared JS literal classification and both framework/hunter candidate gates, rerun focused tests and fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
+- **Working-tree state at handoff:** clean after the current repair commit.
 
 ## Decision gates
 

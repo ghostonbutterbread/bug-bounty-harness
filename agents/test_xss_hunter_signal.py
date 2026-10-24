@@ -167,6 +167,33 @@ def test_js_template_interpolation_is_distinct_candidate() -> None:
         hunter.close()
 
 
+def test_line_comment_quote_does_not_hide_template_candidate() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '${alert(1)}'
+    baseline = httpx.Response(200, text="<script>// '\nconst v = `baseline`;</script>", request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f"<script>// '\nconst v = `{payload}`;</script>", request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_TEMPLATE
+        assert result.likely_executable
+        assert hunter._is_finding(result)
+    finally:
+        hunter.close()
+
+def test_line_comment_quote_keeps_ordinary_string_interpolation_inert() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = '${alert(1)}'
+    baseline = httpx.Response(200, text="<script>// '\nconst v = \"baseline\";</script>", request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f"<script>// '\nconst v = \"{payload}\";</script>", request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_STRING
+        assert not result.likely_executable
+    finally:
+        hunter.close()
+
 def test_template_syntax_inside_ordinary_js_string_remains_data() -> None:
     hunter = XSSHunter("https://example.test/search?q=baseline")
     payload = '${alert(1)}'

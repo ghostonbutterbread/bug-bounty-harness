@@ -40,6 +40,7 @@ try:
     from .context_detector import ContextDetector, ContextType, InjectionContext
     from .deep_mode_agent import Attempt, DeepModeAgent
     from .framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from .js_literal_context import literal_at
     from .payload_sets import get_payloads_for_context
     from .sink_detector import Sink, SinkDetector
 except ImportError:  # pragma: no cover
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover
     from context_detector import ContextDetector, ContextType, InjectionContext
     from deep_mode_agent import Attempt, DeepModeAgent
     from framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from js_literal_context import literal_at
     from payload_sets import get_payloads_for_context
     from sink_detector import Sink, SinkDetector
 
@@ -356,18 +358,8 @@ class XSSHunter:
         open_end = response_text.find(">", script_start) if script_start >= 0 else -1
         if open_end < 0 or open_end >= offset:
             return ""
-        quote = ""
-        escaped = False
-        for char in response_text[open_end + 1:offset]:
-            if quote and escaped:
-                escaped = False
-            elif quote and char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = ""
-            elif not quote and char in ("'", '"', "`"):
-                quote = char
-        return quote
+        prefix = response_text[open_end + 1:offset]
+        return literal_at(prefix, len(prefix))
 
     def _looks_executable(self, context_type: str, fragment: str, script_quote: str = "") -> bool:
         # Entity-escaped markup is text in an HTML response, not an active tag.

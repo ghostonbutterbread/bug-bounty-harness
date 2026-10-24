@@ -1555,17 +1555,8 @@ def _only_in_inert_contexts(body: str, payload: str) -> bool:
         if close_at < match.start():
             return False
 
-        quote = ""
-        escaped = False
-        for char in body[start:match.start()]:
-            if escaped:
-                escaped = False
-            elif quote and char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = ""
-            elif not quote and char in ("'", '"', "`"):
-                quote = char
+        from agents.js_literal_context import literal_at
+        quote = literal_at(body[start:match.start()], match.start() - start)
         if quote not in ("'", '"'):
             return False
 

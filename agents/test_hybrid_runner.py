@@ -342,3 +342,85 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
     assert "testvalue123" not in artifact_text
     assert "abcdef1234567890" not in artifact_text
     assert "cloudflarechallengevalue123" not in artifact_text
+
+
+def test_xss_mapping_keeps_field_route_and_does_not_infer_a_sink(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=secret\nhttps://example.test/help?title=another\n", encoding="utf-8")
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=tmp_path / "run", config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    card = (tmp_path / "run" / "worker_packets" / "W001-xss-mapped.md").read_text(encoding="utf-8")
+    assert "example.test/search` / `q" in card
+    assert "example.test/help` / `title" in card
+    assert "secret" not in card and "another" not in card
+    assert "Consumer: unknown; chain: mapped, not connected" in card
+    assert "xss" in packet["skills"] and "dom-xss" not in packet["skills"]
+    assert hybrid._xss_routes(packet) == {"example.test/search": {"q"}, "example.test/help": {"title"}}
+
+
+def test_xss_continuation_validates_provenance_and_never_spawns_followup(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "summary.md").write_text("observed owned preview render", encoding="utf-8")
+    card = dict(source_route="example.test/search", input_field="q", consumer="owned preview",
+                chain_state="connected", observed_basis="worker-reported marker in preview",
+                candidate_chain="query to preview renderer", blocker="none", unknown="render context",
+                next_discriminator="inspect preview DOM under approved scope",
+                evidence_refs=["classification.jsonl", "workers/W001-xss/summary.md"])
+    handoff = worker / "handoff.json"
+    handoff.write_text(json.dumps(card), encoding="utf-8")
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    calls = []
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", lambda *a, **kw: (calls.append(kw["title"]) or FakeProcess()))
+    monkeypatch.setattr(hybrid, "missing_required_worker_artifacts", lambda *a, **kw: [])
+    assert hybrid.execute_plan(plan) == {"W001-xss": "completed"}
+    assert calls == ["Hybrid worker W001-xss"]
+    followup = (root / "continuations" / "W001-xss.md").read_text(encoding="utf-8")
+    assert "Worker-reported state: connected (not XSS proof)" in followup
+    assert "example.test/search / q" in followup
+    assert "workers/W001-xss/summary.md" in followup
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "planned"}
+
+    for change, reason in [
+        ({"input_field": "title"}, "source-not-in-packet"),
+        ({"source_route": "evil.test/search"}, "source-not-in-packet"),
+        ({"consumer": "unknown"}, "connected-without-consumer"),
+        ({"evidence_refs": ["../outside.md"]}, "evidence-outside-run-or-missing"),
+        ({"evidence_refs": ["classification.jsonl"]}, "connected-without-worker-evidence"),
+    ]:
+        handoff.write_text(json.dumps(card | change), encoding="utf-8")
+        assert hybrid.write_xss_continuation(root, packet) == f"rejected:{reason}"
+        assert not (root / "continuations" / "W001-xss.md").exists()
+    handoff.write_text("not-json", encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet).startswith("rejected:")
+
+
+def test_xss_continuation_skips_incomplete_worker_even_with_handoff(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    worker = Path(plan["worker_packets"][0]["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "handoff.json").write_text("{}", encoding="utf-8")
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", lambda *a, **kw: FakeProcess())
+    assert hybrid.execute_plan(plan)["W001-xss"].startswith("incomplete:")
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "skipped:worker-incomplete"}
+    assert not (root / "continuations" / "W001-xss.md").exists()

@@ -6,6 +6,7 @@ The first implementation slice is intentionally conservative:
 - CLI execution requires --execute
 - worker request budgets default to 0, meaning no arbitrary hard cap while
   still carrying scope/rate/stop-condition policy into each packet
+- XSS continuation is an inert review packet, not the Hoster Bunny/Pi orchestrator
 """
 
 from __future__ import annotations
@@ -410,7 +411,7 @@ def _lane_title(lane: str) -> str:
 
 def _lane_skills(lane: str) -> list[str]:
     return {
-        "xss": ["hunter-loop", "dom-xss", "reflected-xss", "error-mapper"],
+        "xss": ["hunter-loop", "xss", "xss-lifecycle", "coverage", "leads"],
         "ssrf": ["hunter-loop", "ssrf", "error-mapper"],
         "api": ["hunter-loop", "headers", "error-mapper"],
         "auth": ["hunter-loop", "access-control", "jwt-auth", "error-triage"],
@@ -480,6 +481,10 @@ Objective: {objective}
 
 {", ".join(packet.params) if packet.params else "none observed"}
 
+For XSS, also read `worker_packets/{packet.packet_id}-mapped.md`: it retains the
+source/field route pairing. The union above is not evidence that each field
+exists on each route or reaches a sink.
+
 ## Required Output
 
 Write artifacts under:
@@ -494,6 +499,20 @@ home directory, or any path outside the packet output directory.
 Required files:
 - `summary.md` with exact boundaries, useful leads, and no inflated claims.
 - `handoff.json` if this lane discovers follow-up work for another skill/model.
+
+For an XSS continuation, write one `handoff.json` object with `source_route`
+(host + path, without query values), `input_field` (literal named parameter or
+`(path only)`), `consumer` (`unknown` if not observed), `chain_state` (`mapped`
+or `connected`), `observed_basis`, `candidate_chain`, `blocker` (`none` if no
+prerequisite), `unknown`, `next_discriminator`, and `evidence_refs` (nonempty
+list of existing run-relative artifact paths, e.g. `classification.jsonl` and
+`workers/{packet.packet_id}/summary.md`). A mapped name or sink is not a
+connected source-to-consumer edge. `connected` requires evidence for the actual
+edge, not a name/proximity match. Do not claim XSS without execution proof.
+The runner validates this handoff and writes a review-only follow-up packet;
+it never dispatches follow-up target traffic. Promote reusable observed facts
+through MapStore/Leads and map reviewed inputs through Coverage using their
+canonical writers; this run-local card is not a competing evidence store.
 
 Attempt staging context (injected by the harness):
 - Run ID: `{packet.attempt_run_id}`
@@ -570,6 +589,11 @@ scope, rate, stop-condition, safety, or ownership boundaries.
 5. If the overall goal is incomplete, create the next narrow packet rather than broadening an existing worker.
 6. Prefer CLI engines by default. Use API engines only when config explicitly asks for them.
 
+XSS `continuations/` packets are review-only proposals from validated worker
+handoffs, not instructions to auto-dispatch. Verify evidence and obtain normal
+scope/policy approval before any follow-up worker or target traffic. This runner
+is distinct from the Hoster Bunny/Pi orchestrator.
+
 Do not micromanage every request. Check whether workers are stuck, off-policy,
 or finished, then re-plan.
 """
@@ -605,6 +629,8 @@ def build_plan(
         for record in records:
             handle.write(json.dumps(asdict(record), sort_keys=True))
             handle.write("\n")
+
+    write_xss_mapping_cards(output_root, packets)
 
     input_copy = output_root / "input_urls.txt"
     input_copy.write_text("\n".join(record.url for record in records) + "\n", encoding="utf-8")
@@ -642,6 +668,92 @@ def packet_to_json(packet: WorkerPacket) -> dict[str, Any]:
     payload = asdict(packet)
     payload["engine"] = asdict(packet.engine)
     return payload
+
+def _xss_routes(packet: Mapping[str, Any]) -> dict[str, set[str]]:
+    """Retain named input provenance rather than unioning fields across routes."""
+    routes: dict[str, set[str]] = {}
+    for url in packet.get("urls", []):
+        parsed = urlparse(url)
+        route = f"{parsed.netloc.lower()}{parsed.path or '/'}"
+        routes.setdefault(route, set()).update(key for key, _ in parse_qsl(parsed.query, keep_blank_values=True))
+    return routes
+
+def write_xss_mapping_cards(output_root: Path, packets: Sequence[WorkerPacket]) -> None:
+    """Run-local, non-canonical inventory; no sink or edge is inferred."""
+    for packet in packets:
+        if packet.lane != "xss":
+            continue
+        lines = ["# XSS mapped inputs (not a finding)", "", "Evidence: `classification.jsonl` (URL inventory only).", ""]
+        for route, fields in _xss_routes(packet_to_json(packet)).items():
+            for field_name in sorted(fields) if fields else ["(path only)"]:
+                lines.extend((f"- Source/field route: `{route}` / `{field_name}`", "  Consumer: unknown; chain: mapped, not connected.",
+                              "  Blocker: no observed input-to-consumer edge; unknown: render destination/context.",
+                              "  Next discriminator: trace this named input to an owned consumer under the selected policy.", ""))
+        (output_root / "worker_packets" / f"{packet.packet_id}-mapped.md").write_text("\n".join(lines), encoding="utf-8")
+
+def _validated_xss_handoff(path: Path, packet: Mapping[str, Any], output_root: Path) -> dict[str, Any]:
+    """Accept one bounded, source-attributed card, never executable instructions."""
+    handoff = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(handoff, dict):
+        raise ValueError("handoff-not-object")
+    names = ("source_route", "input_field", "consumer", "chain_state", "observed_basis",
+             "candidate_chain", "blocker", "unknown", "next_discriminator")
+    if any(not isinstance(handoff.get(name), str) or not handoff[name].strip() or
+           len(handoff[name]) > 500 or "\n" in handoff[name] or "\r" in handoff[name]
+           for name in names):
+        raise ValueError("missing-or-invalid-card-field")
+    if handoff["chain_state"] not in {"mapped", "connected"}:
+        raise ValueError("invalid-chain-state")
+    routes = _xss_routes(packet)
+    route = handoff["source_route"]
+    if route not in routes or handoff["input_field"] not in (routes[route] or {"(path only)"}):
+        raise ValueError("source-not-in-packet")
+    if handoff["chain_state"] == "connected" and handoff["consumer"] == "unknown":
+        raise ValueError("connected-without-consumer")
+    refs = handoff.get("evidence_refs")
+    if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
+        raise ValueError("missing-evidence")
+    for ref in refs:
+        if not isinstance(ref, str) or len(ref) > 250 or not ref or Path(ref).is_absolute():
+            raise ValueError("invalid-evidence-ref")
+        target = (output_root / ref).resolve()
+        if not target.is_relative_to(output_root.resolve()) or not target.is_file():
+            raise ValueError("evidence-outside-run-or-missing")
+    if handoff["chain_state"] == "connected" and not any(
+        ref.startswith(f"workers/{packet['packet_id']}/") and ref != f"workers/{packet['packet_id']}/handoff.json"
+        for ref in refs
+    ):
+        raise ValueError("connected-without-worker-evidence")
+    return handoff
+
+def write_xss_continuation(output_root: Path, packet: Mapping[str, Any]) -> str:
+    """Generate an inert review packet; never spawn from a worker handoff."""
+    packet_id = str(packet["packet_id"])
+    path = output_root / "workers" / packet_id / "handoff.json"
+    card_path = output_root / "continuations" / f"{packet_id}.md"
+    card_path.unlink(missing_ok=True)
+    if not path.is_file():
+        return "none"
+    try:
+        card = _validated_xss_handoff(path, packet, output_root)
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return f"rejected:{str(exc) if isinstance(exc, ValueError) else 'invalid-json'}"
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    card_path.write_text("\n".join((
+        f"# XSS chain card / review-only follow-up: {packet_id}", "",
+        "Owner: XSS specialist (manual admission required). No automatic dispatch or target traffic.",
+        f"Source/field route: {card['source_route']} / {card['input_field']}",
+        f"Consumer: {card['consumer']}", f"Worker-reported state: {card['chain_state']} (not XSS proof)",
+        f"Observed basis: {card['observed_basis']}", f"Candidate chain: {card['candidate_chain']}",
+        f"Blocker: {card['blocker']}", f"Exact unknown: {card['unknown']}",
+        f"Next discriminator: {card['next_discriminator']}",
+        "Evidence pointers (run-relative): " + ", ".join(card["evidence_refs"]), "",
+        "Follow-up packet: verify the cited edge and scope/ownership first; choose the XSS lane via",
+        "the xss router, then apply live-testing policy before any probe. Record actual tests in",
+        "Attempts, mapped questions in Coverage, and reusable unresolved observations in Leads/MapStore.",
+        "A mapped input or named sink is not a connected chain or confirmed XSS.", "",
+    )), encoding="utf-8")
+    return "planned"
 
 
 def write_monitor_state(output_root: Path, plan: Mapping[str, Any], *, worker_status: Mapping[str, str]) -> None:
@@ -710,6 +822,15 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
         else:
             statuses[key] = "completed"
         write_monitor_state(output_root, plan, worker_status=statuses)
+    continuation_status = {}
+    for packet_payload in plan.get("worker_packets", []):
+        key = str(packet_payload.get("packet_id"))
+        if packet_payload.get("lane") == "xss":
+            continuation_status[key] = (write_xss_continuation(output_root, packet_payload)
+                                        if statuses[key] == "completed" else "skipped:worker-incomplete")
+    if continuation_status:
+        (output_root / "continuation_state.json").write_text(
+            json.dumps(continuation_status, indent=2, sort_keys=True), encoding="utf-8")
     if include_planner:
         planner_config = _engine_from_mapping(plan.get("config", {}).get("planner"), HybridConfig().planner)
         prompt_path = Path(str(plan["planner_packet"]))

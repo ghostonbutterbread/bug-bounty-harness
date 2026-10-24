@@ -815,7 +815,9 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
     processes: dict[str, subprocess.Popen[Any]] = {}
     for packet_payload in plan.get("worker_packets", []):
         if packet_payload.get("lane") == "xss":
-            (output_root / "continuations" / f"{packet_payload['packet_id']}.md").unlink(missing_ok=True)
+            packet_id = str(packet_payload["packet_id"])
+            (output_root / "continuations" / f"{packet_id}.md").unlink(missing_ok=True)
+            (output_root / "workers" / packet_id / "handoff.json").unlink(missing_ok=True)
     (output_root / "continuation_state.json").unlink(missing_ok=True)
     write_monitor_state(output_root, plan, worker_status=statuses)
 

@@ -375,14 +375,18 @@ def test_xss_continuation_validates_provenance_and_never_spawns_followup(tmp_pat
                 next_discriminator="inspect preview DOM under approved scope",
                 evidence_refs=["classification.jsonl", "workers/W001-xss/summary.md"])
     handoff = worker / "handoff.json"
-    handoff.write_text(json.dumps(card), encoding="utf-8")
 
     class FakeProcess:
         def wait(self):
             return 0
 
     calls = []
-    monkeypatch.setattr(hybrid, "spawn_cli_engine", lambda *a, **kw: (calls.append(kw["title"]) or FakeProcess()))
+    def spawn(*args, **kwargs):
+        calls.append(kwargs["title"])
+        handoff.write_text(json.dumps(card), encoding="utf-8")
+        return FakeProcess()
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", spawn)
     monkeypatch.setattr(hybrid, "missing_required_worker_artifacts", lambda *a, **kw: [])
     assert hybrid.execute_plan(plan) == {"W001-xss": "completed"}
     assert calls == ["Hybrid worker W001-xss"]
@@ -477,3 +481,47 @@ def test_xss_failed_rerun_removes_prior_continuation(tmp_path: Path, monkeypatch
     assert hybrid.execute_plan(plan) == {"W001-xss": "failed:1"}
     assert not card.exists()
     assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "skipped:worker-incomplete"}
+
+
+def test_xss_successful_rerun_without_new_handoff_does_not_reuse_old_one(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    packet["attempts_path"] = str(tmp_path / "canonical-attempts.jsonl")
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "summary.md").write_text("prior worker summary", encoding="utf-8")
+    handoff = worker / "handoff.json"
+    handoff.write_text(json.dumps(dict(
+        source_route="example.test/search", input_field="q", consumer="owned preview",
+        chain_state="connected", sink_context="DOM HTML", observed_basis="prior marker",
+        candidate_chain="query to preview", blocker="none", unknown="context",
+        next_discriminator="inspect preview", evidence_refs=["workers/W001-xss/summary.md"])), encoding="utf-8")
+    continuation = root / "continuations" / "W001-xss.md"
+    continuation.parent.mkdir()
+    continuation.write_text("prior review", encoding="utf-8")
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    def spawn(*args, **kwargs):
+        # Fresh successful worker produces required artifacts, but no handoff.
+        assert not handoff.exists()
+        assert not continuation.exists()
+        workdir = kwargs["workdir"]
+        (workdir / "summary.md").write_text("fresh worker summary", encoding="utf-8")
+        (workdir / "attempts.staged.jsonl").write_text(json.dumps(dict(
+            timestamp="2026-08-06T00:00:00Z", tool="offline-worker",
+            target="https://example.test/search", outcome="cold", stop_reason="complete")) + "\n", encoding="utf-8")
+        return FakeProcess()
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", spawn)
+    assert hybrid.execute_plan(plan) == {"W001-xss": "completed"}
+    assert hybrid.missing_required_worker_artifacts(worker, attempts_path=Path(packet["attempts_path"])) == []
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "none"}
+    assert not handoff.exists()
+    assert not continuation.exists()

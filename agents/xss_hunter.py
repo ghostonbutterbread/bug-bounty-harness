@@ -40,6 +40,7 @@ try:
     from .context_detector import ContextDetector, ContextType, InjectionContext
     from .deep_mode_agent import Attempt, DeepModeAgent
     from .framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from .js_literal_context import literal_at
     from .payload_sets import get_payloads_for_context
     from .sink_detector import Sink, SinkDetector
 except ImportError:  # pragma: no cover
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover
     from context_detector import ContextDetector, ContextType, InjectionContext
     from deep_mode_agent import Attempt, DeepModeAgent
     from framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from js_literal_context import literal_at
     from payload_sets import get_payloads_for_context
     from sink_detector import Sink, SinkDetector
 
@@ -255,7 +257,13 @@ class XSSHunter:
         reflected_fragment = context.reflected_fragment
         filter_type = self.bypass_generator.detect_filter_type(payload, reflected_fragment, response.text)
         truncated = bool(reflected_fragment) and len(reflected_fragment) < len(payload)
-        likely_executable = self._looks_executable(context.type, reflected_fragment or payload)
+        # A JS code token inside a quoted value is data unless the reflection
+        # itself supplies a matching literal break or an HTML script break.
+        script_quote = ""
+        if context.type in {ContextType.JS_STRING, ContextType.JS_TEMPLATE} and context.location_hint.startswith("offset:"):
+            offset = int(context.location_hint.split(":", 1)[1])
+            script_quote = self._script_literal_delimiter(response.text, offset)
+        likely_executable = context.reflected and self._looks_executable(context.type, reflected_fragment, script_quote)
         blocked = filter_type != "NO_BLOCK" and not likely_executable
 
         return ScanResult(
@@ -344,12 +352,45 @@ class XSSHunter:
             return [script.get_text() for script in soup.find_all("script") if not script.get("src")]
         return re.findall(r"<script[^>]*>(.*?)</script>", html_text, re.IGNORECASE | re.DOTALL)
 
-    def _looks_executable(self, context_type: str, fragment: str) -> bool:
-        lowered = html.unescape(fragment).lower()
-        if context_type in {ContextType.HTML_BODY, ContextType.HTML_ATTRIBUTE, ContextType.HTML_COMMENT}:
+    def _script_literal_delimiter(self, response_text: str, offset: int) -> str:
+        """Return the open quote at a script reflection, if unambiguous."""
+        script_start = response_text.lower().rfind("<script", 0, offset)
+        open_end = response_text.find(">", script_start) if script_start >= 0 else -1
+        if open_end < 0 or open_end >= offset:
+            return ""
+        prefix = response_text[open_end + 1:offset]
+        return literal_at(prefix, len(prefix))
+
+    def _looks_executable(self, context_type: str, fragment: str, script_quote: str = "") -> bool:
+        # Entity-escaped markup is text in an HTML response, not an active tag.
+        lowered = fragment.lower()
+        if context_type == ContextType.HTML_BODY:
+            return any(token in lowered for token in ("<script", "<svg", "<img", "<iframe"))
+        if context_type == ContextType.HTML_COMMENT:
+            # Markup inside a comment is inert unless the payload closes it.
+            return "-->" in fragment and self._looks_executable(ContextType.HTML_BODY, fragment.split("-->", 1)[1])
+        if context_type == ContextType.HTML_ATTRIBUTE:
+            if "&lt;" in lowered and "<" not in lowered:
+                return False
             return any(token in lowered for token in ("<script", "onerror", "onload", "onfocus", "javascript:", "<svg", "<img", "<iframe"))
         if context_type in {ContextType.JS_STRING, ContextType.JS_TEMPLATE}:
-            return any(token in lowered for token in ("alert(", "confirm(", "prompt(", "constructor(", "</script>", "${"))
+            # HTML parsing closes a script even inside a JS literal, but only
+            # active markup after the close is a candidate.
+            if "</script>" in lowered and self._looks_executable(ContextType.HTML_BODY, lowered.split("</script>", 1)[1]):
+                return True
+            if context_type == ContextType.JS_TEMPLATE and script_quote == "`" and re.search(r"(?<!\\)\$\{\s*(?:alert|confirm|prompt)\s*\(", fragment, re.IGNORECASE):
+                return True
+            if script_quote not in ("'", '"', "`"):
+                return False
+            escaped = False
+            for index, char in enumerate(fragment):
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == script_quote:
+                    return bool(re.match(r"\s*;\s*(?:alert|confirm|prompt)\s*\(", fragment[index + 1:], re.IGNORECASE))
+            return False
         if context_type == ContextType.URL_PARAM:
             return "javascript:" in lowered or lowered.startswith("data:text/html")
         if context_type == ContextType.STYLESHEET:

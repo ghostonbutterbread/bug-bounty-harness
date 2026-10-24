@@ -223,8 +223,13 @@ bbh agents/xss_framework.py --target 'https://target.example/search?q=test' --pr
 bbh agents/xss_hunter.py --target 'https://target.example/search?q=test' --program target --depth deep --rate-limit 5
 ```
 
-A harness lead still needs the selected lane's source-to-consumer and browser
-proof. Do not run a broad harness merely to delay an already warm vector.
+A harness result from an HTTP response is a reflection/candidate signal, not
+browser execution; `confirmed` is set only after optional `--browser-verify`
+observes a dialog. Entity-escaped payloads are not intact markup reflections.
+Discovered parameters retain their route, so review each candidate URL and
+scope before any follow-up. A harness lead still needs the selected lane's
+source-to-consumer and browser proof. Do not run a broad harness merely to
+delay an already warm vector.
 
 ## Agent Rules
 

@@ -7,8 +7,8 @@
 - **Base commit:** `ca76506b830880c691316e8912a83ec50e4d313f` (`origin/beta`, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
-- **Latest immutable recovery checkpoint:** `6471c93fd998f36ac673737fb2f7f34f0bfe8d3d` (a subsequent dossier-only commit records this SHA).
-- **Feature implementation commit(s):** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`, `a5f1407c6403f793f61c24c19d73fdde211c6899`, `2a8ff65ad75d387f52c29ee0c4787ddcbedc2039`, `6471c93fd998f36ac673737fb2f7f34f0bfe8d3d`
+- **Latest immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be` (the subsequent dossier-only commit records this SHA).
+- **Feature implementation commit(s):** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`, `a5f1407c6403f793f61c24c19d73fdde211c6899`, `2a8ff65ad75d387f52c29ee0c4787ddcbedc2039`, `6471c93fd998f36ac673737fb2f7f34f0bfe8d3d`, `3b2648e959d006758c74aa994f981e4357cda9be`
 - **Inspiration:** audited XSS framework/hunter signal defects and existing `agents/test_xss_framework.py` contracts.
 
 ## Intent and implemented contract
@@ -37,7 +37,7 @@ Correct marker-context classification from the marker's actual location, includi
 ## Interruption / resume handoff
 
 - **Owning ref:** `fix/xss-harness-signal`
-- **Latest immutable recovery checkpoint:** `6471c93fd998f36ac673737fb2f7f34f0bfe8d3d` (a subsequent dossier-only commit records this SHA).
+- **Latest immutable recovery checkpoint:** `3b2648e959d006758c74aa994f981e4357cda9be` (the subsequent dossier-only commit records this SHA).
 - **Exact resume point:** independently review the new shared framework inert-echo predicate and prior JS-string/template heuristic, rerun focused tests and fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
 - **Working-tree state at handoff:** clean after the dossier-only handoff commit.
 

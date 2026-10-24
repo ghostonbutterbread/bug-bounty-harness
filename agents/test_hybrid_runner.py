@@ -342,3 +342,264 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
     assert "testvalue123" not in artifact_text
     assert "abcdef1234567890" not in artifact_text
     assert "cloudflarechallengevalue123" not in artifact_text
+
+
+def test_xss_mapping_keeps_field_route_and_does_not_infer_a_sink(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=secret\nhttps://example.test/help?title=another\n", encoding="utf-8")
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=tmp_path / "run", config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    card = (tmp_path / "run" / "worker_packets" / "W001-xss-mapped.md").read_text(encoding="utf-8")
+    assert "example.test/search` / `q" in card
+    assert "example.test/help` / `title" in card
+    assert "secret" not in card and "another" not in card
+    assert "Consumer: unknown; chain: mapped, not connected" in card
+    assert "xss" in packet["skills"] and "dom-xss" not in packet["skills"]
+    assert hybrid._xss_routes(packet) == {"example.test/search": {"q"}, "example.test/help": {"title"}}
+
+
+def test_xss_initial_mapping_redacts_derived_route_and_field_without_query_values(tmp_path: Path) -> None:
+    secret = "api_key=do-not-copy"
+    encoded_secret = "api_key%3Ddo-not-copy"
+    source = tmp_path / "urls.txt"
+    source.write_text(
+        f"https://example.test/{secret}?api_key%3Ddo-not-copy=private-query-value&q=ordinary-query-value\n"
+        f"https://example.test/{encoded_secret}?q=encoded-route-value\n"
+        "https://example.test/API_KEY%3dother-secret/help?q=case-value\n"
+        "https://example.test/help?title=another-query-value\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / "run"
+    hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                      output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    card = (root / "worker_packets" / "W001-xss-mapped.md").read_text(encoding="utf-8")
+    assert "example.test/api_key=REDACTED` / `api_key=REDACTED" in card
+    assert "example.test/api_key=REDACTED` / `q" in card
+    assert "example.test/api_key%3DREDACTED` / `q" in card
+    assert "example.test/API_KEY%3dREDACTED/help` / `q" in card
+    assert "example.test/help` / `title" in card
+    assert secret not in card
+    assert encoded_secret not in card
+    assert "private-query-value" not in card
+    assert "ordinary-query-value" not in card
+    assert "another-query-value" not in card
+    assert "encoded-route-value" not in card
+    assert "case-value" not in card
+    assert "API_KEY%3dother-secret" in source.read_text(encoding="utf-8")
+    assert "Consumer: unknown; chain: mapped, not connected" in card
+
+
+def test_xss_continuation_validates_provenance_and_never_spawns_followup(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "summary.md").write_text("observed owned preview render", encoding="utf-8")
+    card = dict(source_route="example.test/search", input_field="q", consumer="owned preview",
+                chain_state="connected", sink_context="DOM HTML", observed_basis="worker-reported marker in preview",
+                candidate_chain="query to preview renderer", blocker="none", unknown="render context",
+                next_discriminator="inspect preview DOM under approved scope",
+                evidence_refs=["classification.jsonl", "workers/W001-xss/summary.md"])
+    handoff = worker / "handoff.json"
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    calls = []
+    def spawn(*args, **kwargs):
+        calls.append(kwargs["title"])
+        handoff.write_text(json.dumps(card), encoding="utf-8")
+        return FakeProcess()
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", spawn)
+    monkeypatch.setattr(hybrid, "missing_required_worker_artifacts", lambda *a, **kw: [])
+    assert hybrid.execute_plan(plan) == {"W001-xss": "completed"}
+    assert calls == ["Hybrid worker W001-xss"]
+    followup = (root / "continuations" / "W001-xss.md").read_text(encoding="utf-8")
+    assert "Worker-reported state: connected (not XSS proof)" in followup
+    assert "example.test/search / q" in followup
+    assert "workers/W001-xss/handoff.json" in followup
+    assert "Sink context (worker-reported): DOM HTML" in followup
+    for expected in (
+        "Consumer (worker-reported): owned preview",
+        "Observed basis (worker-reported): worker-reported marker in preview",
+        "Candidate chain (worker-reported): query to preview renderer",
+        "Blocker (worker-reported): none",
+        "Unknown (worker-reported): render context",
+        "Next discriminator (worker-reported): inspect preview DOM under approved scope",
+        "- classification.jsonl", "- workers/W001-xss/summary.md",
+    ):
+        assert expected in followup
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "planned"}
+
+    for change, reason in [
+        ({"input_field": "title"}, "source-not-in-packet"),
+        ({"source_route": "evil.test/search"}, "source-not-in-packet"),
+        ({"consumer": "unknown"}, "connected-without-consumer"),
+        ({"sink_context": "unknown"}, "connected-without-sink-context"),
+        ({"input_location": "body", "input_field": "api_key"}, "body-without-worker-observation"),
+        ({"evidence_refs": ["../outside.md"]}, "evidence-outside-run-or-missing"),
+        ({"evidence_refs": ["classification.jsonl"]}, "connected-without-worker-evidence"),
+    ]:
+        handoff.write_text(json.dumps(card | change), encoding="utf-8")
+        assert hybrid.write_xss_continuation(root, packet) == f"rejected:{reason}"
+        assert not (root / "continuations" / "W001-xss.md").exists()
+    handoff.write_text("not-json", encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet).startswith("rejected:")
+
+
+def test_xss_continuation_skips_incomplete_worker_even_with_handoff(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    worker = Path(plan["worker_packets"][0]["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "handoff.json").write_text("{}", encoding="utf-8")
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", lambda *a, **kw: FakeProcess())
+    assert hybrid.execute_plan(plan)["W001-xss"].startswith("incomplete:")
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "skipped:worker-incomplete"}
+    assert not (root / "continuations" / "W001-xss.md").exists()
+
+
+def test_xss_body_key_observation_and_safe_card(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/api/search\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=2))
+    packet = next(p for p in plan["worker_packets"] if p["lane"] == "xss")
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    observation = f"workers/{packet['packet_id']}/body-input.json"
+    observed = {"source_route": "example.test/api/search", "input_location": "body", "input_field": "title"}
+    (worker / "body-input.json").write_text(json.dumps(observed), encoding="utf-8")
+    card = dict(source_route=observed["source_route"], input_location="body", input_field="title",
+                input_evidence_ref=observation, consumer="owned preview", sink_context="HTML text",
+                chain_state="mapped", observed_basis="synthetic api_key=do-not-copy",
+                candidate_chain="synthetic api_key=do-not-copy", blocker="none", unknown="sink edge",
+                next_discriminator="synthetic api_key=do-not-copy", evidence_refs=[observation])
+    handoff = worker / "handoff.json"
+    handoff.write_text(json.dumps(card), encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet) == "planned"
+    generated = (root / "continuations" / f"{packet['packet_id']}.md").read_text()
+    assert "title" in generated and "Input location: body" in generated
+    assert "api_key=do-not-copy" not in generated
+    assert "synthetic api_key=REDACTED" in generated
+    (worker / "body-input.json").write_text(json.dumps(observed | {"input_field": "api_key"}), encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet) == "rejected:body-observation-mismatch"
+    assert not (root / "continuations" / f"{packet['packet_id']}.md").exists()
+
+
+def test_xss_card_redacts_every_emitted_value_without_erasing_useful_text(tmp_path: Path) -> None:
+    secret = "api_key%3Ddo-not-copy"
+    source = tmp_path / "urls.txt"
+    source.write_text(f"https://example.test/{secret}?api_key%253Ddo-not-copy=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    ref = f"workers/{packet['packet_id']}/{secret}.md"
+    (worker / f"{secret}.md").write_text("synthetic evidence", encoding="utf-8")
+    (worker / "handoff.json").write_text(json.dumps(dict(
+        source_route=f"example.test/{secret}", input_field=secret, consumer=f"owned preview {secret}",
+        chain_state="connected", sink_context="HTML text", observed_basis=f"marker rendered {secret}",
+        candidate_chain=f"title to preview {secret}", blocker=f"awaiting review {secret}",
+        unknown=f"encoding context {secret}", next_discriminator=f"inspect preview {secret}",
+        evidence_refs=[ref])), encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet) == "planned"
+    generated = (root / "continuations" / f"{packet['packet_id']}.md").read_text()
+    assert secret not in generated
+    assert secret in (worker / "handoff.json").read_text(encoding="utf-8")
+    assert secret in (root / "classification.jsonl").read_text(encoding="utf-8")
+    for expected in ("example.test/api_key%3DREDACTED / api_key%3DREDACTED", "owned preview api_key%3DREDACTED",
+                     "marker rendered api_key%3DREDACTED", "title to preview api_key%3DREDACTED",
+                     "awaiting review api_key%3DREDACTED", "encoding context api_key%3DREDACTED",
+                     "inspect preview api_key%3DREDACTED",
+                     f"- workers/{packet['packet_id']}/api_key%3DREDACTED"):
+        assert expected in generated
+    assert hybrid.redact_sensitive_text("ordinary route and preview label") == "ordinary route and preview label"
+    assert hybrid.redact_sensitive_text("example.test/search/results") == "example.test/search/results"
+    assert hybrid._safe_card_value("example.test/API_KEY%3dother-secret/help") == "example.test/API_KEY%3dREDACTED/help"
+    assert hybrid.redact_sensitive_text("example.test/API_KEY%3dother-secret/help") == "example.test/API_KEY%3dother-secret/help"
+    assert hybrid.redact_sensitive_text('"api_key": "do-not-copy"') == '"api_key": "REDACTED"'
+
+
+def test_xss_failed_rerun_removes_prior_continuation(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    card = root / "continuations" / "W001-xss.md"
+    card.parent.mkdir()
+    card.write_text("old review")
+    (root / "continuation_state.json").write_text('{"W001-xss":"planned"}')
+
+    class FailedProcess:
+        def wait(self):
+            return 1
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", lambda *a, **kw: FailedProcess())
+    monkeypatch.setattr(hybrid, "missing_required_worker_artifacts", lambda *a, **kw: [])
+    assert hybrid.execute_plan(plan) == {"W001-xss": "failed:1"}
+    assert not card.exists()
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "skipped:worker-incomplete"}
+
+
+def test_xss_successful_rerun_without_new_handoff_does_not_reuse_old_one(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    packet["attempts_path"] = str(tmp_path / "canonical-attempts.jsonl")
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    (worker / "summary.md").write_text("prior worker summary", encoding="utf-8")
+    handoff = worker / "handoff.json"
+    handoff.write_text(json.dumps(dict(
+        source_route="example.test/search", input_field="q", consumer="owned preview",
+        chain_state="connected", sink_context="DOM HTML", observed_basis="prior marker",
+        candidate_chain="query to preview", blocker="none", unknown="context",
+        next_discriminator="inspect preview", evidence_refs=["workers/W001-xss/summary.md"])), encoding="utf-8")
+    continuation = root / "continuations" / "W001-xss.md"
+    continuation.parent.mkdir()
+    continuation.write_text("prior review", encoding="utf-8")
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    def spawn(*args, **kwargs):
+        # Fresh successful worker produces required artifacts, but no handoff.
+        assert not handoff.exists()
+        assert not continuation.exists()
+        workdir = kwargs["workdir"]
+        (workdir / "summary.md").write_text("fresh worker summary", encoding="utf-8")
+        (workdir / "attempts.staged.jsonl").write_text(json.dumps(dict(
+            timestamp="2026-08-06T00:00:00Z", tool="offline-worker",
+            target="https://example.test/search", outcome="cold", stop_reason="complete")) + "\n", encoding="utf-8")
+        return FakeProcess()
+
+    monkeypatch.setattr(hybrid, "spawn_cli_engine", spawn)
+    assert hybrid.execute_plan(plan) == {"W001-xss": "completed"}
+    assert hybrid.missing_required_worker_artifacts(worker, attempts_path=Path(packet["attempts_path"])) == []
+    assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "none"}
+    assert not handoff.exists()
+    assert not continuation.exists()

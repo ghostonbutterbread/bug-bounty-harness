@@ -37,6 +37,20 @@ def test_discovery_preserves_same_name_on_distinct_routes() -> None:
     ])
     assert [(p.name, p.source) for p in params] == [("q", "url"), ("q", "wayback")]
 
+def test_discovery_preserves_render_mode_but_dedupes_probe_value() -> None:
+    discovery = ParameterDiscovery(_Session())
+    html_url = "https://example.test/search?view=html&q=old"
+    json_url = "https://example.test/search?q=other&view=json"
+    params = discovery._dedupe_and_rank([
+        DiscoveredParam("q", "wayback", url=html_url, priority=7),
+        DiscoveredParam("q", "url", url="https://example.test/search?q=new&view=html", priority=10),
+        DiscoveredParam("q", "wayback", url=json_url, priority=7),
+    ])
+    assert [(p.source, p.url) for p in params] == [
+        ("url", "https://example.test/search?q=new&view=html"),
+        ("wayback", json_url),
+    ]
+
 def test_context_classifies_unquoted_attributes_and_script_comment_text() -> None:
     screener = XSSScreener(_Session())
     marker = "XSSUNIQUE"
@@ -104,6 +118,40 @@ def test_reflected_probe_retains_route_and_records_reflection_not_execution(monk
     assert result[0].confirmed is False
     assert session.urls == [result[0].url]
     assert records[0]["outcome"] == "reflected_intact"
+
+def test_reflected_comment_echo_is_not_a_finding_but_escape_is(monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    from urllib.parse import parse_qs, urlsplit
+
+    class Session:
+        def get(self, url, **kwargs):
+            payload = parse_qs(urlsplit(url).query)["q"][0]
+            body = f"<!-- {payload} -->"
+            return type("Response", (), {"text": body, "status_code": 200})()
+
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    payload = "<img src=x onerror=alert(1)>"
+    breakout = "--><img src=x onerror=alert(1)>"
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", [payload, breakout])
+    screen = ScreenResult("q", "https://example.test/search?q=marker", True, "comment", "", False, "MED")
+    records = []
+    tester = ReflectedTester(Session(), attempt_recorder=records.append)
+    tester.TIERS = ["standard"]
+    findings = tester.test(screen.url, screen)
+    assert [f.payload for f in findings] == [breakout]
+    assert findings[0].confirmed is False
+    assert [row["outcome"] for row in records] == ["reflected_intact", "reflected_intact"]
+
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", [payload])
+    assert tester.test(screen.url, screen) == []
+
+
+def test_comment_delimiters_in_script_and_active_second_echo_are_not_inert() -> None:
+    from agents.xss_framework import _only_in_html_comments
+    payload = "<img src=x onerror=alert(1)>"
+    assert _only_in_html_comments(f"<!-- {payload} -->", payload)
+    assert not _only_in_html_comments(f"<!-- {payload} -->\n<div>{payload}</div>", payload)
+    assert not _only_in_html_comments(f'<script>const text = "<!--"; {payload}</script>', payload)
 
 def test_blocked_echo_is_not_finding_and_deeper_tier_is_tried(monkeypatch) -> None:
     from agents.xss_framework import REFLECTED_PAYLOADS
@@ -343,3 +391,28 @@ def test_adaptive_bypass_records_every_base_and_variant_payload(tmp_path: Path, 
     assert [row["payload"] for row in rows] == ["<base-probe>", "<variant-probe>"]
     assert all(row["event_type"] == "probe" for row in rows)
     assert all(row["vuln_class"] == "xss" for row in rows)
+
+
+def test_adaptive_bypass_does_not_promote_comment_only_variant(tmp_path: Path, monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    from urllib.parse import parse_qs, urlsplit
+
+    class Session:
+        def get(self, url, **kwargs):
+            payload = parse_qs(urlsplit(url).query)["q"][0]
+            status = 403 if payload == "<base-probe>" else 200
+            return type("Response", (), {"status_code": status, "text": f"<!-- {payload} -->"})()
+        def close(self):
+            pass
+
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", ["<base-probe>"])
+    framework = XSSFramework("https://example.test/search?q=old", skip_scope=True, attempts_path=tmp_path / "attempts.jsonl")
+    framework.session = Session()
+    framework.bypass_engine.detect_block_type = lambda body, status: "WAF"
+    framework.bypass_engine.adapt = lambda payload, block_type: ["<img src=x onerror=alert(1)>"]
+    try:
+        screen = ScreenResult("q", framework.target, True, "comment", "", False, "HIGH")
+        assert framework._adaptive_bypass(screen) == []
+    finally:
+        framework.close()

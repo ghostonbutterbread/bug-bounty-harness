@@ -28,10 +28,11 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import (
-    parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit,
+    parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit,
 )
 from uuid import uuid4
 
@@ -356,10 +357,13 @@ class ParameterDiscovery:
         ]
 
     def _dedupe_and_rank(self, params: list[DiscoveredParam]) -> list[DiscoveredParam]:
-        seen: dict[tuple[str, str, str, str], DiscoveredParam] = {}
+        seen: dict[tuple[str, str, str, str, tuple[tuple[str, str], ...]], DiscoveredParam] = {}
         for p in params:
             route = urlsplit(p.url)
-            key = (route.scheme, route.netloc, route.path, p.name)
+            # The injected value varies, but other query fields can select a
+            # different renderer (e.g. view=html versus view=json).
+            mode = tuple(sorted((k, v) for k, v in parse_qsl(route.query, keep_blank_values=True) if k != p.name))
+            key = (route.scheme, route.netloc, route.path, p.name, mode)
             if key not in seen or p.priority > seen[key].priority:
                 seen[key] = p
         return sorted(seen.values(), key=lambda x: x.priority, reverse=True)
@@ -576,7 +580,7 @@ class ReflectedTester:
                 self._record_probe(tier, payload, screen_result, result)
                 time.sleep(self._delay)
 
-                if result["reflected_intact"] and not result["blocked"]:
+                if result["reflected_intact"] and not result["blocked"] and not result["inert_comment"]:
                     findings.append(XSSFinding(
                         type="reflected",
                         url=result["url"],
@@ -634,6 +638,7 @@ class ReflectedTester:
         body = resp.text
         blocked = _is_blocked(resp.status_code, body)
         reflected_intact = payload in body
+        inert_comment = reflected_intact and _only_in_html_comments(body, payload)
         executed = False  # Only verify_with_browser can observe execution.
 
         evidence = _snippet(body, payload)
@@ -641,6 +646,7 @@ class ReflectedTester:
             "url": url,
             "blocked": blocked,
             "reflected_intact": reflected_intact,
+            "inert_comment": inert_comment,
             "executed": executed,
             "evidence": evidence,
             "status": resp.status_code,
@@ -1311,7 +1317,7 @@ class XSSFramework:
 
                 self._record_bypass_probe(candidate, variant, url, f"bypass:{block_type}", response=resp)
                 body = resp.text
-                if variant in body and not _is_blocked(resp.status_code, body):
+                if variant in body and not _is_blocked(resp.status_code, body) and not _only_in_html_comments(body, variant):
                     findings.append(XSSFinding(
                         type="reflected",
                         url=url,
@@ -1504,11 +1510,36 @@ def _snippet(body: str, marker: str, radius: int = 100) -> str:
     return body[start:end].replace("\n", " ").strip()
 
 
+def _only_in_html_comments(body: str, payload: str) -> bool:
+    """True only when every intact echo sits wholly inside an HTML comment."""
+    line_starts = [0]
+    for match in re.finditer("\n", body):
+        line_starts.append(match.end())
+
+    class CommentSpans(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.spans: list[tuple[int, int]] = []
+
+        def handle_comment(self, data: str) -> None:
+            line, column = self.getpos()
+            start = line_starts[line - 1] + column
+            self.spans.append((start, start + len(data) + len("<!--") + len("-->")))
+
+    parser = CommentSpans()
+    parser.feed(body)
+    return all(
+        any(start <= match.start() and match.end() <= end for start, end in parser.spans)
+        for match in re.finditer(re.escape(payload), body)
+    )
+
+
 def _empty_result(url: str, error: str = "") -> dict:
     return {
         "url": url,
         "blocked": False,
         "reflected_intact": False,
+        "inert_comment": False,
         "executed": False,
         "evidence": error,
         "status": 0,

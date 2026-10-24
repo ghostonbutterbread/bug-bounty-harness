@@ -1,6 +1,6 @@
 # XSS chain-card continuation integration dossier
 
-- **Status:** feature (encoded path secret redaction verified offline; independent re-review pending)
+- **Status:** review-ready (independent acceptance review passed offline; integration pending)
 - **Owner:** focused hybrid-runner agent
 - **Branch / owning ref:** `feat/xss-chain-card-continuation`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-chain-card-continuation`
@@ -58,4 +58,5 @@ Preserve parameter-to-route provenance and turn a completed XSS worker's one bou
 - 2026-10-24 — addressed successful-rerun stale handoff reuse before dispatch, with a red/green offline test through real artifact validation; offline suite 18 passed, re-review pending. No merge/push or target traffic.
 - 2026-10-24 — restored bounded actionable fields and explicit evidence refs in generated continuation, with per-value derived redaction for provenance and prose; offline suite 19 passed including real `execute_plan` card path and synthetic secret regression. Independent review pending; no merge/push or target traffic.
 - 2026-10-24 — final review reproduced a raw synthetic `api_key=do-not-copy` in the initial mapped card. Reused the per-value derived-output redactor for both mapped route and field, preserving ordinary names and excluding query values; offline regression red before fix, full focused suite 20 passed. Independent re-review pending; no merge/push or target traffic.
-- 2026-10-24 — review reproduced `api_key%3Ddo-not-copy` in both derived cards. Extended the shared derived-card value sanitizer, leaving the worker-artifact redactor unchanged and preserving encoded route syntax, ordinary trailing paths, and raw input artifacts; both focused regressions red before fix and the offline suite 20 passed after. Independent re-review pending; no merge/push or target traffic.
+- 2026-10-24 — review reproduced `api_key%3Ddo-not-copy` in both derived cards. Extended the shared derived-card value sanitizer, leaving the worker-artifact redactor unchanged and preserving encoded route syntax, ordinary trailing paths, and raw input artifacts; both focused regressions red before fix and the offline suite 20 passed after.
+- 2026-10-24 — Independent bounded acceptance review of `5a4c7ee` found no reproducible blocker in the requested cards/signal scope; 20 offline tests passed. Approved for beta integration; fresh Hoster consumption is an activation gate, not claimed here.

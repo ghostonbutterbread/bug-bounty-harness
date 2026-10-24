@@ -50,6 +50,33 @@ means proof is still needed, not that the reflected path is closed. Reconcile
 which catalog groups were tested and which remain open at the next checkpoint;
 do not create a duplicate evidence store just for this queue.
 
+### XSS chain cards at the handoff boundary
+
+For an XSS catalog, retain the useful parameter and sink mapping, but promote
+**selected paths**, not a program-wide list of parameter names, into compact
+chain cards in the existing campaign record. A card carries: input route/method/
+field and writer or `writer unknown`; control evidence and its typed Attempt or
+MapStore pointer (or `untested`); the specific consumer/render context and
+reachability evidence (or `consumer unknown`); observed representation and first
+observed blocker (or `not established`); execution/browser result (or `not
+tested`); exact missing edge; one next discriminator; owner and wake condition.
+Label the card `mapped` until control and delivery are evidenced, `connected`
+when the controlled value reaches that consumer, and `defended` only when the
+acting layer is observed there. None of these labels is a finding. An inventory
+name or a static sink signature must not silently become an accepted writer,
+a mounted consumer, or an XSS claim.
+
+At each checkpoint the coordinator selects a connected card for the same
+steward to characterize its first actual blocker, or assigns a bounded writer/
+consumer-reach experiment for a mapped card. Preserve unselected cards with
+an owner or wake condition rather than calling them tested. Once a card has
+an observed reusable fact and unresolved security question, use `/leads` for
+its public evidence-backed projection; the card is a campaign decision view,
+not another canonical store. A timed-out worker returns the same card and its
+last verified boundary to a successive bounded segment, not a fresh breadth
+assignment. Scope, ownership, collective rate, and browser leases are checked
+again before a new worker segment; no card automatically authorizes traffic.
+
 ## Negative-result challenge
 
 When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“There is a vulnerability here. You might have to get creative to find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.

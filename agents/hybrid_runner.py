@@ -775,18 +775,26 @@ def write_xss_continuation(output_root: Path, packet: Mapping[str, Any]) -> str:
         card = _validated_xss_handoff(path, packet, output_root)
     except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return f"rejected:{str(exc) if isinstance(exc, ValueError) else 'invalid-json'}"
+    # Redact each dynamic value before interpolation, including provenance and paths.
+    # Sanitizing worker artifacts alone does not protect cards written afterwards.
+    safe = lambda value: redact_sensitive_text(str(value))
     card_path.parent.mkdir(parents=True, exist_ok=True)
     card_path.write_text("\n".join((
-        f"# XSS chain card / review-only follow-up: {packet_id}", "",
+        f"# XSS chain card / review-only follow-up: {safe(packet_id)}", "",
         "Owner: XSS specialist (manual admission required). No automatic dispatch or target traffic.",
-        f"Source/field route (worker-reported): {card['source_route']} / {card['input_field']}",
-        f"Input location: {card.get('input_location', 'path' if card['input_field'] == '(path only)' else 'query')}",
-        "Consumer: see worker handoff and cited evidence (not independently verified).",
-        f"Sink context (worker-reported): {card.get('sink_context', 'unknown')}",
-        f"Worker-reported state: {card['chain_state']} (not XSS proof)",
-        "Observed basis, candidate chain, blocker, unknown, and discriminator: review",
-        f"workers/{packet_id}/handoff.json against cited evidence; free text is not copied here.",
-        "Evidence pointers: see handoff.json (run-relative; existence checked, not proof).", "",
+        f"Source/field route (worker-reported): {safe(card['source_route'])} / {safe(card['input_field'])}",
+        f"Input location: {safe(card.get('input_location', 'path' if card['input_field'] == '(path only)' else 'query'))}",
+        f"Consumer (worker-reported): {safe(card['consumer'])}",
+        f"Sink context (worker-reported): {safe(card.get('sink_context', 'unknown'))}",
+        f"Worker-reported state: {safe(card['chain_state'])} (not XSS proof)",
+        f"Observed basis (worker-reported): {safe(card['observed_basis'])}",
+        f"Candidate chain (worker-reported): {safe(card['candidate_chain'])}",
+        f"Blocker (worker-reported): {safe(card['blocker'])}",
+        f"Unknown (worker-reported): {safe(card['unknown'])}",
+        f"Next discriminator (worker-reported): {safe(card['next_discriminator'])}",
+        "Evidence pointers (run-relative, existence checked, not proof):",
+        *(f"- {safe(ref)}" for ref in card['evidence_refs']),
+        f"Worker handoff: {safe(f'workers/{packet_id}/handoff.json')}", "",
         "Follow-up packet: verify the cited edge and scope/ownership first; choose the XSS lane via",
         "the xss router, then apply live-testing policy before any probe. Record actual tests in",
         "Attempts, mapped questions in Coverage, and reusable unresolved observations in Leads/MapStore.",
@@ -1015,6 +1023,12 @@ def redact_sensitive_text(text: str) -> str:
     )
     redacted = re.sub(
         r"(access[_-]?token[\"'\s:=]+)[A-Za-z0-9._~+/-]+",
+        r"\1REDACTED",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"(\bapi[_-]?key\b[\"']?\s*[:=]\s*[\"']?)[^;\s\"',`]+",
         r"\1REDACTED",
         redacted,
         flags=re.IGNORECASE,

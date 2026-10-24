@@ -395,6 +395,16 @@ def test_xss_continuation_validates_provenance_and_never_spawns_followup(tmp_pat
     assert "example.test/search / q" in followup
     assert "workers/W001-xss/handoff.json" in followup
     assert "Sink context (worker-reported): DOM HTML" in followup
+    for expected in (
+        "Consumer (worker-reported): owned preview",
+        "Observed basis (worker-reported): worker-reported marker in preview",
+        "Candidate chain (worker-reported): query to preview renderer",
+        "Blocker (worker-reported): none",
+        "Unknown (worker-reported): render context",
+        "Next discriminator (worker-reported): inspect preview DOM under approved scope",
+        "- classification.jsonl", "- workers/W001-xss/summary.md",
+    ):
+        assert expected in followup
     assert json.loads((root / "continuation_state.json").read_text()) == {"W001-xss": "planned"}
 
     for change, reason in [
@@ -455,10 +465,42 @@ def test_xss_body_key_observation_and_safe_card(tmp_path: Path) -> None:
     assert hybrid.write_xss_continuation(root, packet) == "planned"
     generated = (root / "continuations" / f"{packet['packet_id']}.md").read_text()
     assert "title" in generated and "Input location: body" in generated
-    assert "synthetic api_key" not in generated
+    assert "api_key=do-not-copy" not in generated
+    assert "synthetic api_key=REDACTED" in generated
     (worker / "body-input.json").write_text(json.dumps(observed | {"input_field": "api_key"}), encoding="utf-8")
     assert hybrid.write_xss_continuation(root, packet) == "rejected:body-observation-mismatch"
     assert not (root / "continuations" / f"{packet['packet_id']}.md").exists()
+
+
+def test_xss_card_redacts_every_emitted_value_without_erasing_useful_text(tmp_path: Path) -> None:
+    secret = "api_key=do-not-copy"
+    source = tmp_path / "urls.txt"
+    source.write_text(f"https://example.test/{secret}?api_key%3Ddo-not-copy=marker\n", encoding="utf-8")
+    root = tmp_path / "run"
+    plan = hybrid.build_plan(program="demo", objective="offline", input_path=source,
+                             output_root=root, config=hybrid.HybridConfig(worker_limit=1))
+    packet = plan["worker_packets"][0]
+    worker = Path(packet["output_dir"])
+    worker.mkdir(parents=True)
+    ref = f"workers/{packet['packet_id']}/{secret}.md"
+    (worker / f"{secret}.md").write_text("synthetic evidence", encoding="utf-8")
+    (worker / "handoff.json").write_text(json.dumps(dict(
+        source_route=f"example.test/{secret}", input_field=secret, consumer=f"owned preview {secret}",
+        chain_state="connected", sink_context="HTML text", observed_basis=f"marker rendered {secret}",
+        candidate_chain=f"title to preview {secret}", blocker=f"awaiting review {secret}",
+        unknown=f"encoding context {secret}", next_discriminator=f"inspect preview {secret}",
+        evidence_refs=[ref])), encoding="utf-8")
+    assert hybrid.write_xss_continuation(root, packet) == "planned"
+    generated = (root / "continuations" / f"{packet['packet_id']}.md").read_text()
+    assert secret not in generated
+    for expected in ("example.test/api_key=REDACTED / api_key=REDACTED", "owned preview api_key=REDACTED",
+                     "marker rendered api_key=REDACTED", "title to preview api_key=REDACTED",
+                     "awaiting review api_key=REDACTED", "encoding context api_key=REDACTED",
+                     "inspect preview api_key=REDACTED",
+                     f"- workers/{packet['packet_id']}/api_key=REDACTED"):
+        assert expected in generated
+    assert hybrid.redact_sensitive_text("ordinary route and preview label") == "ordinary route and preview label"
+    assert hybrid.redact_sensitive_text('"api_key": "do-not-copy"') == '"api_key": "REDACTED"'
 
 
 def test_xss_failed_rerun_removes_prior_continuation(tmp_path: Path, monkeypatch) -> None:

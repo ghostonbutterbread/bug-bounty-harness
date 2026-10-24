@@ -37,6 +37,14 @@ def test_discovery_preserves_same_name_on_distinct_routes() -> None:
     ])
     assert [(p.name, p.source) for p in params] == [("q", "url"), ("q", "wayback")]
 
+def test_context_classifies_unquoted_attributes_and_script_comment_text() -> None:
+    screener = XSSScreener(_Session())
+    marker = "XSSUNIQUE"
+    assert screener._detect_context(f'<input value={marker}>', marker) == "html_attr"
+    assert screener._detect_context(f'<a href=/search?q={marker}>', marker) == "url_param"
+    assert screener._detect_context(f'<script>const v = "<!-- {marker} -->";</script>', marker) == "js_string"
+    assert screener._detect_context(f'<!-- <script>{marker}</script> -->', marker) == "comment"
+
 
 def test_screener_probes_discovered_route_not_base_target(monkeypatch) -> None:
     class Session:
@@ -96,6 +104,64 @@ def test_reflected_probe_retains_route_and_records_reflection_not_execution(monk
     assert result[0].confirmed is False
     assert session.urls == [result[0].url]
     assert records[0]["outcome"] == "reflected_intact"
+
+def test_blocked_echo_is_not_finding_and_deeper_tier_is_tried(monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    from urllib.parse import parse_qs, urlsplit
+
+    class Session:
+        def __init__(self):
+            self.urls = []
+        def get(self, url, **kwargs):
+            self.urls.append(url)
+            status = 200 if "deep-probe" in url else 403
+            payload = parse_qs(urlsplit(url).query)["q"][0]
+            return type("Response", (), {"text": payload, "status_code": status})()
+
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    for tier in ("standard", "encoding", "alternative_tags"):
+        monkeypatch.setitem(REFLECTED_PAYLOADS, tier, [f"<{tier}-probe>"])
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "attribute_break", ["<deep-probe>"])
+    session = Session()
+    records = []
+    tester = ReflectedTester(session, attempt_recorder=records.append)
+    tester.TIERS = ["standard", "encoding", "alternative_tags", "attribute_break"]
+    findings = tester.test("https://example.test/search?q=old", ScreenResult(
+        "q", "https://example.test/search?q=marker", True, "html_body", "", False, "MED"
+    ))
+    assert len(session.urls) == 4
+    assert len(findings) == 1
+    assert findings[0].payload == "<deep-probe>"
+    assert findings[0].confirmed is False
+    assert [row["outcome"] for row in records] == ["blocked"] * 3 + ["reflected_intact"]
+
+def test_final_dedupe_preserves_route_provenance() -> None:
+    from agents.xss_framework import XSSFinding
+    framework = XSSFramework("https://example.test/root", skip_scope=True)
+    try:
+        def finding(route):
+            return XSSFinding("reflected", route, "q", "<probe>", "html_body", "reflection", route, "P2", "standard", "echo")
+        first = finding("https://example.test/search?q=%3Cprobe%3E")
+        second = finding("https://example.test/archive?q=%3Cprobe%3E")
+        assert framework._dedupe([first, first, second]) == [first, second]
+    finally:
+        framework.close()
+
+def test_all_blocked_echoes_are_only_attempts(monkeypatch) -> None:
+    from agents.xss_framework import REFLECTED_PAYLOADS
+    monkeypatch.setattr("agents.xss_framework.time.sleep", lambda _: None)
+    monkeypatch.setitem(REFLECTED_PAYLOADS, "standard", ["<probe>"])
+    records = []
+    class Session:
+        def get(self, url, **kwargs):
+            return type("Response", (), {"text": "<probe>", "status_code": 403})()
+    tester = ReflectedTester(Session(), attempt_recorder=records.append)
+    tester.TIERS = ["standard"]
+    assert tester.test("https://example.test/route", ScreenResult(
+        "q", "https://example.test/route?q=marker", True, "html_body", "", False, "MED"
+    )) == []
+    assert records[0]["outcome"] == "blocked"
+    assert records[0]["stop_reason"] == "response_blocked"
 
 
 def test_screener_returns_structured_cold_result_when_marker_is_absent() -> None:

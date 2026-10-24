@@ -1,6 +1,6 @@
 # XSS harness signal repair integration dossier
 
-- **Status:** feature (awaiting independent review)
+- **Status:** feature (review P1/P2 addressed; awaiting re-review)
 - **Owner:** bugfix subagent
 - **Branch / owning ref:** `fix/xss-harness-signal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-harness-signal`
@@ -13,15 +13,16 @@
 
 ## Intent and implemented contract
 
-Correct marker-context classification from the marker's actual location; preserve discovered parameter identity by route and probe that route through screening, reflected, adaptive, and stored phases. Escaped markup in an HTTP response is not an intact reflected payload or executable hunter candidate. Framework HTTP probes record `reflected_intact`, never `executed`; only the optional Playwright browser verifier may set `confirmed`. CLI flags and JSON finding fields are unchanged. Heuristic candidates remain unconfirmed and require consumer/browser proof. No live target requests were made in this task.
+Correct marker-context classification from the marker's actual location, including unquoted attributes and JS strings containing HTML comment delimiters; preserve discovered parameter identity by route and probe that route through screening, reflected, adaptive, and stored phases. Final finding dedupe retains distinct routes. Escaped markup and raw markup inside an HTML comment are not executable hunter candidates. Blocked HTTP echoes produce Attempts, not findings, and tier progression continues past three blocked probes to deeper plausible variants. Framework HTTP probes record `reflected_intact`, never `executed`; only the optional Playwright browser verifier may set `confirmed`. CLI flags and JSON finding fields are unchanged. Heuristic candidates remain unconfirmed and require consumer/browser proof. No live target requests were made in this task.
 
 ## Evidence and review
 
 - Red: `python3 -m pytest agents/test_xss_framework.py -q` → four expected regressions failed before implementation.
 - Red: `python3 -m pytest agents/test_xss_hunter_signal.py agents/test_xss_framework.py -q` → escaped hunter payload failed before implementation.
 - Green: `python3 -m pytest agents/test_xss_framework.py agents/test_xss_hunter_signal.py agents/test_xss_source_sites.py agents/test_xss_sink_sites.py -q` → 197 passed; `git diff --check` clean.
+- Independent review identified P1 comment echo/blocked echo and premature tier stop; P2 route dedupe and context classification. New offline regressions failed against the prior checkpoint (4 failed, then additional comment/script ordering fixtures went red), then the focused suite passed (204 passed) and `git diff --check` passed. Final focused rerun: 204 passed; `git diff --check` clean.
 - Broader attempted suite including `agents/test_xss_source_integration.py` and `agents/test_xss_defense_signal_routing.py` → 197 passed, three failed at that intermediate point: one hunter test subsequently fixed; two unrelated environment/baseline failures (source-map parser unavailable; expected XSS skill heading absent on beta). No edits to source-map component or skill.
-- Independent review: pending parent/integration owner. Merge/ancestry evidence: base exactly `origin/beta` at branch creation; no merge or push.
+- Independent re-review: pending parent/integration owner. Merge/ancestry evidence: base exactly `origin/beta` at branch creation and after fresh fetch; no merge or push. Source branch is this feature branch; no affected integrated descendants or propagation yet.
 
 ## Blockers and deferred work
 
@@ -32,7 +33,7 @@ Correct marker-context classification from the marker's actual location; preserv
 
 - **Owning ref:** `fix/xss-harness-signal`
 - **Latest immutable recovery checkpoint:** `3b01996ce5fdbf421a8492fdf7e9d390127e9886`.
-- **Exact resume point:** review committed diff and test receipts; fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
+- **Exact resume point:** re-review committed P1/P2 repairs and focused tests; fetch `origin/beta` before integration; do not edit sibling chain-card branch or merge/push from this task.
 - **Working-tree state at handoff:** clean after commit.
 
 ## Decision gates
@@ -43,4 +44,5 @@ Correct marker-context classification from the marker's actual location; preserv
 
 ## Decision record
 
-- 2026-10-24 — Created branch-local repair, offline regression tests and scoped docs clarification; awaiting review.
+- 2026-10-24 — Created branch-local repair, offline regression tests and scoped docs clarification; review found P1/P2 regressions.
+- 2026-10-24 — Corrected comment/blocked response candidate gating, deep-tier continuation, route-aware final dedupe, and context classification; re-review required before integration.

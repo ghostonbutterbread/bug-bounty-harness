@@ -49,7 +49,10 @@ class ContextDetector:
         surrounding = self._snippet(response_text, start_index, len(match_value))
         location_hint = f"offset:{start_index}"
 
-        if self._inside_html_comment(response_text, start_index):
+        script_start = response_text.lower().rfind("<script", 0, start_index)
+        if (self._inside_html_comment(response_text, start_index)
+                and (not self._inside_script(response_text, start_index)
+                     or response_text.rfind("<!--", 0, start_index) < script_start)):
             return InjectionContext(
                 type=ContextType.HTML_COMMENT,
                 reflected_fragment=match_value,

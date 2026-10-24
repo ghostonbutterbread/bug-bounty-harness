@@ -349,7 +349,10 @@ class XSSHunter:
         lowered = fragment.lower()
         if context_type == ContextType.HTML_BODY:
             return any(token in lowered for token in ("<script", "<svg", "<img", "<iframe"))
-        if context_type in {ContextType.HTML_ATTRIBUTE, ContextType.HTML_COMMENT}:
+        if context_type == ContextType.HTML_COMMENT:
+            # Markup inside a comment is inert unless the payload closes it.
+            return "-->" in fragment and self._looks_executable(ContextType.HTML_BODY, fragment.split("-->", 1)[1])
+        if context_type == ContextType.HTML_ATTRIBUTE:
             if "&lt;" in lowered and "<" not in lowered:
                 return False
             return any(token in lowered for token in ("<script", "onerror", "onload", "onfocus", "javascript:", "<svg", "<img", "<iframe"))

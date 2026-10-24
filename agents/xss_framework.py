@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import html
 import json
 import re
@@ -442,20 +441,23 @@ class XSSScreener:
         idx = body.find(marker)
         if idx == -1:
             return "none"
-        if body.rfind("<!--", 0, idx) > body.rfind("-->", 0, idx):
-            return "comment"
         lower = body.lower()
         script_start = lower.rfind("<script", 0, idx)
+        comment_start = body.rfind("<!--", 0, idx)
+        if script_start > comment_start and comment_start > body.rfind("-->", 0, idx):
+            return "comment"
         if script_start > lower.rfind("</script", 0, idx) and ">" in body[script_start:idx]:
             prefix = body[body.find(">", script_start) + 1:idx]
             return "js_template" if prefix.count("`") % 2 else "js_string"
+        if body.rfind("<!--", 0, idx) > body.rfind("-->", 0, idx):
+            return "comment"
         tag_start = body.rfind("<", 0, idx)
         if tag_start > body.rfind(">", 0, idx):
             tag_end = body.find(">", idx)
             if tag_end != -1:
                 tag = body[tag_start:tag_end + 1]
-                for match in re.finditer(r"([\w-]+)\s*=\s*(['\"])(.*?)\2", tag, re.S):
-                    if marker in match.group(3) and match.start(3) <= idx - tag_start < match.end(3):
+                for match in re.finditer(r"([\w-]+)\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)", tag, re.S):
+                    if match.start() <= idx - tag_start < match.end():
                         return "url_param" if match.group(1).lower() in {"href", "src", "action", "formaction", "data", "poster"} else "html_attr"
         return "html_body"
 
@@ -568,18 +570,13 @@ class ReflectedTester:
 
     def test(self, target: str, screen_result: ScreenResult) -> list[XSSFinding]:
         findings: list[XSSFinding] = []
-        consecutive_blocks = 0
-
         for tier in self.TIERS:
-            if consecutive_blocks >= 3:
-                break  # WAF is blocking aggressively, skip remaining tiers
-
             for payload in REFLECTED_PAYLOADS.get(tier, []):
                 result = self._send(screen_result.url or target, screen_result.param, payload)
                 self._record_probe(tier, payload, screen_result, result)
                 time.sleep(self._delay)
 
-                if result["reflected_intact"]:
+                if result["reflected_intact"] and not result["blocked"]:
                     findings.append(XSSFinding(
                         type="reflected",
                         url=result["url"],
@@ -595,11 +592,6 @@ class ReflectedTester:
                     ))
                     return findings  # Found one, stop
 
-                if result["blocked"]:
-                    consecutive_blocks += 1
-                else:
-                    consecutive_blocks = 0
-
         return findings
 
     def _record_probe(
@@ -611,10 +603,10 @@ class ReflectedTester:
     ) -> None:
         if self._attempt_recorder is None:
             return
-        if result["reflected_intact"]:
-            outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
-        elif result["blocked"]:
+        if result["blocked"]:
             outcome, stop_reason = "blocked", "response_blocked"
+        elif result["reflected_intact"]:
+            outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
         else:
             outcome, stop_reason = "not_reflected", "payload_did_not_reflect_intact"
         self._attempt_recorder(
@@ -1375,10 +1367,10 @@ class XSSFramework:
         )
 
     def _dedupe(self, findings: list[XSSFinding]) -> list[XSSFinding]:
-        seen: set[str] = set()
+        seen: set[tuple[str, str, str, str]] = set()
         unique = []
         for f in findings:
-            key = hashlib.md5(f"{f.param}:{f.payload}:{f.type}".encode()).hexdigest()
+            key = (f.url, f.param, f.payload, f.type)
             if key not in seen:
                 seen.add(key)
                 unique.append(f)

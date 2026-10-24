@@ -48,3 +48,45 @@ def test_escaped_tag_in_attribute_is_not_executable_candidate() -> None:
         assert not result.likely_executable
     finally:
         hunter.close()
+
+
+def test_raw_tag_inside_html_comment_is_not_a_finding() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = "<img src=x onerror=alert(1)>"
+    baseline = httpx.Response(200, text="<!-- baseline -->", request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f"<!-- {payload} -->", request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.HTML_COMMENT
+        assert result.reflected
+        assert not result.likely_executable
+        assert not hunter._is_finding(result)
+    finally:
+        hunter.close()
+
+
+def test_comment_opener_in_script_string_is_not_html_comment() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    payload = "alert(1)"
+    baseline = httpx.Response(200, text='<script>const v = "baseline";</script>', request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text=f'<script>const v = "<!-- {payload} -->";</script>', request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", payload, baseline)
+        assert result.context == ContextType.JS_STRING
+    finally:
+        hunter.close()
+
+
+def test_script_tag_inside_html_comment_remains_comment() -> None:
+    hunter = XSSHunter("https://example.test/search?q=baseline")
+    baseline = httpx.Response(200, text="<!-- baseline -->", request=httpx.Request("GET", hunter.target_url))
+    response = httpx.Response(200, text="<!-- <script>alert(1)</script> -->", request=httpx.Request("GET", hunter.target_url))
+    hunter._make_request = lambda params: response
+    try:
+        result = hunter._submit_payload_for_param("q", "alert(1)", baseline)
+        assert result.context == ContextType.HTML_COMMENT
+        assert not result.likely_executable
+    finally:
+        hunter.close()

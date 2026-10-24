@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-23
 - **Owning feature branch/ref:** `feat/xss-chain-cards-harness`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2622a9647b9322483b4dd929006094f604bd7a08`
+- **Feature implementation commit(s):** `2622a9647b9322483b4dd929006094f604bd7a08`
 - **Inspiration / canonical references:** read-only XSS run audit; `bunny-collaborative`, `xss`, `leads`.
 
 ## Intent
@@ -37,8 +37,8 @@ The existing campaign record carries mapped/connected/defended path cards with w
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-chain-cards-harness`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2622a9647b9322483b4dd929006094f604bd7a08`
+- **Feature implementation commit(s):** `2622a9647b9322483b4dd929006094f604bd7a08`
 - **Exact resume point:** review skill diff, commit, independent review, integrate into beta with sibling branches.
 - **Working-tree state at handoff:** intentionally uncommitted until review.
 

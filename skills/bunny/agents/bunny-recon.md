@@ -1,5 +1,6 @@
 ---
 name: bunny-recon
+advertise: true
 description: Map one distinct Bunny coverage gap and report observed surfaces to the coordinator.
 ---
 

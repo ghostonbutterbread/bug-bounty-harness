@@ -1,5 +1,6 @@
 ---
 name: bunny-reporter
+advertise: true
 description: Package one verified Bunny finding for review without submitting it externally.
 ---
 

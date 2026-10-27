@@ -1,0 +1,11 @@
+{
+  "name": "bbh-bunny-roles",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical Bunny agent roles for Pi subagent discovery",
+  "pi": {
+    "subagents": {
+      "agents": ["./agents"]
+    }
+  }
+}

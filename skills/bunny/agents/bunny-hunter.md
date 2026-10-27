@@ -1,5 +1,6 @@
 ---
 name: bunny-hunter
+advertise: true
 description: Hunt one assigned Bunny surface and report evidence to the coordinator.
 ---
 

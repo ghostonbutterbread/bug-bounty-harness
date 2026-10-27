@@ -7,6 +7,6 @@
 - Implementation: 167 -> 38 lines; remove workflow, executable examples, paths, handoff/verification rules. Keep store meanings, owner references and a short same-change maintenance reminder. Existing owning skills are unchanged; excess prose is deleted, not relocated.
 - Entry/card/catalog describe the reduced responsibility; AGENTS.md unchanged.
 - Tests: updated purpose-only tests initially RED (3 failed, 2 passed); focused post-change run 19 passed plus 10 subtests in integration virtualenv, with installed Core pin matching requirements.
-- Review: pending exact implementation checkpoint; checkpoint is the commit that introduces this dossier.
+- Review: deleg_120fd970 approved implementation checkpoint b9ddf120d126985c7d28044821fc0223eb2efe0e with no blockers; independent pinned-environment run: 19 passed, 10 subtests. Approved for beta integration; fresh resolver check follows merge.
 - Scope: no live traffic, store reads/migrations, Hoster or other Hermes profiles. Existing Ghost managed symlinks follow beta source after integration; fresh resolver check required.
 - Next: independent narrow review, publish beta after acceptance, verify projection, close task and retire contained branch/worktree. Remove this dossier from integration tree; retain decision in branch history.

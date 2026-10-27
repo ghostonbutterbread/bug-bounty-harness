@@ -27,9 +27,12 @@ contract test failed on all four original role openings (four failing subtests),
 then implemented identity paragraphs. GREEN: 20 focused Bunny/reporting tests
 and 46 subtests passed. Programmatic base comparison confirms all four metadata
 blocks and complete pre-existing operational bodies are unchanged. Staged diff
-whitespace check passed. Pending independent read-only acceptance, beta
-publication, and local/Hoster runtime projection verification. Native no-tool
-load may show prompt availability, not investigative performance. Use existing
+whitespace check passed. Independent read-only review accepted exact tip
+`e95efaf94e8666bf6e3e32481211f4060f24ea20` without material findings;
+reviewer reran 20 tests / 46 subtests and independently checked HEAD archive,
+all metadata/operating-body bytes and unchanged link modes/blobs/targets.
+Pending beta publication and local/Hoster runtime projection verification.
+Native no-tool load may show prompt availability, not investigative performance. Use existing
 compatible launcher if a model smoke is
 needed; do not change credentials or default routing to make a smoke pass.
 

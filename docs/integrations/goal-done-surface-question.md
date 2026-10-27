@@ -1,0 +1,57 @@
+# Goal-done surface question integration dossier
+
+- **Status:** feature
+- **Owner:** Hermes
+- **Branch:** `fix/goal-done-surface-question`
+- **Base commit:** `fd095a5891d2a70596ab91eac9d1a0c7331e983f` (`origin/beta`)
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-10-27
+- **Owning feature branch/ref:** `fix/goal-done-surface-question`
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Inspiration / canonical references:** Ryushe request to put a hunt-goal done question in `bug-goals`, answered by existing surface skills rather than a new checklist.
+
+## Intent
+
+Vulnerability-hunt `/goal` runs were treatable as done when the current path felt finished. Broad goals already asked “is there more to map?” Focused and continuation hunts had an empty completion contract. This branch makes the stop ask whether unexamined surface would still move the objective, and routes that question to existing skills. It does not add a sweep, preload those skills, or change technology-review or revalidation goals.
+
+## Implemented contract
+
+- `skills/bug-goals/SKILL.md` owns the question and the skill edges: `surface-expansion`, `live-map`, `technology-research`, `bypass`/`waf`, `access-control`, `assumption-testing`.
+- `scripts/goal_router.py` emits that question on the completion contract for `broad-program`, `focused-surface`, and `continuation`. Broad goals keep the existing mapping reconciliation first.
+- The checkpoint text tells a vulnerability-hunt stop to load the owning skill named in the completion contract.
+- `docs/goal-runs.md` points at the skill and does not restate the route.
+- A warm or hot chain is not interrupted. A locally exhausted lane is not reopened without a new wake condition. Only verified fulfillment completes the goal.
+
+## Evidence and review
+
+- Tests and commands: `/home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest tests/test_goal_router.py -q` — 25 passed. This worktree has no `.venv`; that command used the sibling checkout interpreter so `bounty_core` could import. The tests themselves ran against this worktree.
+- Independent review: pending
+- Replay/cohort/fixture evidence: not applicable; no live target
+- Merge/ancestry evidence: not merged
+
+## Blockers and deferred work
+
+- **Missing test or evidence:** independent review, then beta integration and runtime activation
+- **Command / fixture / environment needed:** review of this branch diff; beta merge only after review
+- **Trigger to run it:** implementation commit exists
+- **Why it blocks integration, activation, or promotion:** review has not accepted the diff; Hoster projection is not updated
+- **Next completion step / successor reference:** independent review, then merge into a current beta worktree if accepted
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `fix/goal-done-surface-question`
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Exact resume point:** commit the implementation, record its SHA here, then request independent review before any beta merge
+- **Working-tree state at handoff:** intentionally uncommitted until the implementation commit
+
+## Decision gates
+
+- **Integration gate:** independent review accepts the diff; merge into current `beta`; do not push `HEAD:beta`
+- **Activation / cohort gate:** separate from merge; Hoster skill projection not claimed
+- **Promotion gate:** not a stable/`main` change
+
+## Decision record
+
+- 2026-10-27 — created from `origin/beta` `fd095a5`. Implementation written; review and beta merge not done.

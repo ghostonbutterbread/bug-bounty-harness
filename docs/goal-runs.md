@@ -55,7 +55,11 @@ consult source-attributed service/route/input/JS/UI or native entry-point maps;
 do not assume an empty database means no surface. A `bounded-stop` requires
 specific residual unknowns or checked inventory references and a wake condition;
 it yields `paused_bounded`, **not** fulfillment of a “find vulnerability” goal.
-No `goal_complete` operation is implemented by this BBH helper.
+No `goal_complete` operation is implemented by this BBH helper. Before a
+vulnerability-hunt goal is treated as done, `skills/bug-goals/SKILL.md` requires
+asking whether unexamined surface would still move the objective and loading the
+owning skill. The goal router emits that question on the completion contract for
+broad, focused, and continuation hunts. This document does not restate the route.
 
 ## Modes
 

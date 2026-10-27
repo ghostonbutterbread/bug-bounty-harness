@@ -386,9 +386,9 @@ def test_reports_are_passive_and_stale_release_status_is_honest(tmp_path):
     report.manager_id = "manager"
     report.disposition = "completed"
     report.profile_health = "healthy"
-    released = profiles.cmd_release(report)["lease"]
-    assert released["browser_status"] == "stopped"
-    assert released["cdp_url"] is None and released["service_unit"] is None
+    assert profiles.cmd_release(report)["status"] == "managed-by-provisioner"
+    with profiles.connect(tmp_path / "browser_profile_leases.sqlite") as c:
+        assert c.execute("SELECT status FROM browser_profile_leases WHERE lease_id=?", (one["lease_id"],)).fetchone()[0] == "active"
 
 
 @pytest.mark.parametrize("key", ["../other", "UPPER", "with space", "/absolute", "x" * 65])

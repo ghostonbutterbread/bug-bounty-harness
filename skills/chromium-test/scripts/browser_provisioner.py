@@ -1464,7 +1464,15 @@ def matching_proxy(c, args, row):
 
 def failed_launch(c, lid, unit):
     stop_unit(unit)
-    if unit_active(unit):
+    row = c.execute('SELECT * FROM browsers WHERE lease_id=? AND unit=? AND state=?',
+                    (lid, unit, 'starting')).fetchone()
+    if not row or not stopped(row):
+        return False
+    info = record_info(row)
+    try:
+        if info.get('pid') and process_identity(info['pid']) is not None:
+            return False
+    except (OSError, ValueError, TypeError):
         return False
     c.execute("update browsers set state='stopped',updated=? where lease_id=?", (now(), lid))
     c.commit()
@@ -1501,19 +1509,40 @@ def safe(row):
     return result
 
 
-def release_lease(lease_id, agent, disp="cancelled", health="healthy"):
-    return lease(
-        None,
-        "release",
-        "--lease-id",
-        lease_id,
-        "--agent-id",
-        agent,
-        "--disposition",
-        disp,
-        "--profile-health",
-        health,
-    )
+def release_lease(c, lease_id, agent, disp="cancelled", health="healthy"):
+    """Release a failed start while the entry point holds the node lock.
+
+    Never infer prelaunch from canonical not-started alone: the manager may
+    already have committed a starting row and dispatched Chromium.
+    """
+    import browser_profile_lease as profiles
+    c.commit()
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        row = c.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lease_id,)).fetchone()
+        if (not canonical or canonical['status'] != 'active'
+                or canonical['manager_id'] != manager_id()
+                or canonical['owner_agent_id'] != agent
+                or canonical['browser_status'] != 'not-started'
+                or canonical['cdp_url'] is not None or canonical['service_unit'] is not None
+                or (row and (row['state'] != 'stopped'
+                    or any(canonical[key] != value for key, value in (
+                        ('program', row['program']), ('account_alias', row['account']),
+                        ('auth_domain', row['auth_domain']), ('owner_run_id', row['run_id']),
+                        ('profile_dir', row['profile_dir']), ('owner_agent_id', row['agent_id'])))
+                    or not stopped(row)
+                    or (record_info(row).get('pid') and
+                        process_identity(record_info(row)['pid']) is not None)))
+                or profiles.reservation_conflict(leases, program=canonical['program'],
+                    domain=canonical['auth_domain'], alias=canonical['account_alias'],
+                    lease_id=lease_id, path=canonical['profile_dir'])):
+            return False
+        profiles.release_owned_in_transaction(leases, canonical,
+            disposition=disp, profile_health=health)
+        leases.commit()
+        return True
 
 
 def profile_path(program, account):
@@ -2763,14 +2792,17 @@ def start(args):
         try:
             task, created = start_proxy(c, args)
         except Exception as exc:
-            release_lease(lid, args.agent_id)
+            if not release_lease(c, lid, args.agent_id):
+                emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
             emit({"status": "proxy-failed", "detail": str(exc)}, 2)
     elif proxy_row(c, args):
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
     if replacing and str(prof) != replacing["profile_dir"]:
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "recovery-blocked", "reason": "acquired-profile-changed"}, 2)
     bid = str(uuid.uuid4())
     unit = "browser-" + bid
@@ -2783,7 +2815,8 @@ def start(args):
     if unit_active(unit):
         if created:
             rollback_proxy(c, task)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "browser-unit-conflict"}, 2)
     # Startup intent is visible to finish before browser dispatch/CDP readiness.
     t = now()
@@ -2889,7 +2922,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": (p.stderr or p.stdout).strip()}, 2)
     diagnostics.mark("publication")
     deadline = time.time() + LAUNCH_WAIT_SECONDS
@@ -2907,7 +2941,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {
                 "status": "launch-failed",
@@ -2922,7 +2957,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": "task proxy or imported CA not verified by launcher"}, 2)
     diagnostics.mark("registration")
     reg = lease(
@@ -2943,7 +2979,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {"status": "launch-failed", "detail": "could not register owned browser"}, 2
         )

@@ -125,7 +125,7 @@ def test_failed_unit_status_query_is_not_terminal(monkeypatch, tmp_path):
     assert not m.stopped({'unit': 'fixture-unit', 'state': 'running'})
 
 
-def test_direct_managed_release_denied_but_unstarted_cleanup_allowed(monkeypatch, tmp_path):
+def test_direct_managed_release_denied_even_when_canonical_unstarted(monkeypatch, tmp_path):
     m, c, row = setup(monkeypatch, tmp_path)
     request = argparse.Namespace(state_dir=str(m.STATE.parent), lease_id='old',
         agent_id='old-agent', manager_id=m.manager_id(), disposition='cancelled', profile_health='healthy')
@@ -133,7 +133,92 @@ def test_direct_managed_release_denied_but_unstarted_cleanup_allowed(monkeypatch
     assert status(m) == 'active'
     with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
         leases.execute("UPDATE browser_profile_leases SET browser_status='not-started',cdp_url=NULL,service_unit=NULL WHERE lease_id='old'")
-    assert profiles.cmd_release(request)['status'] == 'released'
+    assert profiles.cmd_release(request)['status'] == 'managed-by-provisioner'
+    assert status(m) == 'active'
+
+
+def test_direct_release_cannot_cross_committed_startup_intent(monkeypatch, tmp_path):
+    m, c, row = setup(monkeypatch, tmp_path)
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        leases.execute("UPDATE browser_profile_leases SET browser_status='not-started',cdp_url=NULL,service_unit=NULL WHERE lease_id='old'")
+    c.execute("UPDATE browsers SET state='starting' WHERE lease_id='old'")
+    c.commit()
+    ready = threading.Event()
+    finished = threading.Event()
+    observed = []
+    def direct_release():
+        ready.set()
+        observed.append(profiles.cmd_release(argparse.Namespace(
+            state_dir=str(m.STATE.parent), lease_id='old', agent_id='old-agent',
+            manager_id=m.manager_id(), disposition='cancelled', profile_health='healthy'))['status'])
+        finished.set()
+    thread = threading.Thread(target=direct_release)
+    thread.start()
+    assert ready.wait(2) and finished.wait(2)
+    thread.join()
+    assert observed == ['managed-by-provisioner']
+    assert status(m) == 'active'
+
+
+def test_manager_prelaunch_failure_releases_only_unstarted_owner(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    got = profiles.cmd_acquire(argparse.Namespace(
+        program='demo', account='anon', auth_domain=None, agent_id='agent',
+        run_id='run', purpose='fixture', ttl_seconds=60, state_dir=str(m.STATE.parent),
+        recover_profile=False, manager_id=m.manager_id()))
+    assert got['status'] == 'leased'
+    lid = got['lease']['lease_id']
+    c = m.db()
+    assert m.release_lease(c, lid, 'agent')
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        assert leases.execute('SELECT status FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()[0] == 'released'
+
+
+def test_manager_cleanup_refuses_starting_or_wrong_owner(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    got = profiles.cmd_acquire(argparse.Namespace(
+        program='demo', account='anon', auth_domain=None, agent_id='agent',
+        run_id='run', purpose='fixture', ttl_seconds=60, state_dir=str(m.STATE.parent),
+        recover_profile=False, manager_id=m.manager_id()))
+    lid = got['lease']['lease_id']
+    c = m.db()
+    assert not m.release_lease(c, lid, 'other-agent')
+    c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (lid, 'new-id', 'demo', 'anon', 'legacy-global', 'agent', 'run', 'fixture',
+         'new-unit', got['lease']['profile_dir'], str(tmp_path / 'new.launch.json'),
+         'starting', 0, 1, 1, 1))
+    c.commit()
+    assert not m.release_lease(c, lid, 'agent')
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        assert leases.execute('SELECT status FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()[0] == 'active'
+
+
+@pytest.mark.parametrize('terminal,cdp_status,pid_alive', [
+    (False, 'unreachable', False), (True, 'ready', False),
+    (True, 'unreachable', True)])
+def test_failed_start_keeps_lease_without_terminal_unit_and_cdp_proof(
+        monkeypatch, tmp_path, terminal, cdp_status, pid_alive):
+    m = provisioner(monkeypatch, tmp_path)
+    got = profiles.cmd_acquire(argparse.Namespace(
+        program='demo', account='anon', auth_domain=None, agent_id='agent',
+        run_id='run', purpose='fixture', ttl_seconds=60, state_dir=str(m.STATE.parent),
+        recover_profile=False, manager_id=m.manager_id()))
+    lid = got['lease']['lease_id']
+    c = m.db()
+    path = tmp_path / 'launch.json'
+    path.write_text(json.dumps({'cdp_url': 'http://127.0.0.1:9301', 'pid': 12345}))
+    c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (lid, 'new-id', 'demo', 'anon', 'legacy-global', 'agent', 'run', 'fixture',
+         'new-unit', got['lease']['profile_dir'], str(path), 'starting', 0, 1, 1, 1))
+    c.commit()
+    monkeypatch.setattr(m, 'stop_unit', lambda _: None)
+    monkeypatch.setattr(m, 'unit_inactive', lambda _: terminal)
+    monkeypatch.setattr(m, 'process_identity', lambda _: {'pid': 12345} if pid_alive else None)
+    monkeypatch.setattr(profiles, 'local_cdp_version', lambda _: {'status': cdp_status})
+    assert not m.failed_launch(c, lid, 'new-unit')
+    assert not m.release_lease(c, lid, 'agent')
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        assert leases.execute('SELECT status FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()[0] == 'active'
 
 
 @pytest.mark.parametrize('missing_invocation', [None, ''])

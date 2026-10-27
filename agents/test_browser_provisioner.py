@@ -886,8 +886,10 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
     flow = Path(m.proxy_metadata(m.proxy_row(c, args))["flow_file"])
     fixture = (
         "from mitmproxy import connection, http, io; import sys; "
-        "f=http.HTTPFlow(connection.Client(('127.0.0.1',12345),"
-        "('127.0.0.1',8081),1.0), connection.Server(('example.test',443))); "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',12345),"
+        "sockname=('127.0.0.1',8081),timestamp_start=1.0), "
+        "connection.Server(peername=('example.test',443),"
+        "address=('example.test',443))); "
         "f.request=http.Request.make('GET','https://example.test/check'); "
         "o=open(sys.argv[1],'wb'); io.FlowWriter(o).add(f); o.close()"
     )

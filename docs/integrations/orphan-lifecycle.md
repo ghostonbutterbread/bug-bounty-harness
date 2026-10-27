@@ -1,60 +1,27 @@
 # Browser/proxy orphan lifecycle integration dossier
 
-- **Status:** blocked
-- **Owner:** Hermes bugfix
-- **Branch:** `fix/papercut-orphan-lifecycle`
-- **Base commit:** `6a72fb5` (`origin/beta`)
-- **Intended integration target:** `beta`
-- **Last updated:** 2026-10-27
-- **Owning feature branch/ref:** `fix/papercut-orphan-lifecycle`
-- **Latest immutable recovery checkpoint:** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
-- **Feature implementation commit(s):** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
-- **Inspiration / canonical references:** PC-20260927-194446-2f4b6822; Discord thread 1564696750067949650
+- **Status:** local parent feature checkpoint; browser stop fence reviewed and merged into the feature, but no `beta` integration, push, runtime activation, or papercut closure.
+- **Owner branch/worktree:** `fix/papercut-orphan-lifecycle` in `/home/ryushe/worktrees/bbh-papercut-orphan-lifecycle`.
+- **Base / intended integration target:** fetched `origin/beta` at `d5853a9`; target `beta`, not `main`.
+- **Inspiration:** PC-20260927-194446-2f4b6822; Discord thread 1564696750067949650.
+- **Recovery commits:** parent `3914110` (proxy owner-PID guard); child `81dc490` (stop-fence tip); parent merge `e1b1e60`; current beta reconciliation `9bc561f`. The next checkpoint commit captures this updated dossier and the test fixture repair.
 
-## Intent
+## Implemented behavior
 
-The legacy `reap-idle` output reported no stops while stale browser leases and task-MITM units remained. Do not turn elapsed time or deleted task directories into task-terminal proof: replay may outlive the browser, and old rows have no durable owner identity. Guard automatic retirement against canonical lease mismatch and make eligibility failures visible without exposing task names or traffic.
+- Automatic browser retirement checks exact active canonical lease ownership and reports bounded refusal categories; missing task terminality, activity, or verified stop is not replaced with age or absent lane directories.
+- Explicit and automatic browser stop/release share a manager/canonical fence across exact ownership, reservation, verified unit/root/CDP termination, and canonical release. Ambiguous systemd status is not stop proof. Direct canonical release refuses all managed leases, including during startup; failed-start cleanup stays under the provisioner's exact-owner/stop-proof gate. Interrupted-stop recovery is tied to the same owner and independent terminal proof.
+- A supplied task-proxy owner PID is rechecked before reservation; a vanished or reused PID cannot silently produce an ownerless row. Proxy finishing remains independent of browser release and requires terminal owner and replay quiescence.
+- No retroactive task owner was assigned and no legacy Hoster browser or MITM service was stopped.
 
-## Implemented contract
+## Verification and review
 
-- `maintain` checks exact active canonical lease ownership before automatic retirement on both terminal and already-stopped paths; mismatch is retained with a lifecycle error.
-- `reap-idle` emits bounded reason counts for running browsers and aged task proxies it cannot reclaim, including failed freeze/stop and failed proxy finish. Eligible tasks retain existing terminal-owner, idle/quiet flow, no-client, canonical owner, and stop-verification gates.
-- An explicit task supervisor PID is rechecked before a task proxy reservation is written. A vanished/reused PID fails rather than silently creating an ownerless proxy; missing `--owner-pid` remains an unsupported terminal signal and is not automatically reaped.
-- No age-only cleanup, live Hoster service stop, or retroactive ownership assignment. Old ownerless rows remain for manager-authoritative task reconciliation.
+- Independent stop-fence review at child `81dc490` found no remaining merge-back blocker and recommended merge into the parent only, not beta activation. The child branch dossier was retired from the parent after merge; its history remains reachable through `e1b1e60`.
+- After merging child `81dc490` and reconciling `origin/beta` (`d5853a9`) into the parent, the ten-module focused suite passed **304 tests and 41 subtests**, with two existing real-flow proxy fixture cases excluded.
+- The real-flow proxy fixture used positional mitmproxy connection constructors incompatible with the installed version. Changed only that test fixture to keyword-only `Client` and `Server` arguments; both formerly excluded cases passed. The complete ten-module suite then passed **306 tests and 41 subtests**, no deselections, using `--basetemp` under the Hermes scratch root to avoid an AF_UNIX socket-path limit. `git diff --check` passed. No live Hoster calls in these tests.
+- **Final gate still needed:** independent review of the parent combined diff and latest fixture repair, then deliberate decision whether a partial safety/diagnostics patch should land in `beta` while the legacy ownerless cleanup gap stays open. Re-fetch beta, verify its integration checkout is clean, rerun focused tests on any newly reconciled tip, and record review acceptance before an integration merge.
 
-## Evidence and review
+## Blocker and exact resume point
 
-- `python3 -m pytest -q agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py -k 'not task_proxy_completion_indexes_private_default_and_releases'`: 139 passed, 2 deselected after diagnostic changes; `git diff --check` passed.
-- Broad two-module run: 64 passed, 2 failed before exercising cleanup due installed mitmproxy `Client` constructor incompatibility in real-flow fixture. Existing papercut tracks that unrelated test environment mismatch.
-- Independent review: do not integrate as a fix for the papercut. The patch does not reclaim ownerless records; canonical-owner check is not atomic with stop across the manager and lease databases. Reviewer ran three modules: 138 passed, 2 deselected before the post-review diagnostic changes.
-- Later focused regression for explicit proxy-owner PID reuse: 1 passed. The isolated stop-fence child `ce6d29a` is under independent re-review; this dossier's integration gate remains blocked until that result and a merged-tree suite.
-- Hoster read-only inventory: current ownerless running rows and stale proxy reservations; no live cleanup attempted. Tmux sidecar inspected three registered scopes, stopped none.
+Historical Hoster rows have no trustworthy task owner/terminal generation. The task-terminal child `328b8d3` documents that local Kanban completion cannot prove termination of independent Hoster provisioner callers. The missing source is a Hoster launch-supervisor generation and durable terminal event bound to exact browser/proxy leases; until available, old ownerless rows must remain retained for operator/manager-authoritative reconciliation. Do not infer safe cleanup from idle time, dead directories, or quiet traffic. The original papercut remains open and this feature must not be presented as a complete orphan cleanup fix.
 
-## Blockers and deferred work
-
-- **Missing test or evidence:** verify exact terminal ownership and replay quiescence for legacy Hoster rows before release/finish; unavailable owner fields cannot be inferred from age or absent lane state.
-- **Command / fixture / environment needed:** manager-owned task inventory, exact lease/unit/flow proof, and task-owner confirmation; do not use mass-stop.
-- **Trigger to run it:** when an owner or operator confirms the affected task terminal and the exact service/browser identity is reconciled.
-- **Why it blocks integration, activation, or promotion:** the incomplete ownership fence and missing task-terminal proof block integration as a papercut fix; no runtime activation or closure is justified.
-- **Next completion step / successor reference:** read back each exact Hoster row, reconcile owner state, then use exact browser release and task-proxy-finish/recover with verified stop and indexing.
-- **Safety gap before integration:** a canonical lease may change after the new read-only check but before `retire` stops the unit. Lock/fence both ownership records through stop/release and fault-inject this race; otherwise retain this branch as an incomplete diagnostic/safety proposal, not a shipped cleanup fix.
-
-## Interruption / resume handoff
-
-- **Owning feature branch/ref:** `fix/papercut-orphan-lifecycle`
-- **Latest immutable recovery checkpoint:** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
-- **Feature implementation commit(s):** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
-- **Exact resume point:** add cross-store owner fence and proof of task terminality for legacy ownerless rows; rerun complete focused suite, independent re-review, then integrate if accepted. Do not close papercut on diagnostic output alone.
-- **Working-tree state at handoff:** clean after dossier-only checkpoint; feature remains blocked, not merged.
-
-## Decision gates
-
-- **Integration gate:** blocked on reviewer cross-store ownership race and missing solution for ownerless task termination; focused tests, independent re-review, exact beta divergence and clean integration checkout.
-- **Activation / cohort gate:** separate Hoster runtime verification; source publication is not activation.
-- **Promotion gate:** no stable promotion requested.
-
-## Decision record
-
-- 2026-10-27 — current beta still has ownerless legacy rows. Chose to report blocked eligibility and fence automatic retirement rather than unsafe age-only reclamation.
-- 2026-10-27 — independent review rejected integration as a complete fix; expanded refusal diagnostics but retained the cross-store race and legacy owner-evidence gap as blockers.
-- 2026-10-27 — added a pre-reservation PID-identity recheck so an explicitly supplied task owner cannot silently vanish. This does not retrofit a terminal owner onto historical rows.
+Resume by independently reviewing the parent tip and running the complete suite, then decide on **partial** beta integration without Hoster activation if review accepts. For ownerless cleanup, obtain exact task-terminal evidence and verify replay clients and unit identity per row before any release. No mass-stop, push, deployment, or stable promotion is implied by this checkpoint.

@@ -35,7 +35,9 @@ needed; do not change credentials or default routing to make a smoke pass.
 
 ## Handoff
 
-Implementation checkpoint pending first verified commit. Parent owns review,
+Implementation checkpoint: `ec175dd4127c0ac53dbfffa317938aa38ab6059f` on
+`docs/bunny-specialist-identity`; later dossier-only handoff records this SHA.
+Parent owns review,
 merge and rollout. Remove this branch-local dossier from accepted integration
 lane; keep the role files/tests as durable artifacts. On interruption commit
 current evidence and name the immutable implementation checkpoint before pausing.

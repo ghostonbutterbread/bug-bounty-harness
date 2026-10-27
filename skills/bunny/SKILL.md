@@ -21,6 +21,8 @@ Bunny is an **opt-in** BBH campaign mode. A coordinator owns the program map, wo
 - **Explicit: offhand.** Only when Ryushe selects offhand/dispatch-and-collect, load `bunny-offhand` in the coordinator. Its ordinary workers receive scoped tasks and applicable security policies, **not** a Bunny mode skill or collaboration contract.
 - A mode change occurs at an evidence checkpoint, after reconciling the current worker and surface lease. Do not silently fall back from collaborative to offhand when a transport or worker skill is unavailable; report the limitation and seek a workable collaborative channel or an explicit mode change.
 
+Before dispatch, load [Bunny role dispatch](references/dispatch.md). It maps the existing canonical roles to the current harness; selecting a task title is not proof that the intended role or its skills loaded.
+
 ## Invocation arguments and worker model
 
 **Grok coordinator preset:** `bunny grok w/ glm <objective>` (also `with glm`) selects **Grok 4.6 high as coordinator** and **GLM-5.3-Flash max as workers**. Before launching, load [Grok coordinator routing](references/grok-coordinator.md) in the bootstrap agent and selected coordinator. Bare `grok` immediately after Bunny (or its mode/`multi` arguments) selects this preset, not the ordinary worker alias; `bunny model grok <objective>` retains the worker-model meaning. `bunny grok <objective>` selects only the coordinator; absent a worker choice, workers inherit its route under the ordinary rules below. Collaboration mode and `multi` remain independent; the preset does not resolve the `multi` + offhand conflict.

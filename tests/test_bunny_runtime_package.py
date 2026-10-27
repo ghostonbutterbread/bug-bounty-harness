@@ -24,3 +24,18 @@ def test_pi_package_exports_the_existing_role_definitions():
         assert metadata.get("advertise") is True
         assert "bunny-collaborative" in body
         assert "Do not allocate other workers" in body
+
+
+def test_router_loads_the_runtime_dispatch_contract():
+    bunny = ROOT / "skills/bunny"
+    router = (bunny / "SKILL.md").read_text()
+    assert "(references/dispatch.md)" in router
+    dispatch = bunny / "references/dispatch.md"
+    assert dispatch.is_file()
+    text = dispatch.read_text()
+    assert "PI_SUBAGENT_EXTRA_AGENT_DIRS" in text
+    assert 'agent: "bunny-hunter"' in text
+    assert "resolved role file" in text
+    assert "not a generic `worker`" in text
+    assert "read back" in text
+    assert "delegate_task" in text

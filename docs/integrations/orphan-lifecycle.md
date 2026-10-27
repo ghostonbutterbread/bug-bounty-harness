@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-27
 - **Owning feature branch/ref:** `fix/papercut-orphan-lifecycle`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
+- **Feature implementation commit(s):** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
 - **Inspiration / canonical references:** PC-20260927-194446-2f4b6822; Discord thread 1564696750067949650
 
 ## Intent
@@ -40,10 +40,10 @@ The legacy `reap-idle` output reported no stops while stale browser leases and t
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercut-orphan-lifecycle`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
+- **Feature implementation commit(s):** `3e93b7995a5a7d37b4bc2ce4390b5bd7a76fa01e`
 - **Exact resume point:** add cross-store owner fence and proof of task terminality for legacy ownerless rows; rerun complete focused suite, independent re-review, then integrate if accepted. Do not close papercut on diagnostic output alone.
-- **Working-tree state at handoff:** intentionally uncommitted pending review.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint; feature remains blocked, not merged.
 
 ## Decision gates
 

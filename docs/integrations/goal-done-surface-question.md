@@ -1,6 +1,6 @@
 # Goal-done surface question integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `fix/goal-done-surface-question`
 - **Base commit:** `fd095a5891d2a70596ab91eac9d1a0c7331e983f` (`origin/beta`)
@@ -26,7 +26,7 @@ Vulnerability-hunt `/goal` runs were treatable as done when the current path fel
 ## Evidence and review
 
 - Tests and commands: `/home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest tests/test_goal_router.py -q` — 25 passed. This worktree has no `.venv`; that command used the sibling checkout interpreter so `bounty_core` could import. The tests themselves ran against this worktree.
-- Independent review: pending
+- Independent review: pass, `deleg_9e53fe9d`, no findings. Reviewer reran `tests/test_goal_router.py` (25 passed).
 - Replay/cohort/fixture evidence: not applicable; no live target
 - Merge/ancestry evidence: not merged
 
@@ -54,4 +54,4 @@ Vulnerability-hunt `/goal` runs were treatable as done when the current path fel
 
 ## Decision record
 
-- 2026-10-27 — implementation committed as `dc8f6fe`. Review and beta merge not done.
+- 2026-10-27 — independent review `deleg_9e53fe9d` passed with no findings. Beta merge not done.

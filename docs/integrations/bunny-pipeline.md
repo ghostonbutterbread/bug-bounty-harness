@@ -1,47 +1,59 @@
 # Bunny role-native pipeline
 
-Status: fresh execution approval received; repairing and rerunning the first real-agent gate; not released.
+Status: stage 1 passed; stage 2 real store-pointer trial running; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
-Source: Discord thread 1564434386651193377, authorization 1564454258743582820.
-Inspiration: user's MAPTA diagram reference; adapt operational coordination, not a new evidence store.
+Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
+Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
 
 ## Branch and scope
 
 - Feature: `feat/bunny-pipeline`, worktree `/home/ryushe/worktrees/bbh-bunny-pipeline`.
 - Base: `9e0702536791c49d38e9b5cc48442dea91e613ee` (fetched origin/beta).
 - Intended integration target: `beta`, not main.
-- Existing owner: `skills/bunny/` role definitions and `bunny-collaborative` behavior.
-- No live target traffic, real account creation, external submission, global provider changes, or unattended scheduler in these trials.
+- Owners: `skills/bunny/` canonical role definitions and `bunny-collaborative` behavior.
+- No live target traffic, real account creation, external submission, global provider changes, or unattended scheduler in these trials. Fixtures and isolated store records are explicitly synthetic.
+- Hoster raw run: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/`.
+- Durable local evidence: `/home/ryushe/.hermes/state/validation/bunny-pipeline/`.
 
-## Incremental acceptance gates
+## Incremental gates
 
-1. Pi discovers and actually launches canonical hunter/recon/writer roles, with their required skill access; no generic implementation-worker substitution.
-2. One canonical role set is usable through supported harness-native transports without manual reauthoring. State any untested harness explicitly.
-3. Real recon writes a local-fixture observation through the existing MapStore; the hunter retrieves the returned reference and acknowledges pickup without parent evidence transcription.
-4. The real coordinator resolves a synthetic operational prerequisite, coordinates conflicting ownership, and allows unrelated work to proceed.
-5. Follow-up/resume retains the investigator and evidence; direct pushback is delivered to that hunter; independent verification checks an actual local-fixture candidate.
+1. Actual native canonical recon/hunter/verifier/reporter identities, required skill reads, effective route, and terminal process states. Portable fallback is defined using the same role files; untested harnesses remain untested.
+2. Recon writes through the existing MapStore into an isolated fixture root; hunter retrieves the exact reference and acknowledges pickup. Missing pointers fail before acknowledgment; no parent evidence transcription.
+3. Coordinator resolves a synthetic operational prerequisite and conflicting ownership; unrelated work can proceed. Worker continues investigative work, not provisioning.
+4. Native follow-up/resume preserves investigator lineage and evidence. Blunt pushback reaches that investigator; harness deadlines and process/provider failures are distinguished from voluntary completion.
+5. Independent verifier reconstructs an actual local-fixture candidate, including a negative control. Reporter gates require owner evidence and verified proof; no real finding or external submission.
 
-Each behavior gate uses real fresh orchestrator/child model runs on an explicitly synthetic local program. Fixtures are test inputs, not evidence of a real program vulnerability. Failed gates are repaired and rerun before proceeding. Source tests, model behavior, and runtime activation are separate receipts.
+Each behavior gate uses real model calls and native transport on a synthetic local program. Repair and rerun failed gates before admitting the next. Structural tests, behavioral evidence, and runtime activation are separate receipts.
 
-## Current implementation and evidence
+## Implemented behavior and tests
 
-- Added a Pi package manifest exporting the four existing role files; enabled their native advertised discovery.
-- Test-first receipt: `tests/test_bunny_runtime_package.py` failed because the manifest was absent, then the package contract and existing Bunny tests passed (13 tests).
-- This is structural evidence only. No Pi parent/child behavior gate has passed yet.
-- Dispatch route now requires real named roles (or an actually loaded canonical role file on harnesses without a named selector), with readable selected skill paths. Focused package/router tests: 14 passed.
-- Full `tests/` run: 365 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on a clean detached worktree of the unchanged base using the same interpreter and base-first import path: stack-to-program script index missing Outputs/Mutates; its direct-checkout example rejected by lane-safety; upload-surface test expects stale wording. These are unrelated baseline issues, not excluded-and-called-green; no unrelated source was changed.
-- Checkout environment installed through the repository setup entry point; pinned Bounty Core resolved from this feature checkout's `.venv`.
+- Pi package exports the four canonical role files; `advertise: true` enables native discovery. No alternate role copies per harness.
+- Native role/skill dispatch reference is linked from the router and collaborative mode. Restricted Pi parents must preserve extension coordination tools in their `--tools` allowlist.
+- Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
+- Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
+- Focused source tests: 17 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, and pointer pickup.
+- Earlier broad run: 365 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
+- Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
-## Alignment preflight
+## Stage 1 receipts
 
-Checked `AGENTS.md`, `agents/index.md`, `SCRIPT_POLICY.md`, Bunny router/modes, shared Coordination, Context-Efficient Coordination, Policy Authoring, Coding Policy, and Branch Lifecycle. Keep existing canonical evidence owners and scoped authority; no change to remote-pi peer-network policy, live scope, aggregate rate, manual approvals, or model routing. Native parent/child handoffs do not enable cross-campaign peer broadcasts. Preserve explicit offhand mode separately.
+- Historical preapproval preparation: `deleg_c90a48b7` staged nothing and launched nothing because approval expired. Its receipt is historical, not a behavioral pass. Fresh approval above preceded all remote staging.
+- Attempt 01: actual parent/model/skill reads succeeded, but read-only CLI tool selection excluded all extension tools. Zero children; parent refused generic substitution. Stopped only its task-owned unit and read back inactive/dead.
+- Attempt 02 candidate: `d9bb19ee1c6e8207289d97d2198db853259b407e`. Separate immutable snapshot; uploaded archive and controller hashes matched remote read-back.
+- Actual native children: recon `1cba8864-cf93-44a1-ba46-7773f1d9759d`; hunter `e13c7615-fae7-4f8d-8c1b-ec5d5b9539ba`; verifier `bb4249f2-dc0f-402b-ba1c-6717e7d5c253`; reporter `718cacdd-4929-44c9-8412-6f694dcdc231`.
+- Independently parsed child session records: all four native identities complete; each has successful reads of its own canonical role, collaborative skill, and fixture; one successful native supervisor checkpoint; no shell/write calls. Actual model-change events record `zai/glm-5.3-flash`, thinking max. All four runners have observed exit code 0 and resumable disposition. Reporter correctly withheld a report with absent proof.
+- Parent made four schema-invalid `get` calls (`agent` wrongly nested in options), then corrected to the top-level field before launching; all retained in raw RPC events. No failed launch or role substitution.
+- Verified receipt: `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage1-dd31e4/verified-receipt.json`; raw attempts 01/02 copied beside it. Verification script remains in the run scratch directory.
+- Hoster unit `hoster-bunny-stage1-dd31e4-02.service` read back inactive/dead, Result=success, empty ControlGroup. No task tunnel or live-pane change.
 
-## Deferred verification / exact next step
+## Stage 2 in flight / exact next step
 
-Read-only Hoster discovery confirmed native named-role roots, clean custom-child prompts, and supervisor/follow-up/resume support. Delegation `deleg_c90a48b7` prepared the immutable candidate and a disposable RPC controller but did not execute the trial: tool approval was withdrawn when the approval prompt could not be completed before the turn ended. The receipt explicitly forbids retrying, rephrasing, or switching tools without fresh user consent. No remote staging, Pi coordinator, or child launch occurred. Correction to earlier progress wording: the trial was dispatched/prepared, not actually running.
+Candidate `cc8e403951a54b93b56f77b52ec39b05c40a3bd0` adds pointer pickup. Actual Pi coordinator dispatched through `hoster-bunny-stage2-dd31e4.service` under `/user.slice`, with bounded memory and separate `attempt-stage2/` sessions. Snapshot archive SHA-256: `39508f0ab62bbc43ee0efbb87a39b5b0fcf2b839fcdac9b21dafa1808a518c5e`, matched remotely. The fixture uses the existing Hoster MapStore CLI/environment, not a replacement store implementation. Preflight `resolve_storage(..., root_override=.../stage2-store, create=False)` resolved every path into explicit-local fixture storage.
 
-Fresh explicit approval arrived in Discord message `1564460993071816745`. Attempt 01 actually ran under `hoster-bunny-stage1-dd31e4.service` in `/user.slice`; provider/model access and candidate skill reads succeeded, but the read-only CLI tool allowlist had excluded every extension tool. The coordinator correctly refused to substitute a worker and launched zero children. Stopped only the task unit and read back inactive/dead. RPC evidence is retained under the same run's remote `attempt-01/`. Repair: explicitly retain native coordination tools in the allowlist and document/test that trap; preserve explicit offhand behavior. Attempt 02 will use a separate snapshot and session directory. The first gate remains unpassed.
+Next: read the exact Stage 2 native sessions and canonical MapStore output, verify missing-pointer blocker → producer write/read-back → native envelope delivery → recipient actual read and ACK, and both terminal states. Preserve any failure. Do not implement Stage 3 until this passes.
 
-Blocked-preparation receipt: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/receipt.json` is historical (pre-approval). Local snapshot, manifest, and controller are retained there. Next: rerun stage 1 and verify native role identities, actual skill reads, effective route, and terminal child states. Do not add the next stage until that gate passes.
+## Alignment and release boundary
 
-Independent review, beta integration, and provider activation are pending. Existing runtime projections are untouched. Recovery implementation checkpoint: `e686d3139f9c16e167664fe227c4ec9857056810` on `feat/bunny-pipeline`, preceded by package slice `990e76214b4f43707111486766140270231966e3`; the current feature tip may include a later dossier-only checkpoint. Base and target are as recorded above.
+Read `AGENTS.md`, `agents/index.md`, `SCRIPT_POLICY.md`, Bunny router/modes, and owning coding/coordination/branch policies. No change to remote-pi cross-campaign peer policy, testing authority, aggregate rates, approvals, or global model routing. Parent-child envelopes do not grant peer broadcast permission.
+
+Independent final review, beta integration, and runtime projection are pending. Existing consumer projections remain untouched. Feature checkpoints: package `990e76214b4f43707111486766140270231966e3`, initial dispatch `e686d3139f9c16e167664fe227c4ec9857056810`, restricted-parent repair `d9bb19ee1c6e8207289d97d2198db853259b407e`, pointer handoff `cc8e403951a54b93b56f77b52ec39b05c40a3bd0`. Later dossier-only checkpoints may follow.

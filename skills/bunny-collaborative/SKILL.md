@@ -69,6 +69,28 @@ means proof is still needed, not that the reflected path is closed. Reconcile
 which catalog groups were tested and which remain open at the next checkpoint;
 do not create a duplicate evidence store just for this queue.
 
+### Investigator continuity and runtime limits
+
+A new question normally goes to the current surface owner, not a new worker.
+Keep the same investigator and private branch while its chain is productive;
+spawn for real parallel capacity, a distinct responsibility, or independent
+verification. The hunter chooses and revises the investigative theory; the
+coordinator supplies goals, operational support, and evidence-grounded feedback.
+
+Use the native live reply/steer channel when available. After normal completion,
+resume the retained session when supported, recording its source identity and
+new segment ID/process rather than claiming the old process remained alive.
+A successor segment inherits the exact evidence/decision pointers and the same
+investigator's Attempt stream; it is not a fresh breadth assignment. Recheck
+leases, scope and remaining budgets before continuation.
+
+Distinguish voluntary finish, parent stop, harness deadline, and provider/process failure
+from native lifecycle evidence. Set a mission-appropriate runtime explicitly;
+a short validation-trial deadline is not a productive hunt's default. Where a
+harness imposes a deadline, checkpoint before it and preserve the retained
+session/owner for an admitted continuation. Do not infer a negative result from
+a timeout or reset a binding budget by repeatedly spawning replacements.
+
 ### Pointer handoffs
 
 Use the existing stores: MapStore for reusable app facts, the assigned Attempts
@@ -120,7 +142,7 @@ again before a new worker segment; no card automatically authorizes traffic.
 
 ## Negative-result challenge
 
-When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“There is a vulnerability here. You might have to get creative to find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
+When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
 
 The assertion is a **motivational search stance, never a factual finding** or invented observation. Stop the challenge early on direct disproof of the required chain link, a real blocker, or a candidate ready for independent verification. After 3–5 turns decide from evidence whether to continue the warm chain, defer an unresolved hypothesis, or close it; do not manufacture a finding or closure to satisfy the count.
 

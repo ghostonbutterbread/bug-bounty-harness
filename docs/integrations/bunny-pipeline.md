@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: stages 1–2 passed; implementing isolated operational-support gate; not released.
+Status: stages 1–3 passed; implementing retained-investigator challenge gate; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -31,7 +31,7 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 - Native role/skill dispatch reference is linked from the router and collaborative mode. Restricted Pi parents must preserve extension coordination tools in their `--tools` allowlist.
 - Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
 - Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
-- Focused source tests: 20 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, and investigative acceptance.
+- Focused source tests: 21 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, investigative acceptance, continuity, and the user's exact blunt challenge.
 - Latest broad run: 369 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
 - Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
@@ -58,7 +58,9 @@ Stage2b passed at `641fa5fd3b517599b1e7a53bc04b6f1f68300f50`. Independent parser
 
 Two trial lessons are addressed before continuation: evidence authorship is not the hunter's surface lease (the hunter's final prose conflated them), and Pi's inferred coding acceptance added irrelevant Git/changed-files reports to investigative roles. Source now separates those owners and permits non-coding acceptance criteria without disabling actual verification gates.
 
-Next: resume the same coordinator session and retained hunter natively, load the updated candidate, and prove coordinator-owned isolated resource repair without touching a busy fixture resource while independent recon finishes. This gate tests operational coordination using local files, not actual browser provisioning or login. Stage4 pressure/continuation and Stage5 proof/report work remain unadmitted.
+Stage3 passed at `85b811390b1d1e750b841818676308ec0fcaee5c`; receipt `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage3/verified-receipt.json`. Same coordinator session prefix verified; original hunter `01efa5be-d310-4ca0-a3f7-3badf002d83e` natively resumed as `86982c13-4451-454a-ad3f-a869fa4595ad` (new process/run, retained investigator and session). Independent recon `7169190b-b062-42e6-a278-d7fab346760e` completed before prerequisite release. Parent wrote/read back only the two admitted operational files; the protected busy fixture's SHA-256 remained `daba420df79d2604c8093a5a6d255e7d979e8d0334037cefc842335772d80c5f`. Hunter read the allocated binding before ACK; both roles read-only, complete, exit 0, and no coding acceptance-report block. Ownership distinction corrected. Unit inactive/dead, Result=success. This proves local-file operational coordination, not actual browser provisioning or login.
+
+Next: resume that same investigator again, load the revised hunter/mode, and exercise a few evidence-adaptive feedback turns through native supervisor replies in one live child process. The exact user-preferred challenge is now “Hey, there’s a vulnerability here. Find it.”; the hunter owns hypothesis selection, the parent owns productive conditions. Gate must not create fake findings, reset a binding budget, or claim the old process remained alive. Stage5 proof/report work remains unadmitted.
 
 ## Alignment and release boundary
 

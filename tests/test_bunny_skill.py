@@ -121,7 +121,7 @@ class BunnySkillTests(unittest.TestCase):
             "successive bounded segments",
             "periodic stall check is a backstop",
             "3–5 coordinator feedback turns",
-            "There is a vulnerability here. You might have to get creative to find it.",
+            "Hey, there’s a vulnerability here. Find it.",
             "Research the observed technology",
             "creative in-scope tricks",
             "Stop the challenge early on direct disproof",

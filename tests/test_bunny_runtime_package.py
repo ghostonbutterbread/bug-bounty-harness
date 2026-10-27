@@ -82,3 +82,11 @@ def test_investigative_pi_runs_do_not_infer_coding_acceptance():
     text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
     assert "acceptance: false" in text
     assert "does not disable an assigned verification gate" in text
+
+
+def test_continuity_keeps_the_investigator_and_distinguishes_stop_causes():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    for phrase in ["A new question", "same investigator", "harness deadline", "provider/process failure", "new segment ID"]:
+        assert phrase in text
+    role = (ROOT / "skills/bunny/agents/bunny-hunter.md").read_text()
+    assert "choose and revise your investigative theory" in role

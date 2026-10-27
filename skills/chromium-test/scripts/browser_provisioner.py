@@ -1612,21 +1612,74 @@ def stale_singleton_lock(path, row):
         return False
 
 
+def fenced_stop_release(c, lease_id, agent_id, *, disposition='cancelled', health='healthy'):
+    """Stop only the exact manager/canonical owner, with both locks held.
+
+    node_lock is held by the entry point. Canonical initialization precedes its
+    write lock; no subprocess may release that lock between proof and stop.
+    A committed canonical release with a stale running manager row is recoverable
+    only from the same exact identity and independently verified terminal root.
+    """
+    import browser_profile_lease as profiles
+    c.commit()  # manager writes from earlier maintenance must not hold a DB lock
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        row = c.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lease_id,)).fetchone()
+        if not row or row['agent_id'] != agent_id or row['state'] != 'running' or not canonical:
+            return False
+        info = record_info(row)
+        proof = info.get('stop_proof', {})
+        recovering = canonical['status'] == 'released'
+        if (canonical['status'] not in ('active', 'released')
+                or any(canonical[key] != value for key, value in (
+                    ('manager_id', manager_id()), ('program', row['program']),
+                    ('auth_domain', row['auth_domain']), ('account_alias', row['account']),
+                    ('owner_agent_id', row['agent_id']), ('owner_run_id', row['run_id']),
+                    ('profile_dir', row['profile_dir'])))
+                or not info.get('process_identity') or not info.get('unit_invocation')
+                or not info.get('cdp_url', proof.get('cdp_url'))
+                or (recovering and (canonical['browser_status'] != 'stopped'
+                    or canonical['work_state'] != 'terminal'
+                    or canonical['service_unit'] is not None or canonical['cdp_url'] is not None
+                    or proof.get('unit_invocation') != info['unit_invocation']))
+                or (not recovering and (canonical['service_unit'] != row['unit']
+                    or canonical['cdp_url'] != (info.get('cdp_url') or proof.get('cdp_url'))
+                    or canonical['browser_status'] != 'running'))):
+            return False
+        if profiles.reservation_conflict(leases, program=row['program'],
+                domain=row['auth_domain'], alias=row['account'], lease_id=lease_id,
+                path=row['profile_dir']):
+            return False
+        # A live unit must be the exact invocation before any stop. During
+        # recovery an unloaded inactive unit may no longer expose InvocationID;
+        # terminal root and CDP proof are mandatory instead.
+        if not recovering and unit_identity(row['unit']) != info['unit_invocation']:
+            return False
+        if recovering:
+            if unit_active(row['unit']) or not stopped(row):
+                return False
+        else:
+            if owner_state(info['process_identity']) not in ('active', 'terminal'):
+                return False
+            if not stopped(row) and not stop_recorded(row):
+                return False
+            if not proof:
+                stop_receipt(row)
+            profiles.release_owned_in_transaction(leases, canonical,
+                disposition=disposition, profile_health=health)
+            leases.commit()
+            # A lost commit reply is resolved on retry using the persisted
+            # stop proof, exact released row, and terminal root/CDP evidence.
+        c.execute("update browsers set state='stopped',updated=? where lease_id=? and state='running'",
+                  (now(), lease_id))
+        c.commit()
+        return True
+
+
 def retire(c, row, health="healthy"):
-    if reservation_blocks(row):
-        return False
-    if not stop_recorded(row):
-        return False
-    q = release_lease(row["lease_id"], row["agent_id"], health=health)
-    if q.get("status") != "released":
-        return False
-    stop_receipt(row)
-    c.execute(
-        "update browsers set state='stopped',updated=? where lease_id=?",
-        (now(), row["lease_id"]),
-    )
-    c.commit()
-    return True
+    return fenced_stop_release(c, row['lease_id'], row['agent_id'], health=health)
 
 
 def selected_browser(c, program, alias, domain, key):
@@ -3183,9 +3236,8 @@ def release(args):
     ).fetchone()
     if not r or r["agent_id"] != args.agent_id or r["state"] != "running":
         emit({"status": "not-owner"}, 2)
-    if reservation_blocks(r):
-        emit({'status': 'locked', 'reason': 'stopped-profile-reserved'}, 2)
-    if not stop_recorded(r):
+    if not fenced_stop_release(c, args.lease_id, args.agent_id,
+                               disposition=args.disposition, health=args.profile_health):
         info = record_info(r)
         emit(
             {
@@ -3197,17 +3249,6 @@ def release(args):
             },
             2,
         )
-    q = release_lease(
-        args.lease_id, args.agent_id, args.disposition, args.profile_health
-    )
-    if q.get("status") != "released":
-        emit(q, 2)
-    stop_receipt(r)
-    c.execute(
-        "update browsers set state='stopped',updated=? where lease_id=?",
-        (now(), args.lease_id),
-    )
-    c.commit()
     emit(
         {
             "status": "released",

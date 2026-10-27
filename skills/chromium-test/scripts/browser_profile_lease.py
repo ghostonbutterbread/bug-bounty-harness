@@ -1152,8 +1152,25 @@ def cmd_register_browser(args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "registered" if cdp["status"] == "ready" else "registered-unreachable", "lease": safe_lease(updated, include_cdp=True), "cdp": cdp}
 
 
-def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
+def release_owned_in_transaction(conn: sqlite3.Connection, row: sqlite3.Row, *,
+                                 disposition: str, profile_health: str) -> None:
+    """Release an already verified owner under the caller's canonical write lock.
+
+    The caller owns BEGIN IMMEDIATE and commit; never unlock between verification
+    and this update. This is also the CLI release's single mutation primitive.
+    """
     timestamp = now()
+    revoke_transfer_grants(conn, row['lease_id'])
+    conn.execute(
+        """UPDATE browser_profile_leases
+           SET status='released', browser_status=CASE WHEN manager_id IS NOT NULL OR cdp_url IS NULL THEN 'stopped' ELSE 'unverified-after-release' END,
+               cdp_url=NULL, service_unit=NULL, released_at=?, heartbeat_at=?, work_state='terminal',
+               release_disposition=?, profile_health=? WHERE lease_id=?""",
+        (timestamp, timestamp, disposition, profile_health, row['lease_id']),
+    )
+
+
+def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
     with connect(state_db(args)) as conn:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
@@ -1163,18 +1180,9 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
                                         path=row['profile_dir']):
             return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
-            conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
-        revoke_transfer_grants(conn, args.lease_id)
-        conn.execute(
-            """
-            UPDATE browser_profile_leases
-            SET status='released', browser_status=CASE WHEN manager_id IS NOT NULL OR cdp_url IS NULL THEN 'stopped' ELSE 'unverified-after-release' END, cdp_url=NULL, service_unit=NULL, released_at=?, heartbeat_at=?, work_state='terminal',
-                release_disposition=?, profile_health=?
-            WHERE lease_id=?
-            """,
-            (timestamp, timestamp, args.disposition, args.profile_health, args.lease_id),
-        )
+        release_owned_in_transaction(conn, row, disposition=args.disposition,
+                                     profile_health=args.profile_health)
         conn.commit()
         updated = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
     return {"status": "released", "lease": safe_lease(updated, include_cdp=True)}

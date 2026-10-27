@@ -29,10 +29,15 @@ Focused verification passed: 15 Bunny tests plus 12 subtests; staged archive
 contains all four regular canonical files and their exact relative skill links.
 All four canonical bodies compare byte-for-byte equal to the integration base.
 
-Pending: independent read-only review; merge into clean current beta and read
-back remote; paired synchronizer CLI/wheel tests and deployment on local/Hoster;
-both agent projections must resolve to the reviewed regular files and repeat
-dry-run no-op.
+Independent read-only review accepted exact tip
+`89498473244dfbfb0b73b1288f437ec2494c5b7a` with no material blockers. Reviewer
+reran 15 Bunny tests / 12 subtests and 4 reporting tests / 30 subtests, extracted
+a real immutable-tip archive, and verified all four compatibility and simulated
+Claude projections. Worktree was clean.
+
+Pending: merge into clean current beta and read back remote; paired synchronizer
+CLI/wheel tests and deployment on local/Hoster; both agent projections must
+resolve to the reviewed regular files and repeat dry-run no-op.
 The source move alone is not a runtime agent launch or model-behavior test.
 
 ## Recovery and next step

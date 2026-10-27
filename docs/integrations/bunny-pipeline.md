@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: stages 1–4 passed; final proof-to-report gate prepared; not released.
+Status: stages 1–5 behaviorally accepted; independent behavioral audit and beta integration pending; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -64,7 +64,7 @@ Stage4 attempt at `5f4fc6b4bdd4ec0e34b8edfaac847b7804dec5dc` is **partial, not p
 
 Stage4c passed: receipt `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage4c/verified-receipt.json`; retained hunter resumed as `f5ac4ebf-d94c-4864-b3eb-3cea9883a57c`, one process, three actual native replies consumed, no motivational-disclaimer paragraphs, honest no-finding and no real Coverage verdict. Two recovered invocation/read mistakes remain in the receipt; a rejected resume submission did not create another child, and the malformed mode-file path was corrected before reasoning continued. This is not forced-timeout recovery or a live target test.
 
-Stage5 admits an intentionally vulnerable owned pure-function fixture, not a deployed service. Retained primary will write real observed proof through canonical Attempts, a fresh verifier must distinguish the candidate from a protected control, the finding owner must populate EVIDENCE.md, then a fresh canonical reporter loads the standalone skill and writes one exclusively created, clearly fixture-limited FID report. No live targets, accounts or production evidence stores. Source skill/test bytes remain identical to independently reviewed `d57e96fcf753824fdbc9671d8aac1176f37b7f70`; only dossier status changes afterward. Final acceptance and independent behavioral audit remain pending.
+Stage5 passed at `7ea9f4e4560e3c1c925414f3c686f475767e4b3b`; receipt `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage5/verified-receipt.json`. Four native segments completed with exit 0 across three retained sessions: primary proof, fresh independent verifier, primary evidence finalization, and fresh reporter. `fetch_job` cross-owner disclosure was reproduced and `fetch_job_checked` was not; the exclusive report is `synthetic-invalid-idor-SYNTH-DD31E4-001.md`, SHA-256 `8771a71e1436ab2f7dbae4c4bbbff2ab1839d53a60d4fad4669bcdf6f15943b5`. Parent wrote only the campaign record. This is an intentionally vulnerable local fixture, not a real bounty finding or submission. Next: independent behavioral audit, then beta integration only if accepted.
 
 ## Alignment and release boundary
 

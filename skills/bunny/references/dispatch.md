@@ -84,6 +84,10 @@ A direct launch uses top-level `agent`, `task`, `async`, `model`, and `cwd`;
 `agentScope`, `context`, `timeoutMs`, and `sessionDir` belong in `options`.
 Do not copy direct-launch options into each task of a named parallel workflow;
 check that runtime's current schema before selecting a batch envelope.
+For non-coding investigative runs, use `options: { acceptance: false }` or
+explicit mission-specific criteria rather than Pi's inferred implementation/
+Git acceptance report. This does not disable an assigned verification gate:
+retain evidence, independent reproduction, and the campaign's actual exit checks.
 
 When restricting a Pi coordinator's tools, remember that the `--tools`
 allowlist replaces the whole selection, including extension tools. A read-only

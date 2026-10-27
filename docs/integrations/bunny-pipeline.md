@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: stage 1 passed; stage 2 real store-pointer trial running; not released.
+Status: stages 1–2 passed; implementing isolated operational-support gate; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -31,8 +31,8 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 - Native role/skill dispatch reference is linked from the router and collaborative mode. Restricted Pi parents must preserve extension coordination tools in their `--tools` allowlist.
 - Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
 - Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
-- Focused source tests: 17 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, and pointer pickup.
-- Earlier broad run: 365 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
+- Focused source tests: 20 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, and investigative acceptance.
+- Latest broad run: 369 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
 - Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
 ## Stage 1 receipts
@@ -46,13 +46,19 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 - Verified receipt: `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage1-dd31e4/verified-receipt.json`; raw attempts 01/02 copied beside it. Verification script remains in the run scratch directory.
 - Hoster unit `hoster-bunny-stage1-dd31e4-02.service` read back inactive/dead, Result=success, empty ControlGroup. No task tunnel or live-pane change.
 
-## Stage 2 in flight / exact next step
+## Stage 2 result and Stage 3 next step
 
 Candidate `cc8e403951a54b93b56f77b52ec39b05c40a3bd0` adds pointer pickup. Actual Pi coordinator dispatched through `hoster-bunny-stage2-dd31e4.service` under `/user.slice`, with bounded memory and separate `attempt-stage2/` sessions. Snapshot archive SHA-256: `39508f0ab62bbc43ee0efbb87a39b5b0fcf2b839fcdac9b21dafa1808a518c5e`, matched remotely. The fixture uses the existing Hoster MapStore CLI/environment, not a replacement store implementation. Preflight `resolve_storage(..., root_override=.../stage2-store, create=False)` resolved every path into explicit-local fixture storage.
 
 Next: Stage2 attempt `attempt-stage2` failed pickup, not publication: recon's actual MapStore write/read-back and nonblocking supervisor update succeeded, while the hunter correctly refused to ACK a missing path and remained in `need_decision`. The coordinator selected an async parallel workflow, whose aggregate completion was held by the waiting hunter; it waited for a producer notification instead of draining the queued producer pointer. One schema-invalid parallel packet (`options` nested in tasks) preceded its corrected launch. Stop/read-back: task unit inactive/dead, Result=success, empty ControlGroup; no unrelated process touched. Raw attempt and isolated store copied to durable local evidence. The disposable collector also counted composite lifecycle status files as children; its rerun deduplicates actual session files. Repair: individual async runs for dependent role handoffs, exact native supervisor reply, and pending checks at attention/completion; retain composite workflows for independent leaves. Rerun with separate snapshot, session, and store roots (`snapshot-stage2b`, `attempt-stage2b`, `stage2b-store`). Stage3 remains unadmitted.
 
 Hermes fallback acceptance `deleg_46588160` completed read-only: transcript confirms successful canonical hunter/mode and fixture reads and no mutation. It explicitly identifies general-child role loading, not a native named-role selector; inherited model route was not independently verified. Trace: `/home/ryushe/.hermes/cache/delegation/live/deleg_46588160/task-0.log`.
+
+Stage2b passed at `641fa5fd3b517599b1e7a53bc04b6f1f68300f50`. Independent parser receipt: `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage2-verified-receipt.json`. Exactly one MapStore index row; producer recon `49221382-93be-4596-8b70-0f25685bb9b4` wrote/read back; hunter `01efa5be-d310-4ca0-a3f7-3badf002d83e` failed the missing-pointer read, awaited the exact native supervisor reply, read the corrected record, then ACKed and retrieved the marker that was absent from notifications. Both canonical roles complete, runner exit 0; parent made no shell/write calls. Recon first misplaced `--root` before `write`; argparse rejected it without a write, then corrected invocation wrote once. The negative missing-pointer error was expected. Task unit read back inactive/dead, Result=success, empty ControlGroup.
+
+Two trial lessons are addressed before continuation: evidence authorship is not the hunter's surface lease (the hunter's final prose conflated them), and Pi's inferred coding acceptance added irrelevant Git/changed-files reports to investigative roles. Source now separates those owners and permits non-coding acceptance criteria without disabling actual verification gates.
+
+Next: resume the same coordinator session and retained hunter natively, load the updated candidate, and prove coordinator-owned isolated resource repair without touching a busy fixture resource while independent recon finishes. This gate tests operational coordination using local files, not actual browser provisioning or login. Stage4 pressure/continuation and Stage5 proof/report work remain unadmitted.
 
 ## Alignment and release boundary
 

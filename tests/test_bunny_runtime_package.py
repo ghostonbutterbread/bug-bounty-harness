@@ -67,3 +67,18 @@ def test_pi_handoff_workers_have_independent_async_completion():
     assert "aggregate completion" in text
     assert "replyTo" in text
     assert 'action: "get", agent: "bunny-hunter"' in text
+
+
+def test_operations_and_evidence_ownership_stay_separate():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    assert "Coordinator-owned operational support" in text
+    assert "designated worker identity" in text
+    assert "unrelated productive work" in text
+    assert "Evidence authorship stays with the producer" in text
+    assert "not an implicit surface-lease transfer" in text
+
+
+def test_investigative_pi_runs_do_not_infer_coding_acceptance():
+    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    assert "acceptance: false" in text
+    assert "does not disable an assigned verification gate" in text

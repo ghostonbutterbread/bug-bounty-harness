@@ -26,6 +26,25 @@ For an interactive CLI worker, send one bounded turn at a time through the same 
 - **Verifier:** independently reconstruct a credible candidate from a clean owned context and return reproduced, not reproduced, inconclusive, or blocked with concrete evidence. The motivational nudge is not proof.
 - **Reporter:** load the standalone `bunny-report-and-triage` skill directly after the finding owner has populated FID `EVIDENCE.md` with cited proof; create only its FID-named final report and applicable PoC. Request missing proof rather than inventing it, and return the file for independent review and path registration. External submission is separate.
 
+### Coordinator-owned operational support
+
+The coordinator owns productive conditions: dependency ordering, resource
+placement, browser/proxy provisioning, login recovery, and collision resolution
+through the existing owning skills. A worker reports the concrete prerequisite
+and a non-secret identity alias; it does not become its own provisioning agent.
+Provision or recover under the designated worker identity, retain that identity
+for resume/cleanup, and return a private attachment/reference rather than raw
+credentials. A parent-owned endpoint is not automatically a child lease.
+
+Inspect a conflicting resource's owner before acting. Do not take over another
+worker's controller, account session, port, or live process; allocate an isolated
+alternative or keep the affected slice blocked with a named wake condition.
+Keep unrelated productive work moving while a prerequisite is resolved. Record
+the resource owner and next decision in the existing campaign record, not a
+new evidence store. Re-admit changed scope, account, location, rate, or ownership
+before the hunter continues; operational support does not expand authority or
+prescribe the hunter's theory.
+
 ### Worker-owned writes; parent-owned reconciliation
 
 **Worker-owned writes** are the default for evidence the worker observed. A hunter or verifier records its own deliberate tests through `attempt-recording-policy` in the assigned Attempt stream; a mapper registers only observed, relevant path/class questions through `/coverage` `discover` with its retained source reference and mapper run ID. The worker writes reusable app behavior through `/map-store` only when established. At a meaningful pivot or handoff, the owner may `/coverage` `assess` only its evidenced leased surface/class/fingerprint: `in_progress` for an open chain; `blocked` with a concrete prerequisite and `reopen_when`; `bounded_review` only with boundary, axes, and supporting evidence. Discovery alone creates `no_assessment`; an Attempt, inert reflection, or finding does not close Coverage. Do not assess an unvisited sibling, claim entire-class exhaustion, or duplicate a worker's Attempt as a parent summary.
@@ -65,8 +84,11 @@ names the pointer and the next discriminator, not the full evidence. A missing,
 stale, inaccessible, or mismatched reference is a blocker, not a picked-up task.
 Use native peer messaging when supported; otherwise the coordinator forwards
 this small envelope unchanged through the native supervisor channel. A send is
-not a delivery receipt. Keep the original owner until pickup is acknowledged;
-reading recon does not transfer the hunter's investigative ownership. Credentials
+not a delivery receipt. Evidence authorship stays with the producer after
+pickup; receiving facts is not an implicit surface-lease transfer. The hunter
+keeps investigative ownership unless the coordinator explicitly reassigns it.
+For an actual unfinished-task transfer, retain the named current owner until the
+assigned recipient acknowledges; evidence authorship is unchanged. Credentials
 and broad private hypothesis histories never belong in these notifications.
 
 ### XSS chain cards at the handoff boundary

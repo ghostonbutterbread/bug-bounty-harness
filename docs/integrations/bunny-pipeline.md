@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: blocked at the first real-agent trial pending fresh execution approval; not released.
+Status: fresh execution approval received; repairing and rerunning the first real-agent gate; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377, authorization 1564454258743582820.
 Inspiration: user's MAPTA diagram reference; adapt operational coordination, not a new evidence store.
@@ -40,6 +40,8 @@ Checked `AGENTS.md`, `agents/index.md`, `SCRIPT_POLICY.md`, Bunny router/modes, 
 
 Read-only Hoster discovery confirmed native named-role roots, clean custom-child prompts, and supervisor/follow-up/resume support. Delegation `deleg_c90a48b7` prepared the immutable candidate and a disposable RPC controller but did not execute the trial: tool approval was withdrawn when the approval prompt could not be completed before the turn ended. The receipt explicitly forbids retrying, rephrasing, or switching tools without fresh user consent. No remote staging, Pi coordinator, or child launch occurred. Correction to earlier progress wording: the trial was dispatched/prepared, not actually running.
 
-Blocked receipt: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/receipt.json`. Local snapshot, manifest, and controller are retained there. After fresh explicit approval, inspect the prepared controller and resume the same stage; verify native role identities, actual skill reads, effective route, and terminal child states. Do not add the next stage until that gate passes.
+Fresh explicit approval arrived in Discord message `1564460993071816745`. Attempt 01 actually ran under `hoster-bunny-stage1-dd31e4.service` in `/user.slice`; provider/model access and candidate skill reads succeeded, but the read-only CLI tool allowlist had excluded every extension tool. The coordinator correctly refused to substitute a worker and launched zero children. Stopped only the task unit and read back inactive/dead. RPC evidence is retained under the same run's remote `attempt-01/`. Repair: explicitly retain native coordination tools in the allowlist and document/test that trap; preserve explicit offhand behavior. Attempt 02 will use a separate snapshot and session directory. The first gate remains unpassed.
+
+Blocked-preparation receipt: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/receipt.json` is historical (pre-approval). Local snapshot, manifest, and controller are retained there. Next: rerun stage 1 and verify native role identities, actual skill reads, effective route, and terminal child states. Do not add the next stage until that gate passes.
 
 Independent review, beta integration, and provider activation are pending. Existing runtime projections are untouched. Recovery implementation checkpoint: `e686d3139f9c16e167664fe227c4ec9857056810` on `feat/bunny-pipeline`, preceded by package slice `990e76214b4f43707111486766140270231966e3`; the current feature tip may include a later dossier-only checkpoint. Base and target are as recorded above.

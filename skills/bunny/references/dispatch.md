@@ -4,6 +4,9 @@ Use the current harness's native transport with the canonical role definitions
 in this skill's `agents/` directory. A role is instructions and capabilities,
 not a display label. Launch the selected specialist, not a generic `worker`
 with a renamed task. Do not create a second set of role files per harness.
+These role files implement collaborative mode. In explicit offhand mode use
+ordinary scoped workers under `bunny-offhand`; do not launch these collaborative role files
+or require those workers to load a Bunny mode skill.
 
 ## Resolve once per campaign
 
@@ -61,6 +64,14 @@ scan roots, project trust, disabled overrides, or stale session discovery;
 do not silently fall back to `worker`. Foreground blocking children cannot
 ask their parent for a blocking decision; collaborative checkpoint work uses
 an asynchronous child and the native supervisor reply channel.
+
+When restricting a Pi coordinator's tools, remember that the `--tools`
+allowlist replaces the whole selection, including extension tools. A read-only
+parent still needs its coordination tools, for example
+`--tools read,grep,find,ls,subagent,bg_wait,subagent_supervisor`.
+Do not diagnose missing agent definitions when the parent simply cannot call
+the installed extension. Excluding only `subagents_enable` keeps delegation
+eager on runtimes that support it; it does not restore an allowlisted-out tool.
 
 ## Other harnesses: same role, native envelope
 

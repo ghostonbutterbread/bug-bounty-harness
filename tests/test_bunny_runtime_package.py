@@ -39,3 +39,17 @@ def test_router_loads_the_runtime_dispatch_contract():
     assert "not a generic `worker`" in text
     assert "read back" in text
     assert "delegate_task" in text
+
+
+def test_dispatch_does_not_load_collaborative_roles_for_offhand_workers():
+    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    assert "explicit offhand" in text
+    assert "ordinary scoped workers" in text
+    assert "do not launch these collaborative role files" in text
+
+
+def test_read_only_pi_parent_keeps_native_coordination_tools():
+    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    assert "--tools" in text
+    assert "subagent,bg_wait,subagent_supervisor" in text
+    assert "allowlist replaces" in text

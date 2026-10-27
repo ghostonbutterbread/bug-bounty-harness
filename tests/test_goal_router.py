@@ -19,6 +19,24 @@ goal = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(goal)
 
 
+def test_hunt_stop_routes_to_existing_surface_skills_without_preloading_them() -> None:
+    lead = goal.HUNT_DONE_SURFACE[0]
+    skill = (Path(__file__).resolve().parents[1] / "skills" / "bug-goals" / "SKILL.md").read_text(encoding="utf-8")
+    assert lead in skill
+    assert "rather than running a new sweep" in goal.HUNT_DONE_SURFACE[1]
+    for name in ("surface-expansion", "live-map", "technology-research", "bypass", "waf", "access-control", "assumption-testing"):
+        assert name in goal.HUNT_DONE_SURFACE[1]
+        assert name in skill
+    focused = goal.build_plan(
+        program="example",
+        objective="Find XSS in this comment preview",
+        url="https://app.example/comments/preview",
+        vulnerability_class="xss",
+    )
+    assert "surface-expansion" not in focused["skills"]
+    assert "owning skill named in the completion contract" in focused["checkpoint_contract"]
+
+
 def test_generic_find_vulnerability_uses_broad_program_mode() -> None:
     plan = goal.build_plan(program="example", objective="Find a new vulnerability")
 
@@ -30,6 +48,7 @@ def test_generic_find_vulnerability_uses_broad_program_mode() -> None:
     assert "map-store-target-facts" in plan["capabilities"]
     assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert plan["completion_contract"][0] == "Before a broad negative or exhaustion conclusion, ask: is there more to map?"
+    assert goal.HUNT_DONE_SURFACE[0] in plan["completion_contract"]
     assert "incomplete mapping is not a reason to interrupt it." in plan["opening_contract"][-1]
     assert plan["run_artifact_kind"] == "hunter-loop"
 
@@ -49,7 +68,8 @@ def test_focused_xss_goal_stays_narrow() -> None:
     assert "map-store-target-facts" in plan["capabilities"]
     assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert "xss" in plan["skills"]
-    assert plan["completion_contract"] == []
+    assert "surface-expansion" not in plan["skills"]
+    assert plan["completion_contract"] == goal.HUNT_DONE_SURFACE
     assert plan["run_artifact_kind"] == "attempts"
 
 
@@ -78,7 +98,7 @@ def test_continue_goal_preserves_hunter_memory() -> None:
     assert "map-store" in plan["skills"]
     assert "research-map" in plan["capabilities"]
     assert "hunt-orchestration-policy" not in plan["skills"]
-    assert plan["completion_contract"] == []
+    assert plan["completion_contract"] == goal.HUNT_DONE_SURFACE
 
 
 def test_revalidation_goal_allows_historical_review() -> None:

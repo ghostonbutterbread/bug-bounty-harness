@@ -104,7 +104,11 @@ def test_actual_release_revokes_old_owner(tmp_path):
     grant = lease.issue_transfer_grant(db, src, dst)['grant_id']
     args = argparse.Namespace(state_dir=str(tmp_path), lease_id='source', agent_id='alice',
                               manager_id='manager', disposition='completed', profile_health='healthy')
-    assert lease.cmd_release(args)['status'] == 'released'
+    assert lease.cmd_release(args)['status'] == 'managed-by-provisioner'
+    with lease.connect(db) as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT * FROM browser_profile_leases WHERE lease_id='source'").fetchone()
+        lease.release_owned_in_transaction(c, row, disposition='completed', profile_health='healthy')
     assert lease.consume_transfer_grant(db, grant, src, dst)['status'] == 'auth-clone-unavailable'
     assert lease.issue_transfer_grant(db, src, dst)['status'] == 'auth-clone-unavailable'
 

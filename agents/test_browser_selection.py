@@ -118,7 +118,14 @@ def test_low_memory_headed_restart_is_bounded(monkeypatch, tmp_path, capsys, ver
     def retire(*_):
         stops.append(row["lease_id"])
         if verified:
-            assert m.release_lease(row["lease_id"], row["agent_id"])["status"] == "released"
+            # Simulate manager-verified release; direct CLI release is fenced.
+            with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+                profiles.init_db(leases)
+                leases.execute('BEGIN IMMEDIATE')
+                canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                           (row['lease_id'],)).fetchone()
+                profiles.release_owned_in_transaction(leases, canonical,
+                    disposition='cancelled', profile_health='healthy')
             c.execute("UPDATE browsers SET state='stopped'")
             c.commit()
             monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted" if capacity_after else "rejected"})

@@ -1342,6 +1342,13 @@ def start_proxy(c, args):
                 or row["state"] != "running" or not proxy_ready(row)):
             emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
         return row, False
+    owner = None
+    if getattr(args, "owner_pid", None):
+        owner = process_identity(args.owner_pid)
+        if not owner or (getattr(args, "_owner_identity", None) is not None
+                         and owner != args._owner_identity):
+            c.rollback()
+            emit({"status": "owner-unavailable"}, 2)
     port = next((p for p in range(DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX + 1) if not c.execute(
         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
     if port is None:
@@ -1365,7 +1372,6 @@ def start_proxy(c, args):
     lane = "task-" + uuid.uuid4().hex
     root = STATE.parent / "task-proxies" / lane
     c.execute("delete from finished_proxies where agent_id=? and run_id=?", (args.agent_id, args.run_id))
-    owner = process_identity(args.owner_pid) if getattr(args, "owner_pid", None) else None
     c.execute("insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state,updated,owner) values(?,?,?,?,?,?,?,?,?,?,?,?)",
               (args.agent_id, args.run_id, slug(args.program), slug(args.account), args.purpose,
                lane, port, "task-mitm-" + lane, str(root), "starting", now(), json.dumps(owner) if owner else None))
@@ -1464,7 +1470,15 @@ def matching_proxy(c, args, row):
 
 def failed_launch(c, lid, unit):
     stop_unit(unit)
-    if unit_active(unit):
+    row = c.execute('SELECT * FROM browsers WHERE lease_id=? AND unit=? AND state=?',
+                    (lid, unit, 'starting')).fetchone()
+    if not row or not stopped(row):
+        return False
+    info = record_info(row)
+    try:
+        if info.get('pid') and process_identity(info['pid']) is not None:
+            return False
+    except (OSError, ValueError, TypeError):
         return False
     c.execute("update browsers set state='stopped',updated=? where lease_id=?", (now(), lid))
     c.commit()
@@ -1501,19 +1515,40 @@ def safe(row):
     return result
 
 
-def release_lease(lease_id, agent, disp="cancelled", health="healthy"):
-    return lease(
-        None,
-        "release",
-        "--lease-id",
-        lease_id,
-        "--agent-id",
-        agent,
-        "--disposition",
-        disp,
-        "--profile-health",
-        health,
-    )
+def release_lease(c, lease_id, agent, disp="cancelled", health="healthy"):
+    """Release a failed start while the entry point holds the node lock.
+
+    Never infer prelaunch from canonical not-started alone: the manager may
+    already have committed a starting row and dispatched Chromium.
+    """
+    import browser_profile_lease as profiles
+    c.commit()
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        row = c.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lease_id,)).fetchone()
+        if (not canonical or canonical['status'] != 'active'
+                or canonical['manager_id'] != manager_id()
+                or canonical['owner_agent_id'] != agent
+                or canonical['browser_status'] != 'not-started'
+                or canonical['cdp_url'] is not None or canonical['service_unit'] is not None
+                or (row and (row['state'] != 'stopped'
+                    or any(canonical[key] != value for key, value in (
+                        ('program', row['program']), ('account_alias', row['account']),
+                        ('auth_domain', row['auth_domain']), ('owner_run_id', row['run_id']),
+                        ('profile_dir', row['profile_dir']), ('owner_agent_id', row['agent_id'])))
+                    or not stopped(row)
+                    or (record_info(row).get('pid') and
+                        process_identity(record_info(row)['pid']) is not None)))
+                or profiles.reservation_conflict(leases, program=canonical['program'],
+                    domain=canonical['auth_domain'], alias=canonical['account_alias'],
+                    lease_id=lease_id, path=canonical['profile_dir'])):
+            return False
+        profiles.release_owned_in_transaction(leases, canonical,
+            disposition=disp, profile_health=health)
+        leases.commit()
+        return True
 
 
 def profile_path(program, account):
@@ -1550,7 +1585,9 @@ def healthy(row):
 
 def stopped(row):
     info = record_info(row)
-    if unit_active(row["unit"]):
+    # A failed is-active query is indistinguishable from a stopped unit by
+    # exit code alone. Require an affirmative terminal systemd state.
+    if not unit_inactive(row["unit"]):
         return False
     identity = info.get("process_identity")
     if row["state"] == "running" and not identity:
@@ -1612,21 +1649,77 @@ def stale_singleton_lock(path, row):
         return False
 
 
+def fenced_stop_release(c, lease_id, agent_id, *, disposition='cancelled', health='healthy'):
+    """Stop only the exact manager/canonical owner, with both locks held.
+
+    node_lock is held by the entry point. Canonical initialization precedes its
+    write lock; no subprocess may release that lock between proof and stop.
+    A committed canonical release with a stale running manager row is recoverable
+    only from the same exact identity and independently verified terminal root.
+    """
+    import browser_profile_lease as profiles
+    c.commit()  # manager writes from earlier maintenance must not hold a DB lock
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        row = c.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lease_id,)).fetchone()
+        if not row or row['agent_id'] != agent_id or row['state'] != 'running' or not canonical:
+            return False
+        info = record_info(row)
+        proof = info.get('stop_proof', {})
+        recovering = canonical['status'] == 'released'
+        if (canonical['status'] not in ('active', 'released')
+                or any(canonical[key] != value for key, value in (
+                    ('manager_id', manager_id()), ('program', row['program']),
+                    ('auth_domain', row['auth_domain']), ('account_alias', row['account']),
+                    ('owner_agent_id', row['agent_id']), ('owner_run_id', row['run_id']),
+                    ('profile_dir', row['profile_dir'])))
+                or not info.get('process_identity') or not info.get('unit_invocation')
+                or not info.get('cdp_url', proof.get('cdp_url'))
+                or (recovering and (canonical['browser_status'] != 'stopped'
+                    or canonical['work_state'] != 'terminal'
+                    or canonical['service_unit'] is not None or canonical['cdp_url'] is not None
+                    or proof.get('unit_invocation') != info['unit_invocation']))
+                or (not recovering and (canonical['service_unit'] != row['unit']
+                    or canonical['cdp_url'] != (info.get('cdp_url') or proof.get('cdp_url'))
+                    or canonical['browser_status'] != 'running'))):
+            return False
+        if profiles.reservation_conflict(leases, program=row['program'],
+                domain=row['auth_domain'], alias=row['account'], lease_id=lease_id,
+                path=row['profile_dir']):
+            return False
+        # A live unit must match the recorded invocation before stopping it.
+        # After an interrupted stop an unloaded unit can lose InvocationID:
+        # accept that case only with independent terminal unit/root/CDP proof.
+        invocation = unit_identity(row['unit'])
+        if invocation and invocation != info['unit_invocation']:
+            return False
+        if not recovering and not invocation and not stopped(row):
+            return False
+        if recovering:
+            if not stopped(row):
+                return False
+        else:
+            if owner_state(info['process_identity']) not in ('active', 'terminal'):
+                return False
+            if not stopped(row) and not stop_recorded(row):
+                return False
+            if not proof:
+                stop_receipt(row)
+            profiles.release_owned_in_transaction(leases, canonical,
+                disposition=disposition, profile_health=health)
+            leases.commit()
+            # A lost commit reply is resolved on retry using the persisted
+            # stop proof, exact released row, and terminal root/CDP evidence.
+        c.execute("update browsers set state='stopped',updated=? where lease_id=? and state='running'",
+                  (now(), lease_id))
+        c.commit()
+        return True
+
+
 def retire(c, row, health="healthy"):
-    if reservation_blocks(row):
-        return False
-    if not stop_recorded(row):
-        return False
-    q = release_lease(row["lease_id"], row["agent_id"], health=health)
-    if q.get("status") != "released":
-        return False
-    stop_receipt(row)
-    c.execute(
-        "update browsers set state='stopped',updated=? where lease_id=?",
-        (now(), row["lease_id"]),
-    )
-    c.commit()
-    return True
+    return fenced_stop_release(c, row['lease_id'], row['agent_id'], health=health)
 
 
 def selected_browser(c, program, alias, domain, key):
@@ -2244,7 +2337,13 @@ def maintain(args):
             meta = metadata(c, row)
             state = lifecycle_state(c, row)
             if not unit_active(row["unit"]) and stopped(row):
-                retire(c, row)
+                if canonical_owner(row):
+                    if not retire(c, row):
+                        meta["lifecycle_error"] = "terminal-cleanup-not-verified"
+                        save_metadata(c, row["lease_id"], meta)
+                else:
+                    meta["lifecycle_error"] = "canonical-owner-unverified"
+                    save_metadata(c, row["lease_id"], meta)
                 continue
             if state == "activity-unavailable":
                 meta["lifecycle_error"] = "activity-probe-unavailable"
@@ -2270,6 +2369,10 @@ def maintain(args):
                 if meta.pop("lifecycle_error", None):
                     save_metadata(c, row["lease_id"], meta)
             elif state in ("terminal", "expired-awaiting-input"):
+                if not canonical_owner(row):
+                    meta["lifecycle_error"] = "canonical-owner-unverified"
+                    save_metadata(c, row["lease_id"], meta)
+                    continue
                 if activity_snapshot(row) is not None and not freeze_idle(row, 0):
                     continue
                 info = record_info(row)
@@ -2332,6 +2435,7 @@ def start(args):
         owner = process_identity(args.owner_pid)
         if not owner:
             emit({"status": "owner-unavailable"}, 2)
+        args._owner_identity = owner
     if getattr(args, "task_owned", False):
         if not owner and getattr(args, "driving_mode", None) == "manual":
             emit({"status": "owner-required", "reason": "native-input-untracked",
@@ -2695,14 +2799,17 @@ def start(args):
         try:
             task, created = start_proxy(c, args)
         except Exception as exc:
-            release_lease(lid, args.agent_id)
+            if not release_lease(c, lid, args.agent_id):
+                emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
             emit({"status": "proxy-failed", "detail": str(exc)}, 2)
     elif proxy_row(c, args):
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
     if replacing and str(prof) != replacing["profile_dir"]:
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "recovery-blocked", "reason": "acquired-profile-changed"}, 2)
     bid = str(uuid.uuid4())
     unit = "browser-" + bid
@@ -2715,7 +2822,8 @@ def start(args):
     if unit_active(unit):
         if created:
             rollback_proxy(c, task)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "browser-unit-conflict"}, 2)
     # Startup intent is visible to finish before browser dispatch/CDP readiness.
     t = now()
@@ -2821,7 +2929,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": (p.stderr or p.stdout).strip()}, 2)
     diagnostics.mark("publication")
     deadline = time.time() + LAUNCH_WAIT_SECONDS
@@ -2839,7 +2948,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {
                 "status": "launch-failed",
@@ -2854,7 +2964,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": "task proxy or imported CA not verified by launcher"}, 2)
     diagnostics.mark("registration")
     reg = lease(
@@ -2875,7 +2986,8 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        release_lease(lid, args.agent_id)
+        if not release_lease(c, lid, args.agent_id):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {"status": "launch-failed", "detail": "could not register owned browser"}, 2
         )
@@ -3073,25 +3185,57 @@ def reap(args):
     with node_lock(STATE):
         c = db()
         stopped_ids = cleanup_unused(c)
+        browser_blocked = {}
+        for browser in c.execute("select * from browsers where state='running'").fetchall():
+            if not canonical_owner(browser):
+                reason = "canonical-owner-unverified"
+            elif not cleanup_headless(browser):
+                reason = "headed-or-display-unverified"
+            elif owner_state(metadata(c, browser).get("owner")) != "terminal":
+                reason = "task-owner-not-terminal-or-unrecorded"
+            else:
+                activity = activity_snapshot(browser)
+                error = metadata(c, browser).get("lifecycle_error")
+                if error:
+                    reason = "cleanup-not-verified"
+                elif not activity or activity.get("unavailable"):
+                    reason = "activity-unavailable"
+                elif (activity["idle_seconds"] >= 7200 and not activity["inflight"]
+                      and not activity["reserved_seconds"] and not activity.get("attached_clients", 1)):
+                    reason = "idle-freeze-or-stop-unverified"
+                else:
+                    reason = "activity-recent-or-attached"
+            browser_blocked[reason] = browser_blocked.get(reason, 0) + 1
         c.execute("delete from finished_proxies where finished<?", (now() - 14 * 86400,))
         c.commit()
         # No age-only revocation: a replay can outlive the browser. Require
         # positively terminal task-owner identity and a quiet flow artifact.
         candidates = []
+        proxy_blocked = {}
         cutoff = now() - 7200
         for row in c.execute("select * from task_proxies where updated<?", (cutoff,)).fetchall():
             if not row["owner"]:
+                reason = "task-owner-unrecorded"
+                proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
                 continue
             try:
                 terminal = owner_state(json.loads(row["owner"])) == "terminal"
             except ValueError:
+                reason = "task-owner-invalid"
+                proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
                 continue
-            if (not terminal or not proxy_quiet(row)
-                    or any(browser_blocks_proxy(c, browser)
-                           for browser in c.execute("select * from browsers where agent_id=? and run_id=?",
-                                                    (row["agent_id"], row["run_id"])).fetchall())):
+            if not terminal:
+                reason = "task-owner-not-terminal"
+            elif not proxy_quiet(row):
+                reason = "flow-or-replay-not-quiet"
+            elif any(browser_blocks_proxy(c, browser)
+                     for browser in c.execute("select * from browsers where agent_id=? and run_id=?",
+                                              (row["agent_id"], row["run_id"])).fetchall()):
+                reason = "browser-not-released"
+            else:
+                candidates.append((row["agent_id"], row["run_id"]))
                 continue
-            candidates.append((row["agent_id"], row["run_id"]))
+            proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
         c.commit()
     recovered = []
     for agent_id, run_id in candidates:
@@ -3109,15 +3253,27 @@ def reap(args):
                 c.rollback()
                 continue
             c.commit()
+            output = io.StringIO()
             try:
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(output):
                     finish_proxy(argparse.Namespace(agent_id=agent_id, run_id=run_id),
                                  recovery=row["state"] != "running", orphan_proven=True)
             except SystemExit as exc:
                 if exc.code == 0:
                     recovered.append((agent_id, run_id))
+                else:
+                    try:
+                        status = json.loads(output.getvalue()).get("status")
+                    except ValueError:
+                        status = None
+                    # Use a fixed category: never copy error details, paths or flows.
+                    reason = status if status in ("browser-active", "proxy-conflict",
+                                                  "proxy-stop-failed", "proxy-ca-cleanup-failed",
+                                                  "proxy-index-failed") else "finish-not-verified"
+                    proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
     emit({"status": "ok", "idle_stopped": stopped_ids,
           "proxy_recovered": recovered,
+          "browser_blocked": browser_blocked, "proxy_blocked": proxy_blocked,
           "policy": "tracked-CDP-idle-7200s; task proxy terminal-owner-and-quiet-flow-7200s"})
 
 
@@ -3129,9 +3285,8 @@ def release(args):
     ).fetchone()
     if not r or r["agent_id"] != args.agent_id or r["state"] != "running":
         emit({"status": "not-owner"}, 2)
-    if reservation_blocks(r):
-        emit({'status': 'locked', 'reason': 'stopped-profile-reserved'}, 2)
-    if not stop_recorded(r):
+    if not fenced_stop_release(c, args.lease_id, args.agent_id,
+                               disposition=args.disposition, health=args.profile_health):
         info = record_info(r)
         emit(
             {
@@ -3143,17 +3298,6 @@ def release(args):
             },
             2,
         )
-    q = release_lease(
-        args.lease_id, args.agent_id, args.disposition, args.profile_health
-    )
-    if q.get("status") != "released":
-        emit(q, 2)
-    stop_receipt(r)
-    c.execute(
-        "update browsers set state='stopped',updated=? where lease_id=?",
-        (now(), args.lease_id),
-    )
-    c.commit()
     emit(
         {
             "status": "released",

@@ -170,7 +170,7 @@ class ReservationTest(unittest.TestCase):
         # Neither an is-active nonzero exit nor a show error proves inactivity.
         self.stop_patch.stop()
         self.unit_state_patch.stop()
-        with (patch.object(manager, 'unit_active', return_value=False),
+        with (patch.object(manager, 'unit_inactive', return_value=True),
               patch.object(manager, 'owner_state', return_value='terminal'),
               patch.object(profiles, 'local_cdp_version', return_value={'status':'unavailable'})):
             for active, load, code in (('unknown', 'loaded', 0), ('failed', 'loaded', 0),
@@ -204,7 +204,7 @@ class ReservationTest(unittest.TestCase):
             ('missing property', 'ActiveState=inactive\n', False),
             ('reordered unique', 'LoadState=loaded\nActiveState=inactive\n', True),
         )
-        with (patch.object(manager, 'unit_active', return_value=False),
+        with (patch.object(manager, 'unit_inactive', return_value=True),
               patch.object(manager, 'owner_state', return_value='terminal'),
               patch.object(profiles, 'local_cdp_version', return_value={'status':'unavailable'})):
             for label, output, releases in outputs:

@@ -1,6 +1,7 @@
 """Failure and ownership regressions using only temporary registries."""
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -83,6 +84,18 @@ def record(m, tmp_path, owner):
     c.commit()
     m.save_metadata(c, "old", {"owner": owner, "ttl": 30})
     return c, c.execute("select * from browsers").fetchone()
+
+def canonical_record(m, row):
+    request = argparse.Namespace(
+        program=row["program"], account=row["account"], auth_domain=row["auth_domain"],
+        agent_id=row["agent_id"], run_id=row["run_id"], purpose=row["purpose"],
+        ttl_seconds=60, state_dir=str(m.STATE.parent), recover_profile=False,
+        instance_key="", manager_id=hashlib.sha256(str(m.STATE.resolve()).encode()).hexdigest())
+    got = profiles.cmd_acquire(request)
+    assert got["status"] == "leased"
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        leases.execute("UPDATE browser_profile_leases SET lease_id=?,profile_dir=?,service_unit=? WHERE lease_id=?",
+                       (row["lease_id"], row["profile_dir"], row["unit"], got["lease"]["lease_id"]))
 
 
 @pytest.mark.parametrize(
@@ -420,7 +433,8 @@ def test_retention_stale_lock_requires_exact_dead_pid(
 
 def test_terminal_task_proxy_has_no_live_reuse_grace(monkeypatch, tmp_path):
     m = provisioner(monkeypatch, tmp_path)
-    record(m, tmp_path, {**process_identity(os.getpid()), "start": "old"})
+    _, row = record(m, tmp_path, {**process_identity(os.getpid()), "start": "old"})
+    canonical_record(m, row)
     monkeypatch.setattr(m, "unit_active", lambda _: True)
     retired = []
     monkeypatch.setattr(
@@ -428,6 +442,34 @@ def test_terminal_task_proxy_has_no_live_reuse_grace(monkeypatch, tmp_path):
     )
     m.maintain(argparse.Namespace())
     assert retired == ["old"]
+
+def test_maintain_refuses_terminal_browser_with_mismatched_canonical_owner(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, {**process_identity(os.getpid()), "start": "old"})
+    canonical_record(m, row)
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        leases.execute("UPDATE browser_profile_leases SET owner_run_id='different-run' WHERE lease_id=?",
+                       (row["lease_id"],))
+    monkeypatch.setattr(m, "unit_active", lambda _: True)
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("must not stop mismatched owner"))
+    m.maintain(argparse.Namespace())
+    assert m.metadata(c, row)["lifecycle_error"] == "canonical-owner-unverified"
+    assert c.execute("select state from browsers where lease_id=?", (row["lease_id"],)).fetchone()[0] == "running"
+
+
+def test_maintain_refuses_stopped_browser_with_released_canonical_owner(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, None)
+    canonical_record(m, row)
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        leases.execute("UPDATE browser_profile_leases SET status='released' WHERE lease_id=?",
+                       (row["lease_id"],))
+    Path(row["launch_file"]).write_text(json.dumps({"process_identity": {"pid": 123}}))
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("must not stop released owner"))
+    m.maintain(argparse.Namespace())
+    assert m.metadata(c, row)["lifecycle_error"] == "canonical-owner-unverified"
 
 
 def test_task_lease_cannot_alias_program_profile(tmp_path):

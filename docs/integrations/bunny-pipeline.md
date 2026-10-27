@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: stages 1–3 passed; implementing retained-investigator challenge gate; not released.
+Status: stages 1–4 passed; final proof-to-report gate prepared; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -32,7 +32,7 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 - Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
 - Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
 - Focused source tests: 22 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, investigative acceptance, continuity, and terse blunt challenges.
-- Latest broad run: 369 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
+- Latest broad run: 373 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
 - Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
 ## Stage 1 receipts
@@ -62,8 +62,12 @@ Stage3 passed at `85b811390b1d1e750b841818676308ec0fcaee5c`; receipt `/home/ryus
 
 Stage4 attempt at `5f4fc6b4bdd4ec0e34b8edfaac847b7804dec5dc` is **partial, not passed**: native resume, three live replies consumed in one process, three investigator-chosen discriminators, honest no-finding, read-only calls and exit 0 independently checked. However, all three steers appended unwanted motivational qualification paragraphs. Receipt `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage4/verified-receipt.json`. Source repair keeps the challenge terse and the motivational/evidence distinction internal, not repeated in every steer. Stage4b replays that scenario against the repair, retaining the latest investigator; prior unexecuted lenses may be reused, so this is not additional security coverage. Stage5 remains unadmitted. Stage4b was blocked before dispatch because the test harness transcribed a nonexistent MapStore path; the coordinator correctly refused to spawn or fabricate replacement evidence. No child launched. Stage4c binds the packet directly to Stage2's verified producer receipt and checks the original observation digest, preserving that evidence owner. This is a harness repair, not a new application observation.
 
+Stage4c passed: receipt `/home/ryushe/.hermes/state/validation/bunny-pipeline/stage4c/verified-receipt.json`; retained hunter resumed as `f5ac4ebf-d94c-4864-b3eb-3cea9883a57c`, one process, three actual native replies consumed, no motivational-disclaimer paragraphs, honest no-finding and no real Coverage verdict. Two recovered invocation/read mistakes remain in the receipt; a rejected resume submission did not create another child, and the malformed mode-file path was corrected before reasoning continued. This is not forced-timeout recovery or a live target test.
+
+Stage5 admits an intentionally vulnerable owned pure-function fixture, not a deployed service. Retained primary will write real observed proof through canonical Attempts, a fresh verifier must distinguish the candidate from a protected control, the finding owner must populate EVIDENCE.md, then a fresh canonical reporter loads the standalone skill and writes one exclusively created, clearly fixture-limited FID report. No live targets, accounts or production evidence stores. Source skill/test bytes remain identical to independently reviewed `d57e96fcf753824fdbc9671d8aac1176f37b7f70`; only dossier status changes afterward. Final acceptance and independent behavioral audit remain pending.
+
 ## Alignment and release boundary
 
 Read `AGENTS.md`, `agents/index.md`, `SCRIPT_POLICY.md`, Bunny router/modes, and owning coding/coordination/branch policies. No change to remote-pi cross-campaign peer policy, testing authority, aggregate rates, approvals, or global model routing. Parent-child envelopes do not grant peer broadcast permission.
 
-Independent final review, beta integration, and runtime projection are pending. Existing consumer projections remain untouched. Feature checkpoints: package `990e76214b4f43707111486766140270231966e3`, initial dispatch `e686d3139f9c16e167664fe227c4ec9857056810`, restricted-parent repair `d9bb19ee1c6e8207289d97d2198db853259b407e`, pointer handoff `cc8e403951a54b93b56f77b52ec39b05c40a3bd0`. Later dossier-only checkpoints may follow.
+Independent source review passed at `d57e96fcf753824fdbc9671d8aac1176f37b7f70` (22 focused tests independently rerun; no blockers). Durable receipt: `/home/ryushe/.hermes/state/validation/bunny-pipeline/review/source-review.json`. This is not release approval: final proof/report acceptance, independent behavioral audit, beta integration and production runtime projection remain pending. Existing consumer projections remain untouched. Feature checkpoints: package `990e76214b4f43707111486766140270231966e3`, initial dispatch `e686d3139f9c16e167664fe227c4ec9857056810`, restricted-parent repair `d9bb19ee1c6e8207289d97d2198db853259b407e`, pointer handoff `cc8e403951a54b93b56f77b52ec39b05c40a3bd0`. Later dossier-only checkpoints may follow.

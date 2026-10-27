@@ -88,7 +88,7 @@ def test_continuity_keeps_the_investigator_and_distinguishes_stop_causes():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     for phrase in ["A new question", "same investigator", "harness deadline", "provider/process failure", "new segment ID"]:
         assert phrase in text
-    role = (ROOT / "skills/bunny/agents/bunny-hunter.md").read_text()
+    role = (ROOT / "agents/bunny-hunter.md").read_text()
     assert "choose and revise your investigative theory" in role
 
 

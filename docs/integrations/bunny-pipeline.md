@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: stages 1–5 behaviorally accepted; independent behavioral audit and beta integration pending; not released.
+Status: stages 1–5 behaviorally accepted; canonical role paths reconciled on a successor branch; independent successor review and beta integration pending; not released.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.

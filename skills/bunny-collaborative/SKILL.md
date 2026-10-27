@@ -144,6 +144,11 @@ again before a new worker segment; no card automatically authorizes traffic.
 
 When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
 
+Keep the challenge terse: that sentence, then a short evidence-grounded
+pushback if useful. Do not append a motivational disclaimer or reassurance
+paragraph to each steer. The distinction below is an internal evidence rule,
+not wording to repeat to the hunter on every turn.
+
 The assertion is a **motivational search stance, never a factual finding** or invented observation. Stop the challenge early on direct disproof of the required chain link, a real blocker, or a candidate ready for independent verification. After 3–5 turns decide from evidence whether to continue the warm chain, defer an unresolved hypothesis, or close it; do not manufacture a finding or closure to satisfy the count.
 
 ## Campaign loop

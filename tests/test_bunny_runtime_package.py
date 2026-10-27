@@ -90,3 +90,9 @@ def test_continuity_keeps_the_investigator_and_distinguishes_stop_causes():
         assert phrase in text
     role = (ROOT / "skills/bunny/agents/bunny-hunter.md").read_text()
     assert "choose and revise your investigative theory" in role
+
+
+def test_blunt_challenge_is_not_followed_by_motivational_disclaimers():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    assert "Do not append a motivational disclaimer" in text
+    assert "internal evidence rule" in text

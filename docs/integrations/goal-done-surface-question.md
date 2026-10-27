@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-27
 - **Owning feature branch/ref:** `fix/goal-done-surface-question`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `dc8f6fe848340d37bdaad768d848c2f1c0ed5519`
+- **Feature implementation commit(s):** `dc8f6fe848340d37bdaad768d848c2f1c0ed5519`
 - **Inspiration / canonical references:** Ryushe request to put a hunt-goal done question in `bug-goals`, answered by existing surface skills rather than a new checklist.
 
 ## Intent
@@ -41,10 +41,10 @@ Vulnerability-hunt `/goal` runs were treatable as done when the current path fel
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/goal-done-surface-question`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the implementation, record its SHA here, then request independent review before any beta merge
-- **Working-tree state at handoff:** intentionally uncommitted until the implementation commit
+- **Latest immutable recovery checkpoint:** `dc8f6fe848340d37bdaad768d848c2f1c0ed5519`
+- **Feature implementation commit(s):** `dc8f6fe848340d37bdaad768d848c2f1c0ed5519`
+- **Exact resume point:** independent review of `dc8f6fe` against `origin/beta`; do not merge until review accepts
+- **Working-tree state at handoff:** clean after the dossier SHA commit
 
 ## Decision gates
 
@@ -54,4 +54,4 @@ Vulnerability-hunt `/goal` runs were treatable as done when the current path fel
 
 ## Decision record
 
-- 2026-10-27 — created from `origin/beta` `fd095a5`. Implementation written; review and beta merge not done.
+- 2026-10-27 — implementation committed as `dc8f6fe`. Review and beta merge not done.

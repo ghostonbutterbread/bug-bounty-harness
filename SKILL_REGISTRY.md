@@ -57,7 +57,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 
 | Skill | Command | Playbook |
 |-------|---------|----------|
-| **data-store-guidance** | Load early in bounty work, before persistent reads/writes | `skills/data-store-guidance/SKILL.md`; canonical store ownership and evidence navigation |
+| **data-store-guidance** | Load early in bounty work, before persistent reads/writes | `skills/data-store-guidance/SKILL.md`; store purposes and owning skills |
 | **bb-script-rules** | `/bb-script-rules` with the relevant BBH skill before a bug-bounty script investigates a target | `skills/bb-script-rules/SKILL.md`; interpretation of bug-bounty script output |
 | **upload-surface** | `/upload-surface {program} {file-flow}` | `skills/upload-surface/SKILL.md`; trace file lineage and route the observed consumer to a specialist; `/pfp` owns avatar orchestration |
 | **rce** | `/rce {program} {execution-question}` | `skills/rce/SKILL.md`; class entry for server-side execution chains |

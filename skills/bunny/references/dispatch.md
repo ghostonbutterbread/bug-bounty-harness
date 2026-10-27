@@ -65,6 +65,26 @@ do not silently fall back to `worker`. Foreground blocking children cannot
 ask their parent for a blocking decision; collaborative checkpoint work uses
 an asynchronous child and the native supervisor reply channel.
 
+For live checkpoints and dependent role handoffs, use individual async runs,
+not a parallel workflow whose aggregate completion can wait on a worker that
+needs the parent to release its prerequisite. Independent leaves without that
+dependency can still use a composite workflow. On any attention/completion event,
+check native pending requests and finished producers before waiting again.
+A nonblocking progress update being queued does not prove the parent consumed it.
+Reply to a blocking request with `subagent_supervisor` using its exact `replyTo`;
+ordinary steering is not a supervisor reply.
+
+The Pi selector is top-level, for example:
+
+```javascript
+subagent({ action: "get", agent: "bunny-hunter", options: { agentScope: "user" } })
+```
+
+A direct launch uses top-level `agent`, `task`, `async`, `model`, and `cwd`;
+`agentScope`, `context`, `timeoutMs`, and `sessionDir` belong in `options`.
+Do not copy direct-launch options into each task of a named parallel workflow;
+check that runtime's current schema before selecting a batch envelope.
+
 When restricting a Pi coordinator's tools, remember that the `--tools`
 allowlist replaces the whole selection, including extension tools. A read-only
 parent still needs its coordination tools, for example

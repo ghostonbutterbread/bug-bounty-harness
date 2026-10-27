@@ -59,3 +59,11 @@ def test_store_handoff_is_pointer_based_and_acknowledged():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     for phrase in ["Pointer handoffs", "recipient acknowledges", "read-back", "existing stores", "do not copy"]:
         assert phrase in text
+
+
+def test_pi_handoff_workers_have_independent_async_completion():
+    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    assert "individual async runs" in text
+    assert "aggregate completion" in text
+    assert "replyTo" in text
+    assert 'action: "get", agent: "bunny-hunter"' in text

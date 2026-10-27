@@ -1,5 +1,7 @@
 """Cross-store stop ownership and interrupted release (temporary registries only)."""
 import json
+import argparse
+import subprocess
 from pathlib import Path
 import sqlite3
 import threading
@@ -22,6 +24,7 @@ def setup(monkeypatch, tmp_path):
                        ('http://127.0.0.1:9301', row['lease_id']))
     monkeypatch.setattr(m, 'unit_identity', lambda _: 'exact-unit')
     monkeypatch.setattr(m, 'owner_state', lambda _: 'active')
+    m.__dict__['_real_stopped'] = m.stopped
     monkeypatch.setattr(m, 'stopped', lambda _: True)
     return m, c, row
 
@@ -111,3 +114,64 @@ def test_interrupted_manager_commit_retry(monkeypatch, tmp_path):
     monkeypatch.setattr(m, 'stop_recorded', lambda _: pytest.fail('already stopped'))
     assert m.fenced_stop_release(c, 'old', 'old-agent')
     assert status(m) == 'released'
+
+
+def test_failed_unit_status_query_is_not_terminal(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    monkeypatch.setattr(m, 'owner_state', lambda _: 'terminal')
+    monkeypatch.setattr(m, 'record_info', lambda _: {'process_identity': {'pid': 123}})
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 1, '', 'bus unavailable'))
+    assert not m.stopped({'unit': 'fixture-unit', 'state': 'running'})
+
+
+def test_direct_managed_release_denied_but_unstarted_cleanup_allowed(monkeypatch, tmp_path):
+    m, c, row = setup(monkeypatch, tmp_path)
+    request = argparse.Namespace(state_dir=str(m.STATE.parent), lease_id='old',
+        agent_id='old-agent', manager_id=m.manager_id(), disposition='cancelled', profile_health='healthy')
+    assert profiles.cmd_release(request)['status'] == 'managed-by-provisioner'
+    assert status(m) == 'active'
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        leases.execute("UPDATE browser_profile_leases SET browser_status='not-started',cdp_url=NULL,service_unit=NULL WHERE lease_id='old'")
+    assert profiles.cmd_release(request)['status'] == 'released'
+
+
+@pytest.mark.parametrize('missing_invocation', [None, ''])
+def test_interrupted_before_receipt_recovers_unloaded_unit(monkeypatch, tmp_path, missing_invocation):
+    m, c, row = setup(monkeypatch, tmp_path)
+    real_receipt = m.stop_receipt
+    monkeypatch.setattr(m, 'stopped', lambda _: False)
+    monkeypatch.setattr(m, 'stop_recorded', lambda _: True)
+    monkeypatch.setattr(m, 'stop_receipt', lambda _: (_ for _ in ()).throw(RuntimeError('interrupted')))
+    with pytest.raises(RuntimeError):
+        m.fenced_stop_release(c, 'old', 'old-agent')
+    assert status(m) == 'active'
+    monkeypatch.setattr(m, 'unit_identity', lambda _: missing_invocation)
+    monkeypatch.setattr(m, 'unit_inactive', lambda _: True)
+    monkeypatch.setattr(m, 'owner_state', lambda _: 'terminal')
+    monkeypatch.setattr(profiles, 'local_cdp_version', lambda _: {'status': 'unreachable'})
+    monkeypatch.setattr(m, 'stopped', m.__dict__['_real_stopped'])
+    monkeypatch.setattr(m, 'stop_recorded', lambda _: pytest.fail('already stopped'))
+    monkeypatch.setattr(m, 'stop_receipt', real_receipt)
+    assert m.fenced_stop_release(c, 'old', 'old-agent')
+    assert status(m) == 'released'
+
+
+@pytest.mark.parametrize('unit_terminal,root_state,cdp_status,invocation', [
+    (False, 'terminal', 'unreachable', None),
+    (False, 'terminal', 'unreachable', ''),
+    (True, 'active', 'unreachable', None),
+    (True, 'terminal', 'ready', None),
+    (True, 'terminal', 'unreachable', 'other-unit'),
+])
+def test_unloaded_recovery_requires_independent_proof(monkeypatch, tmp_path,
+        unit_terminal, root_state, cdp_status, invocation):
+    m, c, row = setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, 'unit_identity', lambda _: invocation)
+    monkeypatch.setattr(m, 'unit_inactive', lambda _: unit_terminal)
+    monkeypatch.setattr(m, 'owner_state', lambda _: root_state)
+    monkeypatch.setattr(profiles, 'local_cdp_version', lambda _: {'status': cdp_status})
+    monkeypatch.setattr(m, 'stopped', m.__dict__['_real_stopped'])
+    monkeypatch.setattr(m, 'stop_recorded', lambda _: pytest.fail('unproved stop'))
+    assert not m.fenced_stop_release(c, 'old', 'old-agent')
+    assert status(m) == 'active'

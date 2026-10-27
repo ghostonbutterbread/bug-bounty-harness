@@ -1181,6 +1181,11 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
             return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
+        # A manager label is not a stop attestation. Direct release is only
+        # safe before a browser has been registered with the provisioner.
+        if row['manager_id'] is not None and (row['browser_status'] != 'not-started'
+                or row['cdp_url'] is not None or row['service_unit'] is not None):
+            return {'status': 'managed-by-provisioner', 'lease_id': args.lease_id}
         release_owned_in_transaction(conn, row, disposition=args.disposition,
                                      profile_health=args.profile_health)
         conn.commit()

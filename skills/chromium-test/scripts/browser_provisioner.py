@@ -1550,7 +1550,9 @@ def healthy(row):
 
 def stopped(row):
     info = record_info(row)
-    if unit_active(row["unit"]):
+    # A failed is-active query is indistinguishable from a stopped unit by
+    # exit code alone. Require an affirmative terminal systemd state.
+    if not unit_inactive(row["unit"]):
         return False
     identity = info.get("process_identity")
     if row["state"] == "running" and not identity:
@@ -1652,13 +1654,16 @@ def fenced_stop_release(c, lease_id, agent_id, *, disposition='cancelled', healt
                 domain=row['auth_domain'], alias=row['account'], lease_id=lease_id,
                 path=row['profile_dir']):
             return False
-        # A live unit must be the exact invocation before any stop. During
-        # recovery an unloaded inactive unit may no longer expose InvocationID;
-        # terminal root and CDP proof are mandatory instead.
-        if not recovering and unit_identity(row['unit']) != info['unit_invocation']:
+        # A live unit must match the recorded invocation before stopping it.
+        # After an interrupted stop an unloaded unit can lose InvocationID:
+        # accept that case only with independent terminal unit/root/CDP proof.
+        invocation = unit_identity(row['unit'])
+        if invocation and invocation != info['unit_invocation']:
+            return False
+        if not recovering and not invocation and not stopped(row):
             return False
         if recovering:
-            if unit_active(row['unit']) or not stopped(row):
+            if not stopped(row):
                 return False
         else:
             if owner_state(info['process_identity']) not in ('active', 'terminal'):

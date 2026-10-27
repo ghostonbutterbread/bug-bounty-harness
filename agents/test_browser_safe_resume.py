@@ -307,10 +307,16 @@ def test_released_canonical_owner_stopped_resume_preflight(monkeypatch, tmp_path
     with profiles.connect(db_path) as leases:
         leases.execute('UPDATE browser_profile_leases SET service_unit=? WHERE lease_id=?',
                        (row['unit'], row['lease_id']))
-    released = profiles.cmd_release(argparse.Namespace(state_dir=str(tmp_path),
+    denied = profiles.cmd_release(argparse.Namespace(state_dir=str(tmp_path),
         lease_id=row['lease_id'], agent_id=row['agent_id'], manager_id=m.manager_id(),
         disposition='completed', profile_health='healthy'))
-    assert released['status'] == 'released'
+    assert denied['status'] == 'managed-by-provisioner'
+    with profiles.connect(db_path) as leases:
+        leases.execute('BEGIN IMMEDIATE')
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                   (row['lease_id'],)).fetchone()
+        profiles.release_owned_in_transaction(leases, canonical,
+            disposition='completed', profile_health='healthy')
     with profiles.connect(db_path) as leases:
         historical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
                                     (row['lease_id'],)).fetchone()

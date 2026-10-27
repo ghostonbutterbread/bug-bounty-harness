@@ -19,6 +19,7 @@ The legacy `reap-idle` output reported no stops while stale browser leases and t
 
 - `maintain` checks exact active canonical lease ownership before automatic retirement on both terminal and already-stopped paths; mismatch is retained with a lifecycle error.
 - `reap-idle` emits bounded reason counts for running browsers and aged task proxies it cannot reclaim, including failed freeze/stop and failed proxy finish. Eligible tasks retain existing terminal-owner, idle/quiet flow, no-client, canonical owner, and stop-verification gates.
+- An explicit task supervisor PID is rechecked before a task proxy reservation is written. A vanished/reused PID fails rather than silently creating an ownerless proxy; missing `--owner-pid` remains an unsupported terminal signal and is not automatically reaped.
 - No age-only cleanup, live Hoster service stop, or retroactive ownership assignment. Old ownerless rows remain for manager-authoritative task reconciliation.
 
 ## Evidence and review
@@ -26,6 +27,7 @@ The legacy `reap-idle` output reported no stops while stale browser leases and t
 - `python3 -m pytest -q agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py -k 'not task_proxy_completion_indexes_private_default_and_releases'`: 139 passed, 2 deselected after diagnostic changes; `git diff --check` passed.
 - Broad two-module run: 64 passed, 2 failed before exercising cleanup due installed mitmproxy `Client` constructor incompatibility in real-flow fixture. Existing papercut tracks that unrelated test environment mismatch.
 - Independent review: do not integrate as a fix for the papercut. The patch does not reclaim ownerless records; canonical-owner check is not atomic with stop across the manager and lease databases. Reviewer ran three modules: 138 passed, 2 deselected before the post-review diagnostic changes.
+- Later focused regression for explicit proxy-owner PID reuse: 1 passed. The isolated stop-fence child `ce6d29a` is under independent re-review; this dossier's integration gate remains blocked until that result and a merged-tree suite.
 - Hoster read-only inventory: current ownerless running rows and stale proxy reservations; no live cleanup attempted. Tmux sidecar inspected three registered scopes, stopped none.
 
 ## Blockers and deferred work
@@ -55,3 +57,4 @@ The legacy `reap-idle` output reported no stops while stale browser leases and t
 
 - 2026-10-27 — current beta still has ownerless legacy rows. Chose to report blocked eligibility and fence automatic retirement rather than unsafe age-only reclamation.
 - 2026-10-27 — independent review rejected integration as a complete fix; expanded refusal diagnostics but retained the cross-store race and legacy owner-evidence gap as blockers.
+- 2026-10-27 — added a pre-reservation PID-identity recheck so an explicitly supplied task owner cannot silently vanish. This does not retrofit a terminal owner onto historical rows.

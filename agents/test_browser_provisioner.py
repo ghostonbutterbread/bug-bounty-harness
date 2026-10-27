@@ -782,6 +782,20 @@ def test_idle_reaper_needs_terminal_owner_quiet_flow_and_no_clients(monkeypatch,
     assert json.loads(capsys.readouterr().out)["proxy_recovered"] == [["agent", "run"]]
     assert m.proxy_row(c, args) is None
 
+def test_task_proxy_refuses_owner_pid_reuse_before_reservation(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.owner_pid = 123
+    args._owner_identity = {"pid": 123, "start": "old"}
+    monkeypatch.setattr(m, "process_identity", lambda _: {"pid": 123, "start": "new"})
+    monkeypatch.setattr(m, "port_open", lambda _: pytest.fail("no port allocation"))
+    with pytest.raises(SystemExit) as exc:
+        m.start_proxy(m.db(), args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "owner-unavailable"
+    assert m.db().execute("select count(*) from task_proxies").fetchone()[0] == 0
+
+
 def test_reap_reports_unowned_old_proxy_without_stopping_it(monkeypatch, tmp_path, capsys):
     m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
     c.execute("update task_proxies set updated=?,owner=NULL", (time.time() - 9000,)); c.commit()

@@ -1342,6 +1342,13 @@ def start_proxy(c, args):
                 or row["state"] != "running" or not proxy_ready(row)):
             emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
         return row, False
+    owner = None
+    if getattr(args, "owner_pid", None):
+        owner = process_identity(args.owner_pid)
+        if not owner or (getattr(args, "_owner_identity", None) is not None
+                         and owner != args._owner_identity):
+            c.rollback()
+            emit({"status": "owner-unavailable"}, 2)
     port = next((p for p in range(DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX + 1) if not c.execute(
         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
     if port is None:
@@ -1365,7 +1372,6 @@ def start_proxy(c, args):
     lane = "task-" + uuid.uuid4().hex
     root = STATE.parent / "task-proxies" / lane
     c.execute("delete from finished_proxies where agent_id=? and run_id=?", (args.agent_id, args.run_id))
-    owner = process_identity(args.owner_pid) if getattr(args, "owner_pid", None) else None
     c.execute("insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state,updated,owner) values(?,?,?,?,?,?,?,?,?,?,?,?)",
               (args.agent_id, args.run_id, slug(args.program), slug(args.account), args.purpose,
                lane, port, "task-mitm-" + lane, str(root), "starting", now(), json.dumps(owner) if owner else None))
@@ -2342,6 +2348,7 @@ def start(args):
         owner = process_identity(args.owner_pid)
         if not owner:
             emit({"status": "owner-unavailable"}, 2)
+        args._owner_identity = owner
     if getattr(args, "task_owned", False):
         if not owner and getattr(args, "driving_mode", None) == "manual":
             emit({"status": "owner-required", "reason": "native-input-untracked",

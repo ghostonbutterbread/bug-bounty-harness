@@ -127,8 +127,10 @@ def test_manager_failure_receipts(monkeypatch, tmp_path, capsys, failure, phase,
             launch.write_text(json.dumps({'cdp_url': SECRET}))
         return SimpleNamespace(returncode=int(failure == 'dispatch'), stdout='', stderr=SECRET)
     monkeypatch.setattr(m.subprocess, 'run', run)
-    monkeypatch.setattr(m, 'stop_unit', lambda unit: stopped.append(unit))
-    monkeypatch.setattr(m, 'release_lease', lambda *a: released.append(a))
+    # This suite tests diagnostic receipts, not the independently tested stop
+    # proof. Model a verified failed-launch teardown before lease release.
+    monkeypatch.setattr(m, 'failed_launch', lambda c, lid, unit: stopped.append(unit) or True)
+    monkeypatch.setattr(m, 'release_lease', lambda *a: released.append(a) or True)
     monkeypatch.setattr(m, 'lease', lambda args, action, *rest:
                         {'status': 'leased', 'lease': {'lease_id': 'lease', 'account_alias': 'fixture',
                          'auth_domain': 'default', 'profile_dir': str(tmp_path / 'profile')}}

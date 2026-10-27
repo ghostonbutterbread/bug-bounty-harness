@@ -391,19 +391,29 @@ def test_capacity_rejection_never_leases_or_starts_a_browser(monkeypatch, tmp_pa
 
 
 def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile(monkeypatch, tmp_path):
-    m = load(monkeypatch, tmp_path); calls=[]; release_args=[]
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], [])); monkeypatch.setattr(m, "admission", lambda *_: {"status":"admitted"})
+    args = start_args(); args.account = 'anon'
+    acquired = {}
     def fake_lease(_, action, *rest):
-        calls.append(action)
-        if action == "release":
-            release_args.extend(rest)
-        return {"status":"leased","lease":{"lease_id":"l","account_alias":"fixture","auth_domain":"legacy-global","profile_dir":str(tmp_path / "artifacts/demo/web/browser-profiles/legacy-global/fixture")}} if action == "acquire" else {"status":"released"}
+        assert action == 'acquire'
+        acquired.update(profiles.cmd_acquire(argparse.Namespace(
+            program='demo', account='anon', auth_domain=None, agent_id='agent',
+            run_id='run', purpose='test', ttl_seconds=60, state_dir=str(m.STATE.parent),
+            recover_profile=False, manager_id=m.manager_id())))
+        return acquired
     monkeypatch.setattr(m, "lease", fake_lease)
+    monkeypatch.setattr(m, 'stop_unit', lambda _: None)
+    monkeypatch.setattr(m, 'unit_inactive', lambda _: True)
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=1, stderr="systemd denied", stdout=""))
-    try: m.start(start_args())
+    try: m.start(args)
     except SystemExit as e: assert e.code == 2
-    assert calls == ["acquire", "release"]
-    assert release_args[release_args.index("--profile-health") + 1] == "healthy"
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        released = leases.execute('SELECT status,profile_health FROM browser_profile_leases WHERE lease_id=?',
+                                  (acquired['lease']['lease_id'],)).fetchone()
+        assert tuple(released) == ('released', 'healthy')
 
 
 def proxy_fixture(m, args, root):

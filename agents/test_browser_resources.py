@@ -570,6 +570,24 @@ def test_cleanup_requires_exact_canonical_owner_identity(monkeypatch, tmp_path):
     assert m.cleanup_unused(c) == []
 
 
+def test_reap_reports_unowned_browser_without_releasing_it(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, None)
+    canonical_record(m, row)
+    Path(row["launch_file"]).write_text(json.dumps({"command": ["chromium", "--headless=new"]}))
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "activity_snapshot", lambda _: dict(idle_seconds=9000, inflight=0,
+        reserved_seconds=0, attached_clients=0))
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("no task terminal proof"))
+    with pytest.raises(SystemExit) as exc:
+        m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["browser_blocked"] == {"task-owner-not-terminal-or-unrecorded": 1}
+    assert result["idle_stopped"] == []
+    assert c.execute("select state from browsers where lease_id=?", (row["lease_id"],)).fetchone()[0] == "running"
+
+
 def test_request_performs_idle_cleanup_before_capacity(monkeypatch, tmp_path, capsys):
     m = provisioner(monkeypatch, tmp_path)
     calls = []

@@ -2244,7 +2244,13 @@ def maintain(args):
             meta = metadata(c, row)
             state = lifecycle_state(c, row)
             if not unit_active(row["unit"]) and stopped(row):
-                retire(c, row)
+                if canonical_owner(row):
+                    if not retire(c, row):
+                        meta["lifecycle_error"] = "terminal-cleanup-not-verified"
+                        save_metadata(c, row["lease_id"], meta)
+                else:
+                    meta["lifecycle_error"] = "canonical-owner-unverified"
+                    save_metadata(c, row["lease_id"], meta)
                 continue
             if state == "activity-unavailable":
                 meta["lifecycle_error"] = "activity-probe-unavailable"
@@ -2270,6 +2276,10 @@ def maintain(args):
                 if meta.pop("lifecycle_error", None):
                     save_metadata(c, row["lease_id"], meta)
             elif state in ("terminal", "expired-awaiting-input"):
+                if not canonical_owner(row):
+                    meta["lifecycle_error"] = "canonical-owner-unverified"
+                    save_metadata(c, row["lease_id"], meta)
+                    continue
                 if activity_snapshot(row) is not None and not freeze_idle(row, 0):
                     continue
                 info = record_info(row)
@@ -3073,25 +3083,57 @@ def reap(args):
     with node_lock(STATE):
         c = db()
         stopped_ids = cleanup_unused(c)
+        browser_blocked = {}
+        for browser in c.execute("select * from browsers where state='running'").fetchall():
+            if not canonical_owner(browser):
+                reason = "canonical-owner-unverified"
+            elif not cleanup_headless(browser):
+                reason = "headed-or-display-unverified"
+            elif owner_state(metadata(c, browser).get("owner")) != "terminal":
+                reason = "task-owner-not-terminal-or-unrecorded"
+            else:
+                activity = activity_snapshot(browser)
+                error = metadata(c, browser).get("lifecycle_error")
+                if error:
+                    reason = "cleanup-not-verified"
+                elif not activity or activity.get("unavailable"):
+                    reason = "activity-unavailable"
+                elif (activity["idle_seconds"] >= 7200 and not activity["inflight"]
+                      and not activity["reserved_seconds"] and not activity.get("attached_clients", 1)):
+                    reason = "idle-freeze-or-stop-unverified"
+                else:
+                    reason = "activity-recent-or-attached"
+            browser_blocked[reason] = browser_blocked.get(reason, 0) + 1
         c.execute("delete from finished_proxies where finished<?", (now() - 14 * 86400,))
         c.commit()
         # No age-only revocation: a replay can outlive the browser. Require
         # positively terminal task-owner identity and a quiet flow artifact.
         candidates = []
+        proxy_blocked = {}
         cutoff = now() - 7200
         for row in c.execute("select * from task_proxies where updated<?", (cutoff,)).fetchall():
             if not row["owner"]:
+                reason = "task-owner-unrecorded"
+                proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
                 continue
             try:
                 terminal = owner_state(json.loads(row["owner"])) == "terminal"
             except ValueError:
+                reason = "task-owner-invalid"
+                proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
                 continue
-            if (not terminal or not proxy_quiet(row)
-                    or any(browser_blocks_proxy(c, browser)
-                           for browser in c.execute("select * from browsers where agent_id=? and run_id=?",
-                                                    (row["agent_id"], row["run_id"])).fetchall())):
+            if not terminal:
+                reason = "task-owner-not-terminal"
+            elif not proxy_quiet(row):
+                reason = "flow-or-replay-not-quiet"
+            elif any(browser_blocks_proxy(c, browser)
+                     for browser in c.execute("select * from browsers where agent_id=? and run_id=?",
+                                              (row["agent_id"], row["run_id"])).fetchall()):
+                reason = "browser-not-released"
+            else:
+                candidates.append((row["agent_id"], row["run_id"]))
                 continue
-            candidates.append((row["agent_id"], row["run_id"]))
+            proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
         c.commit()
     recovered = []
     for agent_id, run_id in candidates:
@@ -3109,15 +3151,27 @@ def reap(args):
                 c.rollback()
                 continue
             c.commit()
+            output = io.StringIO()
             try:
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(output):
                     finish_proxy(argparse.Namespace(agent_id=agent_id, run_id=run_id),
                                  recovery=row["state"] != "running", orphan_proven=True)
             except SystemExit as exc:
                 if exc.code == 0:
                     recovered.append((agent_id, run_id))
+                else:
+                    try:
+                        status = json.loads(output.getvalue()).get("status")
+                    except ValueError:
+                        status = None
+                    # Use a fixed category: never copy error details, paths or flows.
+                    reason = status if status in ("browser-active", "proxy-conflict",
+                                                  "proxy-stop-failed", "proxy-ca-cleanup-failed",
+                                                  "proxy-index-failed") else "finish-not-verified"
+                    proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
     emit({"status": "ok", "idle_stopped": stopped_ids,
           "proxy_recovered": recovered,
+          "browser_blocked": browser_blocked, "proxy_blocked": proxy_blocked,
           "policy": "tracked-CDP-idle-7200s; task proxy terminal-owner-and-quiet-flow-7200s"})
 
 

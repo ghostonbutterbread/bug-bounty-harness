@@ -731,7 +731,9 @@ def test_reap_does_not_reconcile_active_interrupted_browser(monkeypatch, tmp_pat
     monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("must not stop a unit"))
     with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
     assert exc.value.code == 0
-    assert json.loads(capsys.readouterr().out)["proxy_recovered"] == []
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_recovered"] == []
+    assert result["proxy_blocked"] == {"browser-not-released": 1}
     assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
     assert m.proxy_row(c, args)["state"] == "starting"
 
@@ -767,18 +769,46 @@ def test_idle_reaper_needs_terminal_owner_quiet_flow_and_no_clients(monkeypatch,
     monkeypatch.setattr(m, "port_open", lambda _: False)
     with pytest.raises(SystemExit): m.reap(argparse.Namespace())
     assert m.proxy_row(c, args)
-    capsys.readouterr()
+    assert json.loads(capsys.readouterr().out)["proxy_blocked"] == {"task-owner-not-terminal": 1}
     monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
     monkeypatch.setattr(m, "replay_clients_absent", lambda _: False)
     with pytest.raises(SystemExit): m.reap(argparse.Namespace())
     assert m.proxy_row(c, args)
-    capsys.readouterr()
+    assert json.loads(capsys.readouterr().out)["proxy_blocked"] == {"flow-or-replay-not-quiet": 1}
     monkeypatch.setattr(m, "replay_clients_absent", lambda _: True)
     monkeypatch.setattr(m, "unit_active", lambda _: False)
     with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
     assert exc.value.code == 0
     assert json.loads(capsys.readouterr().out)["proxy_recovered"] == [["agent", "run"]]
     assert m.proxy_row(c, args) is None
+
+def test_reap_reports_unowned_old_proxy_without_stopping_it(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set updated=?,owner=NULL", (time.time() - 9000,)); c.commit()
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("no owner proof"))
+    with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_blocked"] == {"task-owner-unrecorded": 1}
+    assert result["proxy_recovered"] == []
+    assert m.proxy_row(c, args)["state"] == "running"
+
+def test_reap_reports_failed_eligible_proxy_finish(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set updated=?,owner=?",
+              (time.time() - 9000, json.dumps({"pid": 123}))); c.commit()
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
+    monkeypatch.setattr(m, "proxy_quiet", lambda _: True)
+    monkeypatch.setattr(m, "finish_proxy", lambda *_a, **_k: m.emit({"status": "proxy-stop-failed", "detail": "private"}, 2))
+    with pytest.raises(SystemExit): m.reap(argparse.Namespace())
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_blocked"] == {"proxy-stop-failed": 1}
+    assert "private" not in json.dumps(result)
+    assert m.proxy_row(c, args)["state"] == "running"
 
 def test_task_reuse_rejects_rotated_ca_and_replaced_unit(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path); args = start_args(); args.proxy = "mitm"; args.proxy_cert_mode = "import"

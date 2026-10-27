@@ -35,9 +35,12 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         routes = (ROOT / "agents" / "index.md").read_text(encoding="utf-8")
         self.assertIn("load `/rce` as the class entry", routes)
         self.assertIn("`hunt-orchestration-policy` for admission", routes)
-        self.assertIn("`/account-registry` with `/account-management`", routes)
-        self.assertIn("`/blockers` only for an external prerequisite", routes)
-        self.assertIn("`/research-knowledge-management` owns source admission", routes)
+        self.assertIn("/data-store-guidance", routes)
+        stores = (SKILLS / "data-store-guidance" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("`/account-registry` and", stores)
+        self.assertIn("`/account-management`", stores)
+        self.assertIn("`/blockers` owns external prerequisites", stores)
+        self.assertIn("`/research-knowledge-management` owns reusable", stores)
         self.assertIn("`blockers` owns the optional external-prerequisite store",
                       (SKILLS / "blocker-first-analysis" / "SKILL.md").read_text(encoding="utf-8"))
 

@@ -29,6 +29,9 @@ is selected, the normal published scope and AI Policies gates below still apply.
    decision when scripting becomes useful, before creating or promoting a
    helper. Program-only maintained helpers are indexed in the resolved program
    lane, not the BBH launcher.
+   Load `/data-store-guidance` early, before choosing persistent reads or writes;
+   it is the canonical store-ownership map and evidence-navigation workflow,
+   not an instruction to preload every store.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.
@@ -59,34 +62,9 @@ is selected, the normal published scope and AI Policies gates below still apply.
    For an observed open-source component, version, and reachable feature, load
    `/vulnerability-patch-research` for concurrent CVE/diff research and its
    detailed disposable-local-proof reference.
-5. Use `$HARNESS_SHARED_BASE` and the canonical storage tools: `/bounty-storage`
-   for Shared vs mounted-artifact vs scratch routing, `/map-store` for durable
-   target facts, `/docs` for compact program-specific application-behavior models,
-   `/account-registry` with `/account-management` for non-secret owned-account
-   metadata and resolver/lease contracts, `/blocker-first-analysis` for causal
-   blocked-test interpretation (use `/blockers` only for an external prerequisite),
-   `/hypothesis-ledger` for private candidate branches, `/leads` for cross-run
-   evidence-backed lead synthesis and lifecycle reconciliation, `/bounty-notes` for human
-   coordination, and Attempts for exact target-directed payload/probe history.
-   For a corpus too large to inspect directly, load `/huge-ingest` before deep
-   reading. **Every BBH agent, solo or coordinated**, uses `/coverage` when it
-   actually maps a relevant route/action/input/class question or reviews an
-   existing one: register the mapped question at discovery, then assess only
-   the exact question after an evidenced review at a meaningful pivot or
-   handoff. Check the scoped `brief` before claiming a path or class reviewed;
-   if no question or review is justified, make no Coverage write and state the
-   gap in the ordinary handoff. This is not a per-payload write or a Bunny/goal
-   prerequisite. Explicit indexed source-file review uses its separate Coverage
-   path. Attempts and findings never imply a completed review; `/ledger`
-   remains the findings/dedupe owner. Program docs explain how this application
-   uses a technology or flow; ResearchMap supplies portable mechanisms only
-   when their recognition signals match that model or a current observation;
-   `/research-knowledge-management` owns source admission and corpus separation. Read
-   `docs/attempt-recording-contract.md` before writing Attempts: they are not a
-   general live-observation log. For an audit of what an agent actually did,
-   load `/agent-audit` with the program and run/handoff identity; it reconciles
-   transcripts, handoffs, task-proxy evidence, Attempts, promotions, and cleanup
-   without treating any one store as a complete action history.
+5. Use `/data-store-guidance` to select the existing owner, resolve its lane and
+   owning host, and follow evidence links. Detailed reads/writes and lifecycle
+   rules stay with that owner; do not create a competing ledger or artifact index.
 6. For shared evidence, storage, projections, or secret-reference work, read
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has
@@ -97,18 +75,7 @@ is selected, the normal published scope and AI Policies gates below still apply.
    Add `--no-notify` to persist without delivery. This is agent reporting, not
    automatic interception or comprehensive coverage; see
    [`docs/bbh-launcher.md`](../docs/bbh-launcher.md).
-7. Recon artifacts are owned by Recon Bus. CWD is never a corpus lookup root.
-   Resolve a named corpus with
-   `bbh scripts/recon_bus.py query <program> --artifact <name> --format path`.
-   Use Recon Bus `append` or `promote-run` for writes; do not create, edit, or
-   recursively search for competing corpus files.
-8. Query durable memory only with a concrete URL, surface, role, parameter, or
-   handoff question. Broad Hypothesis Ledger peer/app views are allowed only by
-   their named explicit review modes, never as a cold-start or default query;
-   ordinary `list`, `continuation`, and exact Lead follow-up keep their private
-   or Lead-bounded semantics. Pass a child only its selected packet, not the
-   parent backlog.
-9. Include the selected policy chain, one BBH lane, evidence pointers, exact
+7. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet. After recording a proven FID, resolve the frozen `report_dir` from
    the ledger (`reports/<FID>-<initial-vulnerability-slug>/` for new findings,
@@ -134,7 +101,7 @@ is selected, the normal published scope and AI Policies gates below still apply.
    proxy after any direct replay. Do not launch `chromium_test.py` directly or
    silently fall back to Caido/shared 8080. Ordinary, non-security web browsing
    uses Hermes's managed browser provider without this provisioner or MITM.
-10. Do not use remote-pi peer coordination by default. Use the owning
+8. Do not use remote-pi peer coordination by default. Use the owning
     provisioner directly (including browser provisioning), without peer lookup
     or broadcast. Only if the operator explicitly asks you to contact another
     agent, first load `pi-cordinator`; then load upstream `agent-network` for

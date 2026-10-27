@@ -16,6 +16,13 @@ lookups, including the Pi role package, without maintaining duplicate bodies.
 Keep the complete BBH checkout when distributing that package: copying only
 `skills/bunny/` without its canonical `agents/` targets is not supported.
 
+These compatibility links support filesystem/native-package reads, not Hermes
+skill-relative reference loading: `skill_view` correctly rejects a link whose
+target is outside the skill directory. Read the role from the selected BBH
+checkout's `agents/bunny-<role>.md` using ordinary file access, or from the
+configured native agent projection. Do not weaken the skill loader's path
+containment or maintain a second role body to bypass it.
+
 The Hoster Claude roles were older minimal stubs. Their names/descriptions match
 these definitions; the migration retains BBH's already-reviewed collaborative
 checkpoints, evidence ownership, and reporting boundaries rather than reverting

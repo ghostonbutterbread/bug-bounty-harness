@@ -25,6 +25,26 @@ class BunnyAgentSourcesTest(unittest.TestCase):
                 self.assertIn("load `bunny-collaborative`", body)
                 self.assertIn("Do not allocate other workers", body)
 
+    def test_specialist_identity_leads_and_instincts_remain_evidence_led(self):
+        specialties = {
+            "hunter": "offensive-security researcher",
+            "recon": "bug bounty reconnaissance specialist",
+            "verifier": "vulnerability-validation specialist",
+            "reporter": "vulnerability report writer",
+        }
+        for role, specialty in specialties.items():
+            text = (ROOT / "agents" / f"bunny-{role}.md").read_text(encoding="utf-8")
+            body = text.split("---", 2)[2].strip()
+            identity = body.split("\n\n", 1)[0]
+            with self.subTest(role=role):
+                self.assertIn("world-class", identity)
+                self.assertIn(specialty, identity)
+                self.assertIn("among the best", identity)
+                self.assertIn("Trust your", identity)
+                self.assertIn("instincts", identity)
+                self.assertIn("evidence", identity)
+                self.assertLess(body.index("Trust your"), body.index("Follow the coordinator"))
+
     def test_skill_packaging_reads_the_same_canonical_files(self):
         for role in ROLES:
             name = f"bunny-{role}.md"

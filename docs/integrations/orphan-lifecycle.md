@@ -4,7 +4,7 @@
 - **Owner branch/worktree:** `fix/papercut-orphan-lifecycle` in `/home/ryushe/worktrees/bbh-papercut-orphan-lifecycle`.
 - **Base / intended integration target:** fetched `origin/beta` at `d5853a9`; target `beta`, not `main`.
 - **Inspiration:** PC-20260927-194446-2f4b6822; Discord thread 1564696750067949650.
-- **Recovery commits:** parent `3914110` (proxy owner-PID guard); child `81dc490` (stop-fence tip); parent merge `e1b1e60`; current beta reconciliation `9bc561f`. The next checkpoint commit captures this updated dossier and the test fixture repair.
+- **Recovery commits:** parent `3914110` (proxy owner-PID guard); child `81dc490` (stop-fence tip); parent merge `e1b1e60`; beta reconciliation `9bc561f`; fixture/dossier checkpoint `cc35ee5`. This dossier-only correction follows that tested checkpoint.
 
 ## Implemented behavior
 

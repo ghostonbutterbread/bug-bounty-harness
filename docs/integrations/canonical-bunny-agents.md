@@ -37,6 +37,8 @@ The source move alone is not a runtime agent launch or model-behavior test.
 
 ## Recovery and next step
 
-Implementation checkpoint: pending first verified commit. Parent owns review,
-release and deployment. This dossier is branch-local and must be removed from
-the integration target on acceptance. Durable usage guidance: `agents/README.md`.
+Implementation checkpoint: `7c51ab0f88b73e71aaa1244fcf631ed0c6ffc562` on
+`feat/canonical-bunny-agents`; the later dossier-only commit records this
+receipt. Parent owns review, release and deployment. This dossier is
+branch-local and must be removed from the integration target on acceptance.
+Durable usage guidance: `agents/README.md`.

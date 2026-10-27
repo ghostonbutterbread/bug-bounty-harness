@@ -50,6 +50,25 @@ means proof is still needed, not that the reflected path is closed. Reconcile
 which catalog groups were tested and which remain open at the next checkpoint;
 do not create a duplicate evidence store just for this queue.
 
+### Pointer handoffs
+
+Use the existing stores: MapStore for reusable app facts, the assigned Attempts
+stream for probes, Hypothesis Ledger for private reasoning, and the finding
+owner's FID evidence for proof. A producer writes and performs read-back under
+its own identity; do not copy its evidence into parent-authored summaries or a
+new handoff database.
+
+Notify the intended recipient with the exact store ID/path, program/family/lane,
+why it matters, prerequisite, and current owner. The recipient acknowledges only
+after opening that exact reference and checking relevance and access; an ACK
+names the pointer and the next discriminator, not the full evidence. A missing,
+stale, inaccessible, or mismatched reference is a blocker, not a picked-up task.
+Use native peer messaging when supported; otherwise the coordinator forwards
+this small envelope unchanged through the native supervisor channel. A send is
+not a delivery receipt. Keep the original owner until pickup is acknowledged;
+reading recon does not transfer the hunter's investigative ownership. Credentials
+and broad private hypothesis histories never belong in these notifications.
+
 ### XSS chain cards at the handoff boundary
 
 For an XSS catalog, retain the useful parameter and sink mapping, but promote

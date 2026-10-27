@@ -53,3 +53,9 @@ def test_read_only_pi_parent_keeps_native_coordination_tools():
     assert "--tools" in text
     assert "subagent,bg_wait,subagent_supervisor" in text
     assert "allowlist replaces" in text
+
+
+def test_store_handoff_is_pointer_based_and_acknowledged():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    for phrase in ["Pointer handoffs", "recipient acknowledges", "read-back", "existing stores", "do not copy"]:
+        assert phrase in text

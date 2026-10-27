@@ -28,6 +28,8 @@ Each behavior gate uses real fresh orchestrator/child model runs on an explicitl
 - Added a Pi package manifest exporting the four existing role files; enabled their native advertised discovery.
 - Test-first receipt: `tests/test_bunny_runtime_package.py` failed because the manifest was absent, then the package contract and existing Bunny tests passed (13 tests).
 - This is structural evidence only. No Pi parent/child behavior gate has passed yet.
+- Dispatch route now requires real named roles (or an actually loaded canonical role file on harnesses without a named selector), with readable selected skill paths. Focused package/router tests: 14 passed.
+- Full `tests/` run: 365 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on a clean detached worktree of the unchanged base using the same interpreter and base-first import path: stack-to-program script index missing Outputs/Mutates; its direct-checkout example rejected by lane-safety; upload-surface test expects stale wording. These are unrelated baseline issues, not excluded-and-called-green; no unrelated source was changed.
 - Checkout environment installed through the repository setup entry point; pinned Bounty Core resolved from this feature checkout's `.venv`.
 
 ## Alignment preflight
@@ -36,6 +38,6 @@ Checked `AGENTS.md`, `agents/index.md`, `SCRIPT_POLICY.md`, Bunny router/modes, 
 
 ## Deferred verification / exact next step
 
-Await bounded read-only Hoster Pi discovery (delegation `deleg_3420df22`). It establishes installed runtime launch/skill and supervisor-channel contracts. Next: exercise native role discovery and one real role launch in an isolated fixture/config using those supported interfaces. Do not claim a package manifest alone fixes runtime behavior. Next source step is the narrow Bunny dispatch reference plus tests based on that exercise.
+Read-only Hoster discovery confirmed native named-role roots, clean custom-child prompts, and supervisor/follow-up/resume support. Stage-1 real-agent trial is running under delegation `deleg_c90a48b7` from immutable candidate `e686d3139f9c16e167664fe227c4ec9857056810`; it must verify native selectors and actual role/mode reads for all four workers. Next: inspect raw trial evidence before accepting this gate and adding store handoffs.
 
-Independent review, beta integration, and provider activation are pending. Existing runtime projections are untouched. Recovery checkpoint: pending initial feature commit; this dossier is committed with the initial package slice and test receipt. Before review replace this marker with the actual immutable implementation checkpoint and reconcile the feature tip.
+Independent review, beta integration, and provider activation are pending. Existing runtime projections are untouched. Recovery implementation checkpoint: `e686d3139f9c16e167664fe227c4ec9857056810` on `feat/bunny-pipeline`, preceded by package slice `990e76214b4f43707111486766140270231966e3`; the current feature tip may include a later dossier-only checkpoint. Base and target are as recorded above.

@@ -40,6 +40,21 @@ secret material.
 - owned resource type, resource ID, display name, owner account, full source URL, run/session ID, cleanup/destructible status
 - evidence source: browser, Caido, manual note, API response, signup flow, or child-agent output
 
+## First-contact Auth Contract projection
+
+The program **Auth Contract** in `testing-policy.md` is the one document agents
+read for refresh, keep-alive, burn rules, and Ryushe handoff. Load
+`program-testing-policy` on first platform contact or first given auth.
+
+In the same pass, set inventory `auth_session_mode`, `auth_refresh_source`,
+`auth_refresh_hint`, `auth_check_url`, and `auth_host_filter` from that
+contract. Do not invent a second write-up. If inventory and the contract
+disagree, update the contract and re-project; do not pick.
+
+Put the compact contract, or a pointer plus `session_mode`, in every child
+packet that will use that account. Children inherit; they do not rediscover
+auth. `unknown` stays fail-closed to the exact-profile Tailscale handoff.
+
 ## Authentication Resolution
 
 For named accounts or colors, resolve auth in this order:

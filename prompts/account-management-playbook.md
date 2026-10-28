@@ -134,6 +134,12 @@ spellings unless live traffic proves a second header exists.
 - `destructible`: `yes`, `no`, or `unknown`
 - `source`: where the value came from
 
+The `auth_session_mode`, `auth_refresh_source`, `auth_refresh_hint`,
+`auth_check_url`, and `auth_host_filter` fields are a projection of the program
+**Auth Contract** in `testing-policy.md`, not a second narrative. On first
+platform contact or first given auth, write the contract and set these fields
+in the same pass.
+
 ## Minimum Resource Fields
 
 - `type`: design, document, upload, workspace, team, order, invoice, profile, asset, etc.

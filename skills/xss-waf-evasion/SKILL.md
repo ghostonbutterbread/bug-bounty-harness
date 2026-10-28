@@ -14,6 +14,9 @@ filter bypass** to **a value the actual consumer can execute**. It does not turn
 a filter hit into a warm vector without a plausible consumer, nor does it claim
 that a WAF protects a DOM-only source that never crosses it.
 
+If Cloudflare is observed during XSS work, load `cloudflare-xss` for the
+shared knowledge shelf; its ideas are also useful without a WAF block.
+
 ## XSS handoff from the shared loop
 
 `waf` owns the baseline, acting-control classification, `map-store`

@@ -14,6 +14,9 @@ challenge, and stop rules. Load `blocker-first-analysis` to locate the blocker,
 parser questions. For a plausible XSS path whose next obstacle is filtering,
 load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
 
+If Cloudflare is observed during XSS work, load `cloudflare-xss` for
+feature-specific knowledge and ideas; no WAF block is needed to consult it.
+
 ## Adaptive blocker loop
 
 1. **Baseline:** Preserve one clean, in-scope request and the smallest

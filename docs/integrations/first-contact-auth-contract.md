@@ -7,8 +7,8 @@
 - **Intended integration target:** beta
 - **Last updated:** 2026-10-27
 - **Owning feature branch/ref:** feat/first-contact-auth-contract
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** fbdbb0a7a02973f4e2cc51de868864270b031be3
+- **Feature implementation commit(s):** fbdbb0a7a02973f4e2cc51de868864270b031be3
 - **Inspiration / canonical references:** companion ai-policies feat/first-contact-auth-contract; Discord thread 1564824966384328835
 
 ## Intent
@@ -40,10 +40,10 @@ Contract. Children inherit. Inventory is not a second narrative.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/first-contact-auth-contract
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit, then independent review
-- **Working-tree state at handoff:** intentionally uncommitted until this dossier is included
+- **Latest immutable recovery checkpoint:** fbdbb0a7a02973f4e2cc51de868864270b031be3
+- **Feature implementation commit(s):** fbdbb0a7a02973f4e2cc51de868864270b031be3
+- **Exact resume point:** independent review, then merge to beta
+- **Working-tree state at handoff:** clean after dossier SHA update
 
 ## Decision gates
 

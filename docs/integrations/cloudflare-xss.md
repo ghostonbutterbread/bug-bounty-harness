@@ -6,8 +6,8 @@
 - **Worktree:** task-owned bbh-cloudflare-xss worktree.
 - **Base commit:** 3011f2d55e1e0f8abc953211bd273aa73c23d63d
 - **Intended integration target:** beta
-- **Latest immutable recovery checkpoint:** none yet; implementation not committed.
-- **Feature implementation commits:** none yet.
+- **Latest immutable recovery checkpoint:** dc90f53 (implementation); later dossier-only commits retain the test/handoff receipts.
+- **Feature implementation commits:** dc90f53.
 - **Inspiration:** user-approved single Cloudflare XSS knowledge shelf, inspired by Searchlight's Cache Me If You Can and its six introductory sources.
 
 ## Intent and implemented contract
@@ -28,7 +28,7 @@ not a second target store or bypass approval rule. It includes a JavaScript Lens
 
 - RED: seven focused cases failed before the owner/routes existed.
 - GREEN: 31 focused/adjacent tests plus seven subtests passed; AI Policies lint and all 55 tests passed.
-- Broad BBH: 18 failures, 375 passed, one skipped, 202 subtests passed. Failures are outside changed paths (safety-incident CLI, stack-to-program script records/lane guidance, upload wording). Unchanged-beta reproduction is running; no blanket green-suite claim.
+- Broad BBH after the documented checkout-local dependency install: three failures, 380 passed, one skipped, 212 subtests passed. The identical three unrelated documentation failures reproduce on unchanged beta (373 passed, one skipped, 212 subtests); new skill adds seven passing cases. Initial safety-incident failures were missing feature-worktree .venv, not a product regression; the repository installer resolved that prerequisite. No blanket green-suite claim.
 - Independent navigation/source review: pending.
 - Live exploit validation: intentionally not performed; this is knowledge/routing work.
 

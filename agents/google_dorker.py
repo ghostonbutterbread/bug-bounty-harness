@@ -21,9 +21,15 @@ import json
 import time
 
 try:
-    from scope_validator import ScopeValidator
-except ImportError:
+    if __package__:
+        from .scope_validator import ScopeValidator
+    else:
+        from scope_validator import ScopeValidator
+except ImportError as exc:
     ScopeValidator = None
+    _scope_import_error = exc
+else:
+    _scope_import_error = None
 try:
     from rate_limiter import RateLimiter
 except ImportError:
@@ -201,6 +207,8 @@ class GoogleDorker:
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
         # Load scope
+        if ScopeValidator is None:
+            raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
         if program and ScopeValidator is not None:
             self.scope = ScopeValidator(program)
         else:

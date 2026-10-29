@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: harness-neutral team communication is implemented. Feature checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2` reconciles beta; independent re-review found no code/security blocker but identified a skill-reference repair and metadata corrections. A preliminary Juice Shop trial exercised relay with host agents; a sandboxed-agent trial lacked browser and BBH writers. After Ryu clarified that the agents should use normal tools against sandboxed Juice Shop, a third trial stopped on a safety incident. Live testing, acceptance and release remain blocked.
+Status: harness-neutral team communication is implemented as guidance, not a deterministic orchestrator or technical sandbox. The current feature retains beta specialist roles and includes the safety-stop handoff below; independent review and the sandboxed-agent trial remain pending. Live testing, acceptance and release remain blocked.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -14,6 +14,14 @@ Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evi
 - No external target traffic, real account creation, external submission, global provider changes, or unattended scheduler was authorized in these trials. The normal-tooling trial below nevertheless generated out-of-scope external traffic. Local Juice Shop traffic, fixtures and isolated store records are synthetic.
 - Hoster raw run: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/`.
 - Durable local evidence: `/home/ryushe/.hermes/state/validation/bunny-pipeline/`.
+
+## Offline implementation handoff (2026-10-29)
+
+- Implementation task `t_d6a42386` resumed from clean feature tip `d923e80b1ca6ea8812cca6608707faa5f65e22a4`. The earlier implementation checkpoint is `6d6fbb5` after the reconciled `02712a6`; this handoff's later feature commit carries the additional guidance and tests. Use the actual branch tip from Git as the exact review revision.
+- The router now restricts team dispatch to collaborative mode. The dispatch reference requires transcript/tool-read confirmation of the canonical role and `bunny-collaborative` **before** target actions, stopping an unconfirmed worker. These are instructions, not an enforcement mechanism or proof of a worker's behavior. The normal-tooling trial observed a worker miss the requested collaboration file, making this check necessary; it also observed the model-route and browser-lease failures described below.
+- Test-first checks for these two guidance changes each failed on the original wording and then passed. From this worktree, `PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider tests/test_bunny_runtime_package.py tests/test_bunny_skill.py tests/test_bunny_agent_sources.py -q` returned **30 passed, 16 subtests passed**. These are local structural tests and do not exercise real agent compliance, transport, browser provisioning, store writes, sandboxing, egress or rate enforcement. The full suite was not repeated in this offline phase; its older receipt is below.
+- Local tracking `origin/beta` was `478c216e178836429b53dd76db65b5ad980ac02b` when inspected, six commits beyond `dc0661b` and not incorporated in this feature. No fetch was made because this task prohibits targeting external systems; the actual current remote tip is unknown. Reconcile and independently review against the authorized current beta only in a later authorized integration phase.
+- **Stop gate:** incident `SI-3a536bf9d55f46409b559f8e77f8c1bb` requires operator review plus independently verified exact-origin egress and aggregate pacing covering browser subrequests and all clients before any live retry. The pending trial must sandbox **both coordinator and workers**, not merely the target. A prior app-only or host-PTY run is not that trial; decomposing the work is not clearance to retry. `t_75931c7e` owns the trial and `t_a6d51f56` owns independent review. No beta integration, push, runtime activation, production-store write, or external target access is authorized in this phase.
 
 ## Incremental gates
 

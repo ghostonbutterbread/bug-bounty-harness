@@ -20,5 +20,5 @@ Spawn the subagents needed for the campaign and let them work. Use the current h
   protocol.
 
 A worker's displayed name is not proof that it loaded its role and skills.
-Check its actual work before treating the role as active. The model, approval,
-scope, and rate gates in `bunny` still apply.
+Using the available worker transcript or tool-read evidence, confirm the worker loaded its canonical role and `bunny-collaborative` before any target action. If that cannot be confirmed, stop that worker before target action and resolve the missing read.
+The model, approval, scope, and rate gates in `bunny` still apply.

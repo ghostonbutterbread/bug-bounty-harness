@@ -10,6 +10,13 @@ def test_role_instructions_are_read_before_workers_act():
     assert "before acting" in text
 
 
+def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
+    text = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().split())
+    assert "before any target action" in text
+    assert "confirm the worker loaded its canonical role and `bunny-collaborative`" in text
+    assert "If that cannot be confirmed, stop that worker before target action" in text
+
+
 def test_verifier_and_reporter_are_spawned_only_when_needed():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     assert "`bunny-verifier` for a credible candidate" in text
@@ -20,6 +27,11 @@ def test_collaborative_routes_dispatch_through_owning_bunny_skill():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     assert "`bunny` skill's `references/dispatch.md`" in text
     assert "../bunny/references/dispatch.md" not in text
+
+
+def test_router_loads_dispatch_only_for_collaborative_mode():
+    router = (ROOT / "skills/bunny/SKILL.md").read_text()
+    assert "Before collaborative dispatch, load [Bunny team dispatch]" in router
 
 
 def test_router_loads_the_team_dispatch_contract():

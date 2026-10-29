@@ -71,6 +71,90 @@ def test_builders_propagate_exclusion_read_failure(isolated_scope, monkeypatch, 
     assert "synthetic exclusion read failure" in str(failure.value)
 
 
+def test_root_dot_wildcard_deny_is_staged_and_never_seeded(isolated_scope, monkeypatch):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n*.BLOCKED.example.test.\n")
+    (isolated_scope / "excluded.txt").write_text("*.BLOCKED.example.test.\n")
+    seeds = recon_ry.build_remote_seed_files("synthetic", "https://app.example.test/")
+    files, _ = recon_ry.build_remote_scope_files("synthetic")
+    assert "blocked.example.test" not in seeds["wild.txt"].splitlines()
+    assert "*.blocked.example.test" in files["_scope/out-of-scope-hosts.txt"].splitlines()
+    calls = []
+    monkeypatch.setattr(recon_ry.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    args = recon_ry.build_parser().parse_args(["start", "synthetic", "--url", "https://app.example.test/"])
+    args.func(args)
+    assert len(calls) == 1
+    assert "*.blocked.example.test" in calls[0][-1]
+
+
+@pytest.mark.parametrize("kind", ["in-scope.txt", "out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("bad", ["foo*bar.example.test", "bad..example.test", "category label"])
+def test_unrepresentable_scope_refuses_builders_and_start(isolated_scope, monkeypatch, kind, bad):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    with (isolated_scope / kind).open("a") as handle:
+        handle.write(bad + "\n")
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", "https://app.example.test/", "--profile", "exact-urls", "--auth", "synthetic"
+    ])
+    for action in (
+        lambda: recon_ry.build_remote_seed_files("synthetic", "https://app.example.test/"),
+        lambda: recon_ry.build_remote_scope_files("synthetic"),
+        lambda: args.func(args),
+    ):
+        with pytest.raises(SystemExit, match="(?i)(unrepresentable|invalid)"):
+            action()
+
+
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+def test_exact_root_dot_denial_removes_denied_seed(isolated_scope, filename):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\nBLOCKED.example.test.\n")
+    (isolated_scope / filename).write_text("BLOCKED.EXAMPLE.TEST.\n")
+    seeds = recon_ry.build_remote_seed_files("synthetic", "https://app.example.test/")
+    files, _ = recon_ry.build_remote_scope_files("synthetic")
+    assert "blocked.example.test" not in seeds["urls.txt"].lower().splitlines()
+    assert "blocked.example.test" in files["_scope/out-of-scope-hosts.txt"].splitlines()
+
+
+@pytest.mark.parametrize("denial", ["APP.EXAMPLE.TEST.", "*.EXAMPLE.TEST."])
+def test_root_dot_denied_start_refuses_before_auth(isolated_scope, monkeypatch, denial):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    (isolated_scope / "excluded.txt").write_text(denial + "\n")
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", "https://app.example.test/", "--profile", "exact-urls", "--auth", "synthetic"
+    ])
+    with pytest.raises(SystemExit, match="NOT in scope"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("deny", ["*.BLOCKED.example.test.", "*.EXAMPLE.TEST."])
+def test_wholly_excluded_wildcard_never_staged_or_launched(isolated_scope, monkeypatch, deny):
+    (isolated_scope / "in-scope.txt").write_text("*.blocked.example.test.\nother.test\n")
+    (isolated_scope / "excluded.txt").write_text(deny + "\n")
+    seeds = recon_ry.build_remote_seed_files("synthetic", "https://other.test/")
+    assert seeds["wild.txt"] == ""
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args(["start", "synthetic", "--url", "https://other.test/"])
+    with pytest.raises(SystemExit, match="no eligible wildcard roots"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("denial", ["*.NARROW.EXAMPLE.TEST.", "BLOCKED.EXAMPLE.TEST."])
+def test_narrow_denial_preserves_ordinary_wildcard(isolated_scope, monkeypatch, denial):
+    (isolated_scope / "in-scope.txt").write_text("*.EXAMPLE.TEST.\n")
+    (isolated_scope / "out-of-scope.txt").write_text(denial + "\n")
+    seeds = recon_ry.build_remote_seed_files("synthetic", "https://app.example.test/")
+    files, _ = recon_ry.build_remote_scope_files("synthetic")
+    assert seeds["wild.txt"].splitlines() == ["example.test"]
+    assert denial.lower().removesuffix(".") in files["_scope/out-of-scope-hosts.txt"].splitlines()
+    calls = []
+    monkeypatch.setattr(recon_ry.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    args = recon_ry.build_parser().parse_args(["start", "synthetic", "--url", "https://app.example.test/"])
+    args.func(args)
+    assert len(calls) == 1
+    assert denial.lower().removesuffix(".") in calls[0][-1]
+
+
 def test_exact_third_read_restriction_refuses_before_auth_or_ssh(isolated_scope, tmp_path, monkeypatch):
     (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
     exclusion = isolated_scope / "excluded.txt"

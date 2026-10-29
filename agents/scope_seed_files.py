@@ -192,7 +192,7 @@ def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], lis
                 deferred.append(value)
             continue
         # Expand regex-style optional groups into concrete wildcard hosts.
-        for variant in optional_host_variants(value):
+        for variant in optional_host_variants(value.removesuffix(".")):
             if is_dns_scope_value(variant):
                 # Bare hosts, wildcards, IPs and CIDRs pass through as written.
                 scope_lines.append(str(ip_network(variant, strict=False)) if "/" in variant else variant.lower())
@@ -211,7 +211,9 @@ def write_recon_scope_files(
 ) -> dict[str, object]:
     """Write recon-ry ``--scope-file``/``--out-scope-file`` bodies."""
     allow_lines, deferred = recon_scope_file_lines(in_scope)
-    deny_lines, _ = recon_scope_file_lines(out_of_scope)
+    deny_lines, deferred_denials = recon_scope_file_lines(out_of_scope)
+    if deferred_denials:
+        raise ValueError(f"unrepresentable scope exclusions: {', '.join(deferred_denials)}")
     base.mkdir(parents=True, exist_ok=True)
     header = "# Generated from saved program scope; edit the program scope, not this file.\n"
     (base / "in-scope-hosts.txt").write_text(

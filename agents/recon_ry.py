@@ -24,7 +24,7 @@ if str(_AGENT_DIR) not in sys.path:
 
 from bounty_core.recon import start_run, write_manifest
 
-from scope_validator import OutOfScopeError, ScopeValidator, _extract_host
+from scope_validator import OutOfScopeError, ScopeValidator, _ScopeEntry, _extract_host
 from scope_seed_files import clean_scope_value, recon_scope_file_lines, recon_seed_lines
 from recon_store import summarize_url_index
 from recon.promote_run import promote_run
@@ -237,6 +237,12 @@ def validate_recon_scope_containment(validator: ScopeValidator) -> None:
                     "subresources and nested tools. Active coverage is deferred; use a separately "
                     "verified request-contained method for the restricted scope."
                 )
+            _, deferred = recon_scope_file_lines([raw])
+            if deferred or _ScopeEntry(raw).has_invalid_authority():
+                raise SystemExit(
+                    f"Recon-Ry refused: saved scope {kind} is invalid or unrepresentable "
+                    f"({raw}); correct or review it before launch."
+                )
 
 
 def _scope_signature(validator: ScopeValidator) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -312,12 +318,17 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
         ])
         denied_roots = [line[2:] for line in denied_lines if line.startswith("*.")]
         for entry in getattr(validator, "_entries", []):
-            raw = clean_scope_value(getattr(entry, "raw", ""))
+            raw = clean_scope_value(getattr(entry, "raw", "")).removesuffix(".")
             if not raw:
                 continue
             if raw.startswith("*.") and any(
                 raw[2:].lower() == denied or raw[2:].lower().endswith("." + denied)
                 for denied in denied_roots
+            ):
+                continue
+            if not raw.startswith("*.") and any(
+                _ScopeEntry(denied.raw).matches(raw, exclusion=True)
+                for denied in getattr(validator, "_out_of_scope", [])
             ):
                 continue
             if getattr(entry, "entry_type", "") == "url_pattern" or raw.startswith(("http://", "https://")):

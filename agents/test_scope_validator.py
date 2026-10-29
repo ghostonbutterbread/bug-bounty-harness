@@ -471,7 +471,7 @@ def test_malformed_scope_entries_never_authorize_unscoped(
     assert not validator.is_in_scope("good.example.test")
     monkeypatch.setattr(recon_ry, "ScopeValidator", ScopeValidator)
     monkeypatch.setattr(recon_ry, "OutOfScopeError", OutOfScopeError)
-    with pytest.raises(SystemExit, match="NOT in scope"):
+    with pytest.raises(SystemExit, match="invalid or unrepresentable"):
         recon_ry.validate_start_scope("synthetic", "https://good.example.test/", allow_unscoped=True)
 
 

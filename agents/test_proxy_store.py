@@ -513,6 +513,115 @@ def test_lease_acquire_skips_task_proxy_overflow_in_custom_range(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM proxy_leases").fetchone()[0] == 0
 
 
+def retained_lease_fixture(module, db, *, status="active", expires_at=1):
+    with module.connect(db) as conn:
+        module.init_db(conn)
+        conn.execute(
+            """INSERT INTO proxy_leases
+               (lease_id, lane, proxy_host, proxy_port, proxy_server, status,
+                started_at, expires_at, updated_at, note)
+               VALUES ('retained-id', 'retained-lane', 'hoster', 8081,
+                       'http://hoster:8081', ?, 1, ?, 2, 'keep unchanged')""",
+            (status, expires_at),
+        )
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM proxy_leases").fetchone())
+
+
+def acquire_fixture_args(db, **overrides):
+    values = dict(
+        db=str(db), lease_id=None, lane=None, proxy_host="hoster", proxy_server=None,
+        port=None, port_min=8081, port_max=8082, agent_id="new-agent",
+        run_id="new-run", program="demo", task="test", account_label="fixture",
+        runtime_host="hoster", ttl_seconds=3600, note=None,
+    )
+    return Namespace(**(values | overrides))
+
+
+def retained_rows(module, db):
+    with module.connect(db, read_only=True) as conn:
+        return [dict(row) for row in conn.execute("SELECT * FROM proxy_leases ORDER BY proxy_port")]
+
+
+@pytest.mark.parametrize("status,expires_at", [("active", 1), ("released", None)])
+def test_lease_acquire_skips_retained_port_and_preserves_row(tmp_path, status, expires_at):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    original = retained_lease_fixture(module, db, status=status, expires_at=expires_at)
+
+    result = module.lease_acquire(acquire_fixture_args(db))
+
+    assert result["status"] == "leased"
+    assert result["lease"]["proxy_port"] == 8082
+    assert retained_rows(module, db) == [original, result["lease"]]
+
+
+def test_lease_acquire_explicit_retained_port_is_unavailable(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    original = retained_lease_fixture(module, db)
+
+    result = module.lease_acquire(acquire_fixture_args(db, port=8081))
+
+    assert result["status"] == "no-free-port"
+    assert retained_rows(module, db) == [original]
+
+
+@pytest.mark.parametrize("identity", ["lane", "lease_id"])
+@pytest.mark.parametrize("status,expires_at", [("active", 1), ("released", None)])
+def test_lease_acquire_retained_identity_is_unavailable(tmp_path, identity, status, expires_at):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    original = retained_lease_fixture(module, db, status=status, expires_at=expires_at)
+    conflicting_value = original[identity]
+
+    result = module.lease_acquire(acquire_fixture_args(
+        db, port=8082, **{identity: conflicting_value},
+    ))
+
+    assert result["status"] == "lease-unavailable"
+    assert result["lease"] == original
+    assert retained_rows(module, db) == [original]
+
+
+def test_lease_acquire_no_free_port_preserves_all_retained_rows(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    original = retained_lease_fixture(module, db)
+    with module.connect(db) as conn:
+        conn.execute(
+            """INSERT INTO proxy_leases
+               (lease_id, lane, proxy_host, proxy_port, proxy_server, status,
+                started_at, expires_at, updated_at, note)
+               VALUES ('other-id', 'other-lane', 'hoster', 8082,
+                       'http://hoster:8082', 'released', 3, NULL, 4, 'also keep')"""
+        )
+        conn.commit()
+    before = retained_rows(module, db)
+    assert before[0] == original
+
+    result = module.lease_acquire(acquire_fixture_args(db))
+
+    assert result["status"] == "no-free-port"
+    assert retained_rows(module, db) == before
+
+
+def test_cli_lease_acquire_retained_port_reports_structured_unavailability(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    original = retained_lease_fixture(module, db)
+    script = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/proxy_store.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--db", str(db), "--json", "lease-acquire", "--port", "8081"],
+        capture_output=True, text=True, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["status"] == "no-free-port"
+    assert retained_rows(module, db) == [original]
+
+
 def test_lease_acquire_skips_active_port_and_release_frees_it(tmp_path):
     module = load_proxy_store()
     db = tmp_path / "proxy.sqlite"
@@ -564,6 +673,19 @@ def test_lease_acquire_skips_active_port_and_release_frees_it(tmp_path):
     assert release["count"] == 1
     assert third["status"] == "leased"
     assert third["lease"]["proxy_port"] == 8081
+
+
+def test_query_help_displays_literal_sql_like_patterns_without_opening_db(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/proxy_store.py"
+    db = tmp_path / "unused.sqlite"
+    result = subprocess.run(
+        [sys.executable, str(script), "--db", str(db), "query", "--help"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "%.example.com" in result.stdout
+    assert "/api/%" in result.stdout
+    assert not db.exists()
 
 
 def test_query_filters_account_and_run_attribution(tmp_path):

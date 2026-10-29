@@ -1,13 +1,13 @@
 # Retained Proxy Store lease collision — partial repair
 
-- **Status:** blocked / partial implementation; task remains open.
+- **Status:** independently reviewed partial implementation; broader task remains open.
 - **Owner:** task `t_226eb7ae`; parent retains integration authority.
 - **Branch / worktree:** `fix/proxy-store-retained-lease-collision` / `/home/ryushe/worktrees/bbh-proxy-store-retained-lease-collision`.
 - **Base commit:** `d0d42eedbadb3d39694d59283b5290588f22361c` (fetched `origin/beta`).
 - **Intended integration target:** `beta`.
 - **Last updated:** 2026-10-28.
 - **Owning feature branch/ref:** `fix/proxy-store-retained-lease-collision`.
-- **Latest immutable recovery checkpoint:** `928ce68f878d94ab294c7428d3f37e4a17216c54` on the owning branch, after merging beta `3fa84b824c9cbefbba2dcb0d09e3bb11b331c335`.
+- **Latest immutable recovery checkpoint:** `ac3b12a46c64ce42f8ada26efc415d58b33198e8` on the owning branch, after merging beta `3fa84b824c9cbefbba2dcb0d09e3bb11b331c335`.
 - **Feature implementation commit(s):** `b878d832222c8cd44fd309f709aa0e584518389b`.
 - **Inspiration / canonical references:** retained rows conflict with `proxy_leases` unconditional unique port/lane and primary-key lease ID; `skills/chromium-test/scripts/proxy_store.py` owns standalone acquisition.
 
@@ -23,16 +23,16 @@ Extend the existing indexed Proxy Store script and associated tests, not a new a
 - Explicit `importlib` source-path check loaded this worktree's `skills/chromium-test/scripts/proxy_store.py`; tests load the same checkout via `Path(__file__).resolve()` and CLI tests use its script directly.
 - After beta reconciliation, parent ran `HOME="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q agents/test_proxy_store.py agents/test_proxy_store_default_path.py` — 39 passed. Earlier run of only `agents/test_proxy_store.py` returned 34 passed; the difference is the five default-path tests.
 - `git diff --check` passed. No real database, listener, service, or target was used.
-- Independent release review and integration: not yet performed; parent owns those decisions.
+- Independent release review approved partial beta integration at `ac3b12a46c64ce42f8ada26efc415d58b33198e8`: 39 tests passed; an additional synthetic 12-case retained-identity matrix and concurrent contenders demonstrated unique reservations in the standalone database. Schema, transaction and release semantics were preserved; broader cross-store issue remains open. Parent owns integration.
 
 ## Blockers and deferred work
 
 - **Unsolved cross-store / legacy allocation issue:** `browser_provisioner.py:start_proxy` manages `task_proxies` separately; its standard-range selection checks task rows and open ports rather than standalone retained reservations, while the overflow fallback consults only active standalone leases. Standalone acquisition does not coordinate its transaction with the separate task-proxy store. Legacy reservations and allocation/start races across stores therefore remain possible. This patch does not fix or validate cross-store safety; the task stays open.
 - **Missing evidence / next step:** a separately designed shared coordination and owner-fenced recovery approach, with deterministic synthetic two-allocator concurrent and legacy-reservation regressions covering both directions and no unsafe expiry reclamation. The exact test command depends on that successor design; use synthetic private DBs and mocked listeners only. Run when that design is implemented; do not activate or claim the broader issue resolved on this branch's evidence.
-- **Integration gate:** independent fresh-agent review and rerun of the synthetic suite, then parent decision on whether this partial crash fix is suitable for beta; review must include exact release contract and cross-store non-claim. No merge, push, activation, live lease operation, or task closure is authorized here.
+- **Integration gate:** independent review approved the partial fix; parent must fetch beta, integrate and rerun synthetic suite. Do not close the broader task or activate a runtime on this evidence.
 
 ## Interruption / resume handoff
 
-- **Exact resume point:** independent release review of reconciled checkpoint and tests, fetch current beta, and decide on this partial fix without closing the underlying task.
+- **Exact resume point:** fetch current beta, integrate reviewed partial fix, remove this dossier from the target, and rerun the synthetic suite without closing the underlying task.
 - **Activation / promotion gate:** no activation or stable promotion authorized; outstanding cross-store work is not covered by this repair.
 - **Decision record:** 2026-10-28 — scoped partial repair; broader allocator coordination and safe legacy recovery intentionally deferred.

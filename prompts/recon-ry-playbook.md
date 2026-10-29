@@ -30,6 +30,12 @@ wildcard scope. Such coverage is deferred to a separately verified
 request-contained method; a scoped seed or output filter cannot enforce it.
 `--allow-unscoped` does not override saved restrictions. This wrapper has no
 mechanism to accept a request-containment attestation.
+If there are no grants but any loaded exclusions, the wrapper refuses an
+`--allow-unscoped` start or queue even when the seed does not match a deny:
+those runs do not stage enforceable exclusion filters. A genuinely unscoped,
+explicitly approved run without saved exclusions remains available.
+The current scope loader can silently miss unreadable or additional exclusion
+files; do not rely on this gate until the pending validator fix is integrated.
 
 Start via the local wrapper so Hoster owns the long-running process:
 

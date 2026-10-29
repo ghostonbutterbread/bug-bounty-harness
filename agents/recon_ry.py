@@ -244,6 +244,15 @@ def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False
     validate_recon_scope_containment(validator)
     if validator.is_empty():
         if allow_unscoped:
+            # An unscoped run has no generated scope filters (and queue has
+            # none at all). Refuse even unrelated exclusions: nested tools or
+            # discovered hosts could otherwise reach them unfiltered.
+            if getattr(validator, "_out_of_scope", []):
+                raise SystemExit(
+                    "Recon-Ry refused: saved exclusions exist but no grants are loaded; "
+                    "--allow-unscoped cannot enforce those exclusions. Load the saved "
+                    "scope or use a separately verified request-contained method."
+                )
             return
         raise SystemExit(
             f"No saved scope is loaded for {program!r}. Run /pullscope first or pass "

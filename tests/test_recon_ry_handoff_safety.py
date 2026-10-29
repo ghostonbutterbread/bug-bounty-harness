@@ -101,3 +101,56 @@ def test_allow_unscoped_does_not_override_restricted_exclusion(isolated_scope, t
     args.allow_unscoped = True
     with pytest.raises(SystemExit, match="request-level containment"):
         args.func(args)
+
+
+@pytest.mark.parametrize("profile", ["snap", "full", "exact-urls"])
+@pytest.mark.parametrize("seed,denial", [
+    ("https://app.example.test/", "app.example.test"),
+    ("https://app.example.test/", "*.example.test"),
+    ("http://192.0.2.8/", "192.0.2.0/24"),
+])
+def test_unscoped_start_refuses_explicit_denial_before_process(isolated_scope, seed, denial, profile):
+    (isolated_scope / "in-scope.txt").write_text("")
+    (isolated_scope / "out-of-scope.txt").write_text(denial + "\n")
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", seed, "--profile", profile, "--allow-unscoped",
+    ])
+    with pytest.raises(SystemExit, match="(?i)(den|exclu)"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("seed,denial", [
+    ("https://app.example.test/", "app.example.test"),
+    ("http://192.0.2.8/", "192.0.2.0/24"),
+])
+def test_unscoped_queue_refuses_explicit_denial_before_process(isolated_scope, tmp_path, seed, denial):
+    (isolated_scope / "in-scope.txt").write_text("")
+    (isolated_scope / "out-of-scope.txt").write_text(denial + "\n")
+    urls = tmp_path / "queue.txt"
+    urls.write_text("https://other.example.test/\n" + seed + "\n")
+    args = recon_ry.build_parser().parse_args([
+        "queue", "synthetic", "--url-file", str(urls), "--allow-unscoped",
+    ])
+    with pytest.raises(SystemExit, match="(?i)(den|exclu)"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("mode", ["exact", "queue", "default"])
+def test_unscoped_with_other_exclusion_refuses_unfiltered_run(isolated_scope, tmp_path, mode):
+    (isolated_scope / "out-of-scope.txt").write_text("blocked.example.test\n")
+    args = arguments(mode, tmp_path)
+    args.auth = None
+    args.allow_unscoped = True
+    with pytest.raises(SystemExit, match="(?i)(den|exclu)"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("mode", ["exact", "queue", "default"])
+def test_truly_unscoped_approved_run_reaches_only_mock_ssh(isolated_scope, tmp_path, monkeypatch, mode):
+    calls = []
+    monkeypatch.setattr(recon_ry.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    args = arguments(mode, tmp_path)
+    args.auth = None
+    args.allow_unscoped = True
+    args.func(args)
+    assert len(calls) == 1 and calls[0][0] == "ssh"

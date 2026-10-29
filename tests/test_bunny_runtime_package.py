@@ -15,6 +15,8 @@ def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
     assert "selected checkout's `bunny-collaborative`" in text
     assert "wait for Bunny's go-ahead" in text
     assert "before any target action" in text
+    assert "For a completion-only worker" in text
+    assert "do not claim Bunny confirmed it before the action" in text
 
 
 def test_verifier_and_reporter_are_spawned_only_when_needed():

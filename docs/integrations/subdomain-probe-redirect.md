@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (parent agent owns integration)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** pending initial commit
-- **Feature implementation commit(s):** pending initial commit
+- **Latest immutable recovery checkpoint:** `9d133fb0380b6439a05e739df31a0585954cdd4e`
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`
 - **Inspiration / canonical references:** independent synthetic reproduction, `agents/subdomain_agent.py`, HTTPX 0.28.1 redirect semantics, `httpx-redirect-observation`.
 
 ## Intent
@@ -40,8 +40,8 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** pending initial commit
-- **Feature implementation commit(s):** pending initial commit
+- **Latest immutable recovery checkpoint:** `9d133fb0380b6439a05e739df31a0585954cdd4e`
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`
 - **Exact resume point:** independent review of committed branch and parent-owned integration; no push.
 - **Working-tree state at handoff:** intended clean after checkpoint and dossier update.
 

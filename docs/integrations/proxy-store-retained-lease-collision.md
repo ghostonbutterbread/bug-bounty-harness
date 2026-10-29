@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`.
 - **Last updated:** 2026-10-28.
 - **Owning feature branch/ref:** `fix/proxy-store-retained-lease-collision`.
-- **Latest immutable recovery checkpoint:** `d0d42eedbadb3d39694d59283b5290588f22361c`; implementation checkpoint to be recorded in a subsequent dossier-only commit.
-- **Feature implementation commit(s):** to be recorded after checkpoint.
+- **Latest immutable recovery checkpoint:** `b878d832222c8cd44fd309f709aa0e584518389b` on the owning branch.
+- **Feature implementation commit(s):** `b878d832222c8cd44fd309f709aa0e584518389b`.
 - **Inspiration / canonical references:** retained rows conflict with `proxy_leases` unconditional unique port/lane and primary-key lease ID; `skills/chromium-test/scripts/proxy_store.py` owns standalone acquisition.
 
 ## Intent and implemented contract

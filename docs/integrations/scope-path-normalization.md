@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/scope-path-normalization`
-- **Latest immutable recovery checkpoint:** `87a73e0180d798d1a97920b39fc6414c79a4b196` (allow-file repair, tests, contract documentation and dossier; also review this later dossier-only commit).
-- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`, `db9f27dcb564843dfeec9dee0b1b313e99474252`, `584f029e6f025d0ebbe9959e6c76f1449c426f3f`, `4ac1caeea75b16e32b2d33e30e411863b5996975`, `87a73e0180d798d1a97920b39fc6414c79a4b196`
+- **Latest immutable recovery checkpoint:** `e4812d85dbb050d350a73fc6f0b11b98359140d7` (dangling ancestor, parse poisoning, bounded expansion, tests and dossier; also review the later dossier-only handoff commit).
+- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`, `db9f27dcb564843dfeec9dee0b1b313e99474252`, `584f029e6f025d0ebbe9959e6c76f1449c426f3f`, `4ac1caeea75b16e32b2d33e30e411863b5996975`, `87a73e0180d798d1a97920b39fc6414c79a4b196`, `e4812d85dbb050d350a73fc6f0b11b98359140d7`
 - **References:** PC-20261029-173518-a6033739; user-specified offline synthetic reproduction
 
 ## Intent and implemented candidate

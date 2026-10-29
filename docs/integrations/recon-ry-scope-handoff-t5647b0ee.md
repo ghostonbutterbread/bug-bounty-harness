@@ -7,7 +7,7 @@
 - **Fetched base:** `52252b96c6d6eb9ebd44f81b9646e6be3ab4214b` (original task fetch; no new network access authorized)
 - **Intended integration target:** `origin/beta`; parent controls reconciliation and integration
 - **Red checkpoint:** `620e321526b2fb2dcf63ef81e55198f3e7ae4493` (plus subsequent dossier-only checkpoint `0ec9f12`)
-- **Combined implementation recovery checkpoint:** `48d72a3e5a379e6d08018f85e6d61beb9036da61` on `fix/recon-ry-scope-handoff-t5647b0ee`; inspect the later dossier-only handoff commit and current tip separately. Resume at the review and drift gates below.
+- **Combined implementation recovery checkpoint:** `c5473c034bffdae377f6ea233ec676c31968f3e6` on `fix/recon-ry-scope-handoff-t5647b0ee`; inspect any later dossier-only handoff commit and current tip separately. Resume by resolving the grant-read blocker and review/drift gates below.
 - **References:** BBH `AGENTS.md`; local Recon-Ry `6777eea`, `docs/defensive-maintenance.md` lines 18–42. Validator candidate `fix/scope-path-normalization` at `a843579d8d3f3cd96d054a35c4ccdc563ec43fd7` was merged **only into this feature** as `4ccc67d7e46272afacb9f9e2d8388a7ef5ec36dc`; both branch-local dossiers are retained. It has not been independently approved.
 
 ## Implemented contract

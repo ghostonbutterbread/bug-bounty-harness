@@ -23,8 +23,11 @@ than treating one as a prerequisite for the other:
   assets to select relevant JavaScript, source maps or available local code.
 - **Source → runtime:** use a discovered input, action, transform or consumer
   to choose a useful live observation, then return to the code with what the
-  browser and proxy show. `js` owns web-JS collection and tracing; `appmap`
-  applies to available local source or extracted binaries, not every website.
+  browser and proxy show. `js` owns web-JS collection and tracing; for a
+  current investigation, load `/js` and its `skills/js/references/analysis-lens.md`
+  (relative to the BBH repository root) without starting a broad JS campaign.
+  `appmap` applies to available local source or extracted binaries, not every
+  website.
 - Use `technology-research` when a concrete stack question can change the next
   investigation; do not assume an observed library is active in every flow.
 

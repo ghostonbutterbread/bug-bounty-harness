@@ -117,7 +117,8 @@ Available lenses:
   headers, content types, body schemas, and proxy-observed request contracts.
   Hand concrete requests to `/analyze-endpoint` before vuln-lane testing.
 
-General review order (the behavioral map and evidence rules live in `/js-hunt`):
+General review order (the canonical behavior and evidence method lives in
+`/js`'s `references/analysis-lens.md`; `/js-hunt` owns the broad campaign):
 
 1. Run `general-map` and classless anomaly review to understand feature and
    packet families before choosing a vulnerability class.
@@ -606,8 +607,9 @@ starts from the selected hypothesis queue and follows `live-testing-policy`.
 ## Agent Deep Review
 
 Agents consume packet files, not raw program-wide bundle lists. The default
-behavior-first transaction, ranking, evidence ladder, and focused hunt modes
-belong to `/js-hunt`; the questions below provide detailed review prompts.
+behavior-first transaction, ranking, and evidence ladder live in `/js`'s
+`references/analysis-lens.md`; `/js-hunt` owns broad campaign and focused modes.
+The questions below provide detailed review prompts.
 
 Review goals per packet:
 

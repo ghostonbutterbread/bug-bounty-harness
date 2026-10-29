@@ -148,5 +148,9 @@ limits and examples are in `prompts/js-playbook.md`.
   Content addressing also means a chunk resurfacing at a rotated URL adds an
   alias row, not a second copy.
 - If the user requested only collection, report the artifact root, counts from
-  the manifest, provenance quality, and gaps. Otherwise load `/js-hunt` with
-  the run root; do not silently stop at a list of URLs or strings.
+  the manifest, provenance quality, and gaps. For a standalone JavaScript hunt,
+  return the run root to `/js-hunt`. For a current investigation, load `/js`
+  and its `skills/js/references/analysis-lens.md` (from the BBH repository root)
+  and return relevant evidence to the
+  calling specialist; do not silently stop at a list of URLs or start a broad
+  campaign solely because collection was needed.

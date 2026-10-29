@@ -19,9 +19,12 @@ The selected vulnerability skill still owns proof and closure.
   relevant sources; `params.txt` size alone says nothing about accepted fields.
 - **Another endpoint from JavaScript:** Reuse scoped JS bodies and source maps;
   inspect request builders and API client calls for route, method and field
-  candidates. Load `js` → `js-hunt`, or `jsluice` for *offline* local-file URL
-  extraction. Correlate with browser requests and `api-surface-mapping` before
-  treating a string as a reachable operation. Do not substitute a live Katana
+  candidates. Load `js` and its `skills/js/references/analysis-lens.md` (from
+  the BBH repository root) for the current
+  question, or `jsluice` for *offline* local-file URL extraction; use `js-hunt`
+  for an explicitly broader JS campaign. Correlate with browser requests and
+  `api-surface-mapping` before treating a string as a reachable operation. Do
+  not substitute a live Katana
   `-jc` crawl for offline extraction: that flag parses JS **and crawls** its
   discovered endpoints. If a locally installed Katana version exposes a
   verified extraction-only mode, its tool owner can use it on retained files;

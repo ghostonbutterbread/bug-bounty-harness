@@ -106,7 +106,7 @@ def test_local_file_handoff_is_not_inventory_dependent():
     assert "without an inventory" in hunt
     assert "unavailable provenance" in hunt
     assert "do not invent" in hunt
-    assert "when the library and indexes exist" in hunt
+    assert "when the library and indexes exist" in text("skills/js/references/analysis-lens.md")
 
 
 def test_known_shape_direct_http_is_an_explicit_browser_exception():

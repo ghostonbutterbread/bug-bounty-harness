@@ -94,7 +94,17 @@ defaults to the **same** program project and backgrounds each job, so do not
 launch the next host until the prior PID has completed and its log/project
 receipt is inspected. Record the eligible count and deferred assets; one-host
 smoke is not scope-wide coverage. Do not substitute the detached multi-host
-queue as an automatic aggregate-rate or containment guarantee.
+queue as an automatic aggregate-rate or containment guarantee. Queue validates
+root HTTP(S) inputs and sends each accepted URL, including an explicit default
+port and IPv6 brackets, to Recon-Ry. Equivalent default-port origins deduplicate;
+HTTP and HTTPS use separate per-origin projects. It refuses invalid or non-default
+ports before SSH, even with `--allow-unscoped`: the installed downstream stages'
+end-to-end port behavior is not established. A refusal defers the target; do not
+remove its port to make it pass. Queue invokes Recon-Ry directly without staging
+`--scope-file` or `--out-scope-file`. Its host-oriented checks and output
+filtering do not enforce exclusions or constrain redirects, browser subresources,
+nested tools, scheme, or port at request time. Assess authorization for every
+stage and use a separately verified request-contained method where necessary.
 
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is
 `--rate-limit-rps 2` per project, **not** an aggregate concurrent cap;

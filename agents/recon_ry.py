@@ -514,26 +514,38 @@ def queue_remote(args: argparse.Namespace) -> None:
     if not source.is_file():
         raise SystemExit(f"URL file not found: {source}")
     targets: list[str] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str, int | None]] = set()
     expected_scope = None
     for raw in source.read_text(encoding="utf-8").splitlines():
         target = raw.strip()
         if not target or target.startswith("#"):
             continue
-        parsed = urlparse(target if "://" in target else f"https://{target}")
-        if not parsed.hostname:
+        launch_target = target if "://" in target else f"https://{target}"
+        if "\\" in launch_target or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in launch_target):
             raise SystemExit(f"Invalid URL in {source}: {target}")
+        try:
+            parsed = urlparse(launch_target)
+            port = parsed.port
+        except ValueError as exc:
+            raise SystemExit(f"Invalid port or URL in {source}: {target}") from exc
+        if not parsed.hostname or parsed.scheme not in {"http", "https"} or parsed.username is not None:
+            raise SystemExit(f"Invalid URL in {source}: {target}")
+        if parsed.netloc.endswith(":") or port == 0:
+            raise SystemExit(f"Invalid port in {source}: {target}")
+        if port is not None and port != {"http": 80, "https": 443}.get(parsed.scheme):
+            raise SystemExit(f"Queue cannot safely run a non-default port: {target}")
         if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
             raise SystemExit(f"Exact-host queue accepts root URLs only; handle path-scoped assets as source review: {target}")
-        normalized = f"{parsed.scheme or 'https'}://{parsed.hostname.lower()}"
-        if normalized in seen:
-            continue
-        # Validate the submitted spelling so exact URL scopes (including a trailing slash) match.
-        validator = _load_recon_scope(args.program, target, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
+        normalized = (parsed.scheme, parsed.hostname.lower(), port or {"http": 80, "https": 443}.get(parsed.scheme))
+        # Validate the same destination spelling that will be sent to Recon-Ry,
+        # including duplicates, before suppressing equivalent origins.
+        validator = _load_recon_scope(args.program, launch_target, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
         if expected_scope is None:
             expected_scope = _scope_signature(validator)
+        if normalized in seen:
+            continue
         seen.add(normalized)
-        targets.append(normalized)
+        targets.append(launch_target)
     if not targets:
         raise SystemExit(f"No usable root URLs in {source}")
 
@@ -548,12 +560,13 @@ def queue_remote(args: argparse.Namespace) -> None:
         "while IFS= read -r target_url || [ -n \"$target_url\" ]; do\n"
         "  [ -n \"$target_url\" ] || continue\n"
         "  target_host=$(python3 -c 'from urllib.parse import urlparse; import sys; print(urlparse(sys.argv[1]).hostname)' \"$target_url\")\n"
-        "  project=\"$queue_root/$target_host\"\n"
+        "  target_scheme=${target_url%%://*}\n"
+        "  project=\"$queue_root/$target_scheme-$target_host\"\n"
         "  mkdir -p \"$project\"\n"
         "  printf '%s\\n' \"$target_url\" > \"$project/urls.txt\"\n"
         "  : > \"$project/wild.txt\"\n"
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
-        "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
+        "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_scheme-$target_host.log\"\n"
         "  \"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\" -v > \"$item_log\" 2>&1\n"
         "  echo '[*] recon complete; aggregating run into Recon Bus' >> \"$item_log\"\n"
         f"  bbh scripts/recon_bus.py promote-run {shell_quote(args.program)} --run-root \"$project\" --no-probe >> \"$item_log\" 2>&1\n"

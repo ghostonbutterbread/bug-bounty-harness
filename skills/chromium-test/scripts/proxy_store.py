@@ -779,17 +779,19 @@ def lease_acquire(args: argparse.Namespace) -> dict[str, Any]:
         for port in requested_ports:
             if TASK_PROXY_OVERFLOW_PORT_MIN <= port <= TASK_PROXY_OVERFLOW_PORT_MAX:
                 continue
-            active = conn.execute(
-                f"SELECT * FROM proxy_leases WHERE proxy_port=? AND {active_lease_where(now)}",
-                (port, now),
+            # All retained rows occupy the schema's unconditional unique keys,
+            # even if their status or TTL no longer makes them active.
+            occupied = conn.execute(
+                "SELECT 1 FROM proxy_leases WHERE proxy_port=?",
+                (port,),
             ).fetchone()
-            if active:
+            if occupied:
                 continue
             lane = args.lane or f"{sanitize_lease_part(args.agent_id or 'agent')}-{int(now)}-{port}"
             lease_id = args.lease_id or lane
             existing = conn.execute(
-                f"SELECT * FROM proxy_leases WHERE (lease_id=? OR lane=?) AND {active_lease_where(now)}",
-                (lease_id, lane, now),
+                "SELECT * FROM proxy_leases WHERE lease_id=? OR lane=?",
+                (lease_id, lane),
             ).fetchone()
             if existing:
                 conn.rollback()

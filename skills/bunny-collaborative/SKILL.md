@@ -33,11 +33,13 @@ placement, browser/proxy provisioning, login recovery, and collision resolution
 through the existing owning skills. A worker reports the concrete prerequisite
 and a non-secret identity alias; it does not become its own provisioning agent.
 For compatible work, share one team browser by default, with one active controller at a time.
-Bunny coordinates access through the existing lease/control mechanism; do not
-assume a parent-owned endpoint is automatically a child lease. If it is busy or
-a separate identity or concurrent work needs isolation, provision another browser
-under the appropriate identity. Keep ownership and cleanup explicit, and pass a
-private attachment/reference rather than raw credentials.
+The browser's owner remains its driver; other workers ask that owner for browser
+actions and receive observations. Bunny coordinates these requests through the
+existing worker channels; a parent-owned endpoint is not automatically a child
+lease. If it is busy or a separate identity or concurrent work needs isolation,
+provision another browser under the appropriate identity when policy and
+capacity permit; otherwise queue the work. Keep ownership and cleanup explicit,
+and pass private references rather than raw credentials.
 
 Inspect a conflicting resource's owner before acting. Do not take over another
 worker's controller, account session, port, or live process; allocate an isolated

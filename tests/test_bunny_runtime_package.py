@@ -84,6 +84,7 @@ def test_operations_and_evidence_ownership_stay_separate():
     assert "Coordinator-owned operational support" in text
     assert "share one team browser by default" in text
     assert "one active controller at a time" in text
+    assert "owner remains its driver" in text
     assert "another browser" in text
     assert "unrelated productive work" in text
     assert "Evidence authorship stays with the producer" in text

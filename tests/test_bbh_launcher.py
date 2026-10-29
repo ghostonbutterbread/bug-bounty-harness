@@ -226,6 +226,12 @@ class BbhLauncherTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 7, completed.stderr)
         self.assertEqual(completed.stdout, '{"ok": true}\n')
         self.assertIn("requirements.txt is newer", completed.stderr)
+        self.assertIn("mtime is only a heuristic", completed.stderr)
+        self.assertIn("compare installed dependencies", completed.stderr.lower())
+        self.assertIn("if mismatched", completed.stderr)
+        self.assertIn("warning may persist", completed.stderr)
+        self.assertIn("bbh --root", completed.stderr)
+        self.assertIn("bbh --print-command docs/bbh-launcher.md", completed.stderr)
         self.assertIn("BBH_SKIP_DEP_CHECK=1", completed.stderr)
 
     def test_fresh_venv_stays_silent(self) -> None:

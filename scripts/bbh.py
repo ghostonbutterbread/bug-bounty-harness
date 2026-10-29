@@ -53,7 +53,10 @@ def dependency_drift_warning() -> str | None:
         return None
     return (
         "bbh: warning: requirements.txt is newer than this checkout's .venv; "
-        "dependencies may be stale. Run ./setup.sh --install-python-deps "
+        "mtime is only a heuristic. Compare installed dependencies, including "
+        "VCS revisions, with requirements.txt; the warning may persist after a match. "
+        "For guidance: bbh --print-command docs/bbh-launcher.md; if mismatched, run "
+        "(cd \"$(bbh --root)\" && ./setup.sh --install-python-deps) "
         "(silence with BBH_SKIP_DEP_CHECK=1)"
     )
 

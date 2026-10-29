@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
+from itertools import product
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from urllib.parse import urlparse
 
 _OPT_GROUP_RE = re.compile(r"\(([^()]+)\)\?")
+MAX_OPTIONAL_GROUPS = 8
+MAX_OPTIONAL_PATTERN_LENGTH = 4096
 _DNS_SCOPE_RE = re.compile(r"^(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$")
 
 
@@ -50,20 +53,21 @@ def _expand_optional_groups(value: str) -> list[str]:
     ``*.site(-eu1)?.example``; recon-ry only understands plain ``*.host``
     wildcards, so each optional group expands into the two concrete hosts.
     """
-    m = _OPT_GROUP_RE.search(value)
-    if not m:
-        return [value]
-    variants = [
-        value[: m.start()] + value[m.end() :],
-        value[: m.start()] + m.group(1) + value[m.end() :],
+    groups = []
+    for match in _OPT_GROUP_RE.finditer(value):
+        groups.append(match)
+        if len(groups) > MAX_OPTIONAL_GROUPS:
+            raise ValueError(f"optional host pattern exceeds {MAX_OPTIONAL_GROUPS} groups (256 variants)")
+    pieces = []
+    end = 0
+    for match in groups:
+        pieces.append(value[end:match.start()])
+        end = match.end()
+    pieces.append(value[end:])
+    return [
+        "".join(part for pair in zip(pieces, choices) for part in pair) + pieces[-1]
+        for choices in product(*[("", match.group(1)) for match in groups])
     ]
-    out: list[str] = []
-    for v in variants:
-        if _OPT_GROUP_RE.search(v):
-            out.extend(_expand_optional_groups(v))
-        else:
-            out.append(v)
-    return out
 
 
 def is_dns_scope_value(value: str) -> bool:
@@ -102,7 +106,11 @@ def is_dns_scope_value(value: str) -> bool:
 
 def optional_host_variants(value: str) -> list[str]:
     """Expand only host-only optional groups that produce valid exact hosts."""
-    if value.startswith(("http://", "https://")) or not _OPT_GROUP_RE.search(value):
+    if value.startswith(("http://", "https://")) or "(" not in value:
+        return [value]
+    if len(value) > MAX_OPTIONAL_PATTERN_LENGTH:
+        raise ValueError(f"optional host pattern exceeds {MAX_OPTIONAL_PATTERN_LENGTH} characters")
+    if not _OPT_GROUP_RE.search(value):
         return [value]
     variants = _expand_optional_groups(value)
     return variants if all(is_dns_scope_value(variant) for variant in variants) else [value]
@@ -184,7 +192,7 @@ def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], lis
                 deferred.append(value)
             continue
         # Expand regex-style optional groups into concrete wildcard hosts.
-        for variant in optional_host_variants(value):
+        for variant in optional_host_variants(value.removesuffix(".")):
             if is_dns_scope_value(variant):
                 # Bare hosts, wildcards, IPs and CIDRs pass through as written.
                 scope_lines.append(str(ip_network(variant, strict=False)) if "/" in variant else variant.lower())
@@ -203,7 +211,9 @@ def write_recon_scope_files(
 ) -> dict[str, object]:
     """Write recon-ry ``--scope-file``/``--out-scope-file`` bodies."""
     allow_lines, deferred = recon_scope_file_lines(in_scope)
-    deny_lines, _ = recon_scope_file_lines(out_of_scope)
+    deny_lines, deferred_denials = recon_scope_file_lines(out_of_scope)
+    if deferred_denials:
+        raise ValueError(f"unrepresentable scope exclusions: {', '.join(deferred_denials)}")
     base.mkdir(parents=True, exist_ok=True)
     header = "# Generated from saved program scope; edit the program scope, not this file.\n"
     (base / "in-scope-hosts.txt").write_text(

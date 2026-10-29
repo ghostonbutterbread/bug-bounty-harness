@@ -23,15 +23,25 @@ If tool dependencies are missing, report them. Do not block ingestion of already
 
 ## Start Pattern
 
-This preflight applies to **every** active profile, including `snap` and `full`: review
-the entire saved scope for a wildcard grant alongside any separately
-origin/path-limited exact URL. The wrapper can accept `snap` or `full`, stage both, and
-reduce the exact URL to a host. Do not launch that mixed set unless program
-authorization explicitly covers the host-wide activity **or** each enabled
-active stage is verified to avoid requests outside the restricted grant. A
-scoped seed URL and post-run filtering do not enforce this boundary. When
-unresolved, defer active broad collection; keep narrow-source/passive review
-within its own rules.
+This preflight applies to **every** active profile, including `snap`, `full`,
+`exact-urls`, and `queue`. The wrapper refuses the entire active run when any
+saved grant or exclusion restricts a path, scheme, or port, including mixed
+wildcard scope. Such coverage is deferred to a separately verified
+request-contained method; a scoped seed or output filter cannot enforce it.
+`--allow-unscoped` does not override saved restrictions. This wrapper has no
+mechanism to accept a request-containment attestation.
+If there are no grants but any loaded exclusions, the wrapper refuses an
+`--allow-unscoped` start or queue even when the seed does not match a deny:
+those runs do not stage enforceable exclusion filters. A genuinely unscoped,
+explicitly approved run without saved exclusions remains available.
+The validator loads both standard exclusion files in the selected directory and
+raises on unreadable exclusions; canonical-directory precedence over legacy
+still applies. The wrapper refuses scope changes observed between its reads.
+This is not an atomic snapshot: changes during or after the last read, including
+while a remote queue runs, are not guaranteed to be detected. Selected grant
+and exclusion read or parse failures raise and must not be treated as empty
+scope, including with `--allow-unscoped`. Review current scope and the
+independent review/activation status before a run.
 
 Start via the local wrapper so Hoster owns the long-running process:
 
@@ -43,8 +53,9 @@ This launches Recon-Ry's `snap` profile by default. It omits port enrichment,
 directory brute force, and screenshots, but still performs active wildcard
 recon; request `--profile full` explicitly for its additional stages when
 authorized. The wrapper checks the seed against saved scope before starting;
-this is not request-level confinement for all stages. The derived scope file reduces root
-URLs to hosts, so it cannot enforce a scheme, port, or allowed-path grant:
+this is not request-level confinement for all stages. Host filters cannot
+confine redirects, browser subresources, or nested tools, including to a
+host-only exclusion. Review those residual risks before any permitted run:
 
 - if no saved scope exists for the program, it stops
 - if the seed URL is not in scope, it stops
@@ -54,11 +65,11 @@ URLs to hosts, so it cannot enforce a scheme, port, or allowed-path grant:
 
 For a program with exact targets (with or without a wildcard elsewhere),
 classify each saved grant first. A URL limited to one scheme/port or an allowed
-path is **not** a host-wide grant. Do not run active `exact-urls` stages for
-such a target until request-level destinations are constrained and verified or
-the program separately approves wider host activity. Path-scoped
-repository/package URLs stay source review only; do not treat them as whole-host
-seeds. Passive/source review may continue within its own authorization.
+path is **not** a host-wide grant. The wrapper refuses active runs while such
+restrictions remain in saved scope, even if a wildcard is also present. Do not
+remove a restriction merely to bypass the gate. Path-scoped repository/package
+URLs stay source review only; do not treat them as whole-host seeds.
+Passive/source review may continue within its own authorization.
 
 For an approved host-wide target, verify each enabled stage's request behavior
 against saved scope, then launch **one** host with its own project:
@@ -83,7 +94,17 @@ defaults to the **same** program project and backgrounds each job, so do not
 launch the next host until the prior PID has completed and its log/project
 receipt is inspected. Record the eligible count and deferred assets; one-host
 smoke is not scope-wide coverage. Do not substitute the detached multi-host
-queue as an automatic aggregate-rate or containment guarantee.
+queue as an automatic aggregate-rate or containment guarantee. Queue validates
+root HTTP(S) inputs and sends each accepted URL, including an explicit default
+port and IPv6 brackets, to Recon-Ry. Equivalent default-port origins deduplicate;
+HTTP and HTTPS use separate per-origin projects. It refuses invalid or non-default
+ports before SSH, even with `--allow-unscoped`: the installed downstream stages'
+end-to-end port behavior is not established. A refusal defers the target; do not
+remove its port to make it pass. Queue invokes Recon-Ry directly without staging
+`--scope-file` or `--out-scope-file`. Its host-oriented checks and output
+filtering do not enforce exclusions or constrain redirects, browser subresources,
+nested tools, scheme, or port at request time. Assess authorization for every
+stage and use a separately verified request-contained method where necessary.
 
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is
 `--rate-limit-rps 2` per project, **not** an aggregate concurrent cap;

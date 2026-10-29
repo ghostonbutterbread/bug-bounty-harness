@@ -44,9 +44,15 @@ for _path in (_AGENT_DIR, _PROJECT_ROOT):
 
 
 try:
-    from scope_validator import ScopeValidator
-except ImportError:
+    if __package__:
+        from .scope_validator import ScopeValidator
+    else:
+        from scope_validator import ScopeValidator
+except ImportError as exc:
     ScopeValidator = None
+    _scope_import_error = exc
+else:
+    _scope_import_error = None
 try:
     from rate_limiter import RateLimiter
 except ImportError:
@@ -1032,6 +1038,8 @@ def run_recon(program: str, target: str) -> ReconResult:
             _RECON_LOGGER = None
 
     # Initialize scope validator
+    if ScopeValidator is None:
+        raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
     scope = None
     if program and ScopeValidator is not None:
         scope = ScopeValidator(program)

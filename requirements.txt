@@ -2,6 +2,7 @@
 # Pin Bounty Core to a reviewed immutable revision.
 bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@6c36ee88a60073e1b687ec32deeade24ffafdd4f
 httpx>=0.28,<1
+idna>=3,<4
 requests>=2.34,<3
 PyYAML>=6,<7
 beautifulsoup4>=4.15,<5

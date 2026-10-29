@@ -535,7 +535,7 @@ def test_partial_exit_and_timed_out_discovery(monkeypatch):
 def test_disk_floor_run_writes_durable_partial_summary(monkeypatch):
     import json, sys
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    monkeypatch.setattr(autonomous_recon, "ScopeValidator", None)
+    monkeypatch.setattr(autonomous_recon, "ScopeValidator", lambda _: type("Scope", (), {"is_in_scope": lambda self, url: True})())
     monkeypatch.setattr(autonomous_recon, "phase_discover", lambda _: None)
     monkeypatch.setattr(autonomous_recon, "record_recon_artifacts", lambda **_: pytest.fail("published partial run"))
     monkeypatch.setattr(autonomous_recon.shutil, "disk_usage", lambda _: type("U", (), {"free": 4 * 1024 ** 3})())

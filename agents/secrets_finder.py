@@ -36,9 +36,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from scope_validator import ScopeValidator
-except ImportError:
+    if __package__:
+        from .scope_validator import ScopeValidator
+    else:
+        from scope_validator import ScopeValidator
+except ImportError as exc:
     ScopeValidator = None
+    _scope_import_error = exc
+else:
+    _scope_import_error = None
 try:
     from rate_limiter import RateLimiter
 except ImportError:
@@ -225,8 +231,13 @@ class SecretsFinder:
         # Setup rate limiter
         self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
 
+    def _require_scope_validator(self) -> None:
+        if ScopeValidator is None:
+            raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
+
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is in scope. Skip if no scope loaded."""
+        self._require_scope_validator()
         if not self.scope:
             return True
         return self.scope.is_in_scope(url)
@@ -1073,6 +1084,7 @@ class SecretsFinder:
         return [finding.to_dict() for finding in findings]
 
     def _wayback_cdx_records(self, domain: str, limit: int) -> list[dict[str, str]]:
+        self._require_scope_validator()
         encoded = urllib.parse.quote(f"*.{domain}/*.js", safe="*./:")
         cdx_url = (
             "https://web.archive.org/cdx/search/cdx"
@@ -1113,6 +1125,7 @@ class SecretsFinder:
         return records
 
     def scan_wayback(self, domain: str, limit: int = 25) -> list[dict[str, Any]]:
+        self._require_scope_validator()
         domain = domain.strip().lower()
         if not domain:
             raise ValueError("domain is required for scan_wayback")
@@ -1181,6 +1194,7 @@ class SecretsFinder:
         
         scan_type: 'filesystem' (local dir) or 'git' (remote repo URL)
         """
+        self._require_scope_validator()
         import subprocess
 
         path = str(path)
@@ -1318,6 +1332,7 @@ class SecretsFinder:
         
         Requires nuclei binary and nuclei-templates (or ~300 cred templates).
         """
+        self._require_scope_validator()
         import subprocess
 
         nuclei = next(

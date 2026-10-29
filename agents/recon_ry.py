@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
@@ -23,7 +24,7 @@ if str(_AGENT_DIR) not in sys.path:
 
 from bounty_core.recon import start_run, write_manifest
 
-from scope_validator import OutOfScopeError, ScopeValidator
+from scope_validator import OutOfScopeError, ScopeValidator, _ScopeEntry, _extract_host
 from scope_seed_files import clean_scope_value, recon_scope_file_lines, recon_seed_lines
 from recon_store import summarize_url_index
 from recon.promote_run import promote_run
@@ -211,11 +212,65 @@ def ssh_command(remote: str, ssh_key: Path | None, command: str) -> list[str]:
     return cmd
 
 
-def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False) -> None:
+def validate_recon_scope_containment(validator: ScopeValidator) -> None:
+    """Refuse saved origin/path restrictions that host filters cannot enforce."""
+    for kind, entries in (("grant", validator._entries), ("exclusion", getattr(validator, "_out_of_scope", []))):
+        for entry in entries:
+            raw = str(getattr(entry, "raw", "")).split("#", 1)[0].strip()
+            if not raw:
+                continue
+            restricted = "://" in raw or "?" in raw
+            if not restricted and "/" in raw:
+                try:
+                    ip_network(raw, strict=False)
+                except ValueError:
+                    restricted = True
+            if not restricted and ":" in raw and "/" not in raw:
+                try:
+                    ip_address(raw.strip("[]"))
+                except ValueError:
+                    restricted = True
+            if restricted:
+                raise SystemExit(
+                    f"Recon-Ry refused: saved scope {kind} has an origin, port or path restriction "
+                    f"({raw}); host filters do not provide request-level containment for redirects, "
+                    "subresources and nested tools. Active coverage is deferred; use a separately "
+                    "verified request-contained method for the restricted scope."
+                )
+            _, deferred = recon_scope_file_lines([raw])
+            if deferred or _ScopeEntry(raw).has_invalid_authority():
+                raise SystemExit(
+                    f"Recon-Ry refused: saved scope {kind} is invalid or unrepresentable "
+                    f"({raw}); correct or review it before launch."
+                )
+
+
+def _scope_signature(validator: ScopeValidator) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    return tuple(str(entry.raw) for entry in validator._entries), tuple(
+        str(entry.raw) for entry in getattr(validator, "_out_of_scope", [])
+    )
+
+
+def _load_recon_scope(program: str, url: str | None = None, *, allow_unscoped: bool = False, expected_scope: tuple | None = None) -> ScopeValidator:
+    """Check each loaded scope and reject changes during launch preparation."""
     validator = ScopeValidator(program=program, strict=True)
+    validate_recon_scope_containment(validator)
+    if expected_scope is not None and _scope_signature(validator) != expected_scope:
+        raise SystemExit("Recon-Ry refused: saved scope changed during launch preparation; retry after reviewing scope.")
+    if url is None:
+        return validator
     if validator.is_empty():
         if allow_unscoped:
-            return
+            # An unscoped run has no generated scope filters (and queue has
+            # none at all). Refuse even unrelated exclusions: nested tools or
+            # discovered hosts could otherwise reach them unfiltered.
+            if getattr(validator, "_out_of_scope", []):
+                raise SystemExit(
+                    "Recon-Ry refused: saved exclusions exist but no grants are loaded; "
+                    "--allow-unscoped cannot enforce those exclusions. Load the saved "
+                    "scope or use a separately verified request-contained method."
+                )
+            return validator
         raise SystemExit(
             f"No saved scope is loaded for {program!r}. Run /pullscope first or pass "
             "--allow-unscoped only after Ryushe explicitly approves this target."
@@ -224,13 +279,18 @@ def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False
         validator.validate_or_fail(url)
     except OutOfScopeError as exc:
         raise SystemExit(str(exc)) from exc
+    return validator
 
 
-def validate_profile_scope(program: str, profile: str) -> None:
+def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False) -> None:
+    _load_recon_scope(program, url, allow_unscoped=allow_unscoped)
+
+
+def validate_profile_scope(program: str, profile: str, *, url: str | None = None, allow_unscoped: bool = False, expected_scope: tuple | None = None) -> None:
     """Reject wildcard-dependent profiles when published scope has exact URLs only."""
     if profile not in {"full", "snap", "subs", "fast", "urls"}:
         return
-    validator = ScopeValidator(program=program, strict=True)
+    validator = _load_recon_scope(program, url, allow_unscoped=allow_unscoped, expected_scope=expected_scope)
     if validator.is_empty():
         return
     has_wildcard = any(
@@ -245,15 +305,12 @@ def validate_profile_scope(program: str, profile: str) -> None:
         )
 
 
-def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool = False) -> dict[str, str]:
+def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool = False, expected_scope: tuple | None = None) -> dict[str, str]:
     """Build recon-ry project seed files from saved scope plus the requested seed URL."""
     domains: list[str] = []
     urls: list[str] = [seed_url]
-    try:
-        validator = ScopeValidator(program=program, strict=True)
-    except Exception:
-        validator = None
-    if validator and not validator.is_empty():
+    validator = _load_recon_scope(program, seed_url, allow_unscoped=allow_unscoped, expected_scope=expected_scope)
+    if not validator.is_empty():
         # A wildcard exclusion covering a whole root must not become an enum
         # input merely because the inclusive scope also lists that root.
         denied_lines, _ = recon_scope_file_lines([
@@ -261,7 +318,7 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
         ])
         denied_roots = [line[2:] for line in denied_lines if line.startswith("*.")]
         for entry in getattr(validator, "_entries", []):
-            raw = clean_scope_value(getattr(entry, "raw", ""))
+            raw = clean_scope_value(getattr(entry, "raw", "")).removesuffix(".")
             if not raw:
                 continue
             if raw.startswith("*.") and any(
@@ -269,12 +326,15 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
                 for denied in denied_roots
             ):
                 continue
+            if not raw.startswith("*.") and any(
+                _ScopeEntry(denied.raw).matches(raw, exclusion=True)
+                for denied in getattr(validator, "_out_of_scope", [])
+            ):
+                continue
             if getattr(entry, "entry_type", "") == "url_pattern" or raw.startswith(("http://", "https://")):
                 urls.append(raw)
             else:
                 domains.append(raw)
-    elif not allow_unscoped:
-        validate_start_scope(program, seed_url, allow_unscoped=allow_unscoped)
 
     url_lines, wild_lines = recon_seed_lines(domains, urls)
     return {
@@ -283,18 +343,14 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     }
 
 
-def build_remote_scope_files(program: str) -> tuple[dict[str, str], list[str]]:
+def build_remote_scope_files(program: str, *, url: str | None = None, allow_unscoped: bool = False, expected_scope: tuple | None = None) -> tuple[dict[str, str], list[str]]:
     """Build recon-ry --scope-file/--out-scope-file bodies from saved scope.
 
-    Returns ``({filename: body}, deferred)``. ``deferred`` lists path-scoped
-    URL assets that recon-ry's host-granular scope cannot express; they are
-    left out rather than widened to their whole host. An empty mapping means
-    saved scope yielded nothing usable and the run must stay unscoped.
+    Returns ``({filename: body}, deferred)``. A saved origin, port or path
+    restriction is refused before conversion; the host-granular filter cannot
+    express it. An empty mapping means saved scope yielded no usable hosts.
     """
-    try:
-        validator = ScopeValidator(program=program, strict=True)
-    except Exception:
-        return {}, []
+    validator = _load_recon_scope(program, url, allow_unscoped=allow_unscoped, expected_scope=expected_scope)
     if validator.is_empty():
         return {}, []
 
@@ -341,9 +397,37 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def validate_launch_target(target: str):
+    """Reject destinations the host-oriented downstream tool cannot represent.
+
+    This validates input only; it does not confine subsequent requests.
+    Bare host/path inputs retain the queue's existing HTTPS interpretation.
+    """
+    launch_target = target if "://" in target else f"https://{target}"
+    if "\\" in launch_target or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in launch_target):
+        raise SystemExit(f"Invalid URL: {target}")
+    try:
+        parsed = urlparse(launch_target)
+        port = parsed.port
+    except ValueError as exc:
+        raise SystemExit(f"Invalid port or URL: {target}") from exc
+    if parsed.netloc.endswith(":") or port == 0:
+        raise SystemExit(f"Invalid port: {target}")
+    if not parsed.hostname or parsed.scheme not in {"http", "https"} or parsed.username is not None:
+        raise SystemExit(f"Invalid URL: {target}")
+    if not _extract_host(launch_target):
+        # A malformed bracket/port spelling is not a safe authority either.
+        raise SystemExit(f"Invalid port or URL: {target}")
+    if port is not None and port != {"http": 80, "https": 443}[parsed.scheme]:
+        raise SystemExit(f"Recon-Ry cannot safely run a non-default port: {target}")
+    return launch_target, parsed
+
+
 def start_remote(args: argparse.Namespace) -> None:
-    validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
-    validate_profile_scope(args.program, args.profile)
+    validate_launch_target(args.url)
+    initial = _load_recon_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    expected_scope = _scope_signature(initial)
+    validate_profile_scope(args.program, args.profile, url=args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
     # Recon-Ry's non-exact profiles can discover sibling hosts. Their manual
     # headers are not gated by RECON_RY_AUTH_HOST, so a single URL seed is not
     # sufficient to constrain credential delivery.
@@ -354,18 +438,12 @@ def start_remote(args: argparse.Namespace) -> None:
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
-    seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
     if args.profile in {"full", "snap", "subs", "fast", "urls"} and not seed_files["wild.txt"].strip():
         # Do not fall back to --url enumeration when the only saved wildcard
         # roots were excluded; an exact seed host does not authorize its subtree.
-        if not ScopeValidator(program=args.program, strict=True).is_empty():
+        if not _load_recon_scope(args.program, args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope).is_empty():
             raise SystemExit(f"Profile {args.profile!r} has no eligible wildcard roots; use --profile exact-urls")
-    auth_seed, auth_summary = resolve_auth_seed(args)
-    # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
-    # header-bearing seed is supplied, use the equivalent exact-host profile
-    # that contains only tools with verified header forwarding.
-    effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
-    profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
     # Exact-host mode must never seed sibling scope entries into its project.
     if args.profile == "exact-urls":
         seed_files = {
@@ -377,21 +455,27 @@ def start_remote(args: argparse.Namespace) -> None:
         # Keep the URL for BBH scope validation, but let the staged wildcard
         # roots drive the remote enumeration instead of silently using one.
         url_part = ""
-    # recon-ry filters tool input, constrains the crawler and filters promoted
-    # artifacts when given an explicit scope. Derive it from the same saved
-    # scope that gates this launch so the remote run cannot drift wider.
+    # Recon-Ry filters some inputs and output artifacts using these host rules;
+    # this is not request-level confinement for redirects or subresources.
     scope_arg = ""
     scope_files: dict[str, str] = {}
     deferred_scope: list[str] = []
-    scope_files, deferred_scope = build_remote_scope_files(args.program)
+    scope_files, deferred_scope = build_remote_scope_files(args.program, url=args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
     if not scope_files and args.profile in {"full", "snap", "subs", "fast", "urls"}:
-        if not ScopeValidator(program=args.program, strict=True).is_empty():
+        if not _load_recon_scope(args.program, args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope).is_empty():
             raise SystemExit("saved scope has no usable host filter for wildcard recon; use --profile exact-urls")
     if scope_files:
         scope_arg = f" --scope-file {shell_quote(project_dir + '/_scope/in-scope-hosts.txt')}"
         if "_scope/out-of-scope-hosts.txt" in scope_files:
             scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
     seed_files = {**seed_files, **scope_files}
+    # Finish all scope reloads before the auth resolver or SSH can start.
+    auth_seed, auth_summary = resolve_auth_seed(args)
+    # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
+    # header-bearing seed is supplied, use the equivalent exact-host profile
+    # that contains only tools with verified header forwarding.
+    effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
+    profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
     remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
     auth_host = host_from_seed_url(args.url)
@@ -468,23 +552,26 @@ def queue_remote(args: argparse.Namespace) -> None:
     if not source.is_file():
         raise SystemExit(f"URL file not found: {source}")
     targets: list[str] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str, int | None]] = set()
+    expected_scope = None
     for raw in source.read_text(encoding="utf-8").splitlines():
         target = raw.strip()
         if not target or target.startswith("#"):
             continue
-        parsed = urlparse(target if "://" in target else f"https://{target}")
-        if not parsed.hostname:
-            raise SystemExit(f"Invalid URL in {source}: {target}")
+        launch_target, parsed = validate_launch_target(target)
+        port = parsed.port
         if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
             raise SystemExit(f"Exact-host queue accepts root URLs only; handle path-scoped assets as source review: {target}")
-        normalized = f"{parsed.scheme or 'https'}://{parsed.hostname.lower()}"
+        normalized = (parsed.scheme, parsed.hostname.lower(), port or {"http": 80, "https": 443}.get(parsed.scheme))
+        # Validate the same destination spelling that will be sent to Recon-Ry,
+        # including duplicates, before suppressing equivalent origins.
+        validator = _load_recon_scope(args.program, launch_target, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
+        if expected_scope is None:
+            expected_scope = _scope_signature(validator)
         if normalized in seen:
             continue
-        # Validate the submitted spelling so exact URL scopes (including a trailing slash) match.
-        validate_start_scope(args.program, target, allow_unscoped=args.allow_unscoped)
         seen.add(normalized)
-        targets.append(normalized)
+        targets.append(launch_target)
     if not targets:
         raise SystemExit(f"No usable root URLs in {source}")
 
@@ -499,12 +586,13 @@ def queue_remote(args: argparse.Namespace) -> None:
         "while IFS= read -r target_url || [ -n \"$target_url\" ]; do\n"
         "  [ -n \"$target_url\" ] || continue\n"
         "  target_host=$(python3 -c 'from urllib.parse import urlparse; import sys; print(urlparse(sys.argv[1]).hostname)' \"$target_url\")\n"
-        "  project=\"$queue_root/$target_host\"\n"
+        "  target_scheme=${target_url%%://*}\n"
+        "  project=\"$queue_root/$target_scheme-$target_host\"\n"
         "  mkdir -p \"$project\"\n"
         "  printf '%s\\n' \"$target_url\" > \"$project/urls.txt\"\n"
         "  : > \"$project/wild.txt\"\n"
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
-        "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
+        "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_scheme-$target_host.log\"\n"
         "  \"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\" -v > \"$item_log\" 2>&1\n"
         "  echo '[*] recon complete; aggregating run into Recon Bus' >> \"$item_log\"\n"
         f"  bbh scripts/recon_bus.py promote-run {shell_quote(args.program)} --run-root \"$project\" --no-probe >> \"$item_log\" 2>&1\n"

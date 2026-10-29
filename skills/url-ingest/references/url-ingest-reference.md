@@ -33,7 +33,10 @@ parameter has already been inspected, or mark review/test coverage after work.
   maintain these from verified program scope through the existing explicit
   `append --kind wild` interface and its scope/wildcard validation. Tool output
   must not update scope roots: `promote-run` never classifies `wild.txt` as a
-  discovery artifact.
+  discovery artifact. A root is not proof that every host or URL beneath it is
+  allowed: exact-host, narrower-wildcard, and path exclusions still apply.
+  Revalidate each actual target and redirect against the current saved scope;
+  a tool that cannot enforce the exclusions must not rely on this root alone.
 - `hosts.txt` - all in-scope hostname inventory, regardless of HTTP liveness;
   do not filter this inventory by whether a host answered an HTTP probe.
 - `dirs.txt` - directory/content-discovery leads

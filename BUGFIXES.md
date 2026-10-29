@@ -72,20 +72,22 @@ beta `5ef9b5b304fa3ce995e3700d32f3e7d4789539ee`.
 the complete preserved dependency set. No Bounty Core upgrade or downgrade is
 part of this fix.
 
-## `master` recon-ry wrapper does not pass `--scope-file`
+## Recon-Ry scope-filter and containment limitations
 
-**Location:** `agents/recon_ry.py`, `start_remote`, on the `master` branch.
+**Location:** `agents/recon_ry.py`, `start_remote` and `queue_remote`.
 
-**Evidence:** `origin/master` and `origin/beta` have diverged (master is not an
-ancestor of beta; beta is 323 commits ahead), and both carried the same gap:
-the wrapper derived `urls.txt`/`wild.txt` seeds from saved scope but never
-passed `--scope-file`/`--out-scope-file` to recon-ry. The beta copy is fixed;
-master is untouched because the branches are not in an ancestor relationship
-and beta is the active lane.
+**Evidence:** The cached `origin/master` source at immutable
+`7c2194a1eff3a100e53a90a9302980441f5f10e0` stages host scope files for
+`start` when `--allow-unscoped` is not set and usable allow lines exist; it adds
+the out-scope argument only when deny lines exist. `queue` does not stage these
+files. The separate local `master` at `b046e03a0105a218db5effaeab23c19e3e37a26d`
+lacks start scope-file arguments. These are local refs, not a fresh remote check.
 
-**Impact:** a `master`-lane recon-ry launch runs without scope containment, so
-tool input, crawler reach and promoted artifacts are unfiltered. Backport the
-beta fix if the master lane is used for recon.
+**Impact:** filters and seed checks are not request-level containment; redirects,
+browser subresources and nested tools can contact unauthorized destinations.
+Queue's host-oriented behavior does not establish exclusion enforcement.
+Separately verify request containment before active use. Reconcile affected
+branches deliberately; do not describe host filters as a full egress fix.
 
 ## urlparse accepts a backslash-userinfo host that Go tooling rejects
 

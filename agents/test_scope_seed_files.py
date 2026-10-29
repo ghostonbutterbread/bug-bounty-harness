@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agents import scope_seed_files
 
 
@@ -95,6 +97,14 @@ def test_optional_exact_host_expands_without_widening() -> None:
     urls, wild = scope_seed_files.recon_seed_lines({"api(-eu1)?.example.com"}, set())
     assert urls == ["api.example.com", "api-eu1.example.com"]
     assert wild == []
+
+
+def test_scope_file_writer_refuses_unrepresentable_denial_before_writing(tmp_path):
+    with pytest.raises(ValueError, match="unrepresentable"):
+        scope_seed_files.write_recon_scope_files(
+            tmp_path / "scope", ["*.example.test"], ["broken*host.example.test"]
+        )
+    assert not (tmp_path / "scope").exists()
 
 
 def test_host_bit_cidr_is_canonical_in_allow_and_deny_scope() -> None:

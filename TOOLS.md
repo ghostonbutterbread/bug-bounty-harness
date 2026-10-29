@@ -103,7 +103,7 @@ Validates that recon and testing targets stay within program scope.
 | `validator.filter_out_of_scope(targets)` | Inverse filter |
 | `validator.partition(targets)` | Returns `(in_scope, out_of_scope)` tuple |
 | `validator.validate_or_fail(target)` | Raises `OutOfScopeError` if not in scope (strict mode) |
-| `validator.is_wildcard_scope(domain)` | True if `*.domain` is in scope |
+| `validator.is_wildcard_scope(domain)` | Valid declared wildcard root not wholly excluded; not a per-target authorization |
 | `validator.add_domain(domain)` | Manually add a domain/pattern to scope |
 | `validator.get_domains()` | List all in-scope base domains |
 | `scope_from_campaign(state)` | Build validator from a campaign.json state dict |
@@ -128,6 +128,26 @@ https://api.example.com/v1/*  # URL pattern with path prefix
 192.168.1.1          # single IP
 # comment            # ignored
 ```
+
+Optional host aliases such as `api(-eu1)?.example.com` expand to both
+spellings. At most eight groups (256 variants) and 4096 characters are allowed
+for host patterns containing `(`; excess raises rather than truncating a rule.
+URL patterns are not expanded. The shared seed helper raises `ValueError` for
+these limits; validator loads wrap parse failures in `ScopeAllowReadError` or
+`ScopeExclusionReadError`, both `ScopeFileReadError` and `OSError`, with the
+cause, file and line. Manual additions identify the entry kind and cause.
+
+Genuinely absent standard files may fall back to legacy; dangling leaf or
+ancestor symlinks and read failures do not. A file's entries are committed only
+after its full read and parse; this is not an all-files transaction. After a
+caught load/parse failure, Boolean scope checks refuse and `is_empty`,
+`entry_count`, `get_domains` and `get_wildcards` raise the stored error.
+Correct the source and construct a new validator. `strict=False` still warns
+instead of enforcing `validate_or_fail`. Import the validator and exception
+from the same module object: `scope_validator` and `agents.scope_validator` can
+have distinct exception identities. If identity is unknown, catch `OSError` at
+the load boundary and abort, never continue unscoped. Consumers must independently
+enforce exclusions on every request and redirect; these checks are not a sandbox.
 
 ---
 

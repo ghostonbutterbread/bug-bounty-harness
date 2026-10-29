@@ -367,7 +367,8 @@ def scope_violations(program: str, kind: str, values: Iterable[str]) -> list[str
         if kind == "wild":
             # wild.txt holds wildcard bases with the leading "*." stripped, so
             # accept either spelling and let is_wildcard_scope decide: it is
-            # true only when the program actually declares "*.<base>".
+            # true only for a valid declared root not wholly excluded. It does
+            # not mean every host/path under that root is allowed.
             base = value[2:] if value.startswith("*.") else value
             permitted = validator.is_wildcard_scope(base)
         else:

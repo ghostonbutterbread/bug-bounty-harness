@@ -103,7 +103,7 @@ Validates that recon and testing targets stay within program scope.
 | `validator.filter_out_of_scope(targets)` | Inverse filter |
 | `validator.partition(targets)` | Returns `(in_scope, out_of_scope)` tuple |
 | `validator.validate_or_fail(target)` | Raises `OutOfScopeError` if not in scope (strict mode) |
-| `validator.is_wildcard_scope(domain)` | True if `*.domain` is in scope |
+| `validator.is_wildcard_scope(domain)` | Valid declared wildcard root not wholly excluded; not a per-target authorization |
 | `validator.add_domain(domain)` | Manually add a domain/pattern to scope |
 | `validator.get_domains()` | List all in-scope base domains |
 | `scope_from_campaign(state)` | Build validator from a campaign.json state dict |

@@ -10,9 +10,7 @@ def test_audit_skill_is_routed_from_entry_and_registry() -> None:
     entry = (ROOT / "agents/index.md").read_text(encoding="utf-8")
     registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
     assert "name: agent-audit" in text
-    guidance = (ROOT / "skills/data-store-guidance/SKILL.md").read_text(encoding="utf-8")
     assert "/data-store-guidance" in entry
-    assert "`/agent-audit` owns" in guidance
     assert "skills/agent-audit/SKILL.md" in registry
     assert "no standalone runner" in registry
 

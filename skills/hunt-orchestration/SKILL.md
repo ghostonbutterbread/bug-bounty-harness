@@ -48,6 +48,11 @@ scope/account gate
 -> continue, pivot, prove an owned impact edge, or close with evidence
 ```
 
+For live application behavior, use `browser-session-policy` and `live-map` to
+connect the current browser/proxy flow with relevant JS, source, and stack
+clues. Follow a strong lead immediately; mapping proceeds alongside the hunt,
+not as a complete-map prerequisite. Explicitly offline work remains offline.
+
 Keep the primary context to its current flow, active hypothesis, concrete
 MapStore slice, and compact sidecar decisions. Do not preload whole source
 trees, broad proxy histories, old findings, or campaign transcripts.

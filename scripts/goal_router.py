@@ -156,7 +156,9 @@ def build_plan(*, program: str, objective: str, url: str | None = None, vulnerab
         "checkpoint_contract": (
             "At a goal pivot and before a negative stop, read the class/lane Coverage brief "
             "and source-attributed surface inventory; choose deepen, explore, map, unblock, "
-            "or bounded-stop with named residuals. The parent owns this decision in solo "
+            "or bounded-stop with named residuals. Before a vulnerability-hunt stop, ask "
+            "whether unexamined surface would still move the objective and load the owning "
+            "skill named in the completion contract. The parent owns this decision in solo "
             "and coordinated runs. A bounded stop is not goal completion."
         ),
         "research_contract": [
@@ -200,15 +202,25 @@ def opening_contract(mode: str) -> list[str]:
     return contracts[mode]
 
 
+HUNT_DONE_SURFACE = [
+    "Before treating a vulnerability-hunt goal as done, ask whether unexamined surface would still move this objective.",
+    "Load the owning skill rather than running a new sweep: surface-expansion for another consumer, API, parameter, or JavaScript corpus; live-map when the runtime map is thin; technology-research when an observed component could change the next decision; bypass when a filter, parser, or access control stopped the path, or waf when that skill's trigger applies; access-control or assumption-testing when an auth, role, or client-claimed rule the goal could depend on is untested.",
+    "If none of those questions would change the next action, say why. Only verified fulfillment completes the goal; otherwise record a bounded stop with the residual and wake condition. Do not interrupt a warm or hot chain, and do not reopen a locally exhausted lane without a new wake condition.",
+]
+
+
 def completion_contract(mode: str) -> list[str]:
-    if mode != "broad-program":
-        return []
-    return [
-        "Before a broad negative or exhaustion conclusion, ask: is there more to map?",
-        "Reconcile unvisited or unexercised normal UI/browser behavior, relevant client or JavaScript capabilities, authorized task-MITM feature traffic, available role/auth states, and material consumer families.",
-        "Record unavailable UI, missing access, failed auth recovery, or absent authorized task-MITM traffic as coverage gaps, not evidence of exhaustion.",
-        "This reconciliation does not reopen a locally exhausted lane without a new wake condition or interrupt a warm/hot chain.",
-    ]
+    if mode == "broad-program":
+        return [
+            "Before a broad negative or exhaustion conclusion, ask: is there more to map?",
+            "Reconcile unvisited or unexercised normal UI/browser behavior, relevant client or JavaScript capabilities, authorized task-MITM feature traffic, available role/auth states, and material consumer families.",
+            "Record unavailable UI, missing access, failed auth recovery, or absent authorized task-MITM traffic as coverage gaps, not evidence of exhaustion.",
+            "This reconciliation does not reopen a locally exhausted lane without a new wake condition or interrupt a warm/hot chain.",
+            *HUNT_DONE_SURFACE,
+        ]
+    if mode in {"focused-surface", "continuation"}:
+        return list(HUNT_DONE_SURFACE)
+    return []
 
 
 def initialize_run(plan: dict[str, Any], run_dir: Path, *, family: str | None = None,

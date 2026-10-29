@@ -9,7 +9,7 @@ Use before writing bug bounty artifacts, run outputs, downloaded corpora, large
 recon datasets, screenshots, proxy data, browser profiles, or durable findings
 state.
 
-For which store owns a record and how to find/link it, load
+For which store holds a record, load
 `/data-store-guidance`. This skill owns Shared vs mounted-artifact vs
 restricted-local vs scratch placement, not the store-ownership map.
 

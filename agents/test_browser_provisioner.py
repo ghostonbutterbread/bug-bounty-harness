@@ -391,19 +391,29 @@ def test_capacity_rejection_never_leases_or_starts_a_browser(monkeypatch, tmp_pa
 
 
 def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile(monkeypatch, tmp_path):
-    m = load(monkeypatch, tmp_path); calls=[]; release_args=[]
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], [])); monkeypatch.setattr(m, "admission", lambda *_: {"status":"admitted"})
+    args = start_args(); args.account = 'anon'
+    acquired = {}
     def fake_lease(_, action, *rest):
-        calls.append(action)
-        if action == "release":
-            release_args.extend(rest)
-        return {"status":"leased","lease":{"lease_id":"l","account_alias":"fixture","auth_domain":"legacy-global","profile_dir":str(tmp_path / "artifacts/demo/web/browser-profiles/legacy-global/fixture")}} if action == "acquire" else {"status":"released"}
+        assert action == 'acquire'
+        acquired.update(profiles.cmd_acquire(argparse.Namespace(
+            program='demo', account='anon', auth_domain=None, agent_id='agent',
+            run_id='run', purpose='test', ttl_seconds=60, state_dir=str(m.STATE.parent),
+            recover_profile=False, manager_id=m.manager_id())))
+        return acquired
     monkeypatch.setattr(m, "lease", fake_lease)
+    monkeypatch.setattr(m, 'stop_unit', lambda _: None)
+    monkeypatch.setattr(m, 'unit_inactive', lambda _: True)
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=1, stderr="systemd denied", stdout=""))
-    try: m.start(start_args())
+    try: m.start(args)
     except SystemExit as e: assert e.code == 2
-    assert calls == ["acquire", "release"]
-    assert release_args[release_args.index("--profile-health") + 1] == "healthy"
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        released = leases.execute('SELECT status,profile_health FROM browser_profile_leases WHERE lease_id=?',
+                                  (acquired['lease']['lease_id'],)).fetchone()
+        assert tuple(released) == ('released', 'healthy')
 
 
 def proxy_fixture(m, args, root):
@@ -731,7 +741,9 @@ def test_reap_does_not_reconcile_active_interrupted_browser(monkeypatch, tmp_pat
     monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("must not stop a unit"))
     with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
     assert exc.value.code == 0
-    assert json.loads(capsys.readouterr().out)["proxy_recovered"] == []
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_recovered"] == []
+    assert result["proxy_blocked"] == {"browser-not-released": 1}
     assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
     assert m.proxy_row(c, args)["state"] == "starting"
 
@@ -767,18 +779,60 @@ def test_idle_reaper_needs_terminal_owner_quiet_flow_and_no_clients(monkeypatch,
     monkeypatch.setattr(m, "port_open", lambda _: False)
     with pytest.raises(SystemExit): m.reap(argparse.Namespace())
     assert m.proxy_row(c, args)
-    capsys.readouterr()
+    assert json.loads(capsys.readouterr().out)["proxy_blocked"] == {"task-owner-not-terminal": 1}
     monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
     monkeypatch.setattr(m, "replay_clients_absent", lambda _: False)
     with pytest.raises(SystemExit): m.reap(argparse.Namespace())
     assert m.proxy_row(c, args)
-    capsys.readouterr()
+    assert json.loads(capsys.readouterr().out)["proxy_blocked"] == {"flow-or-replay-not-quiet": 1}
     monkeypatch.setattr(m, "replay_clients_absent", lambda _: True)
     monkeypatch.setattr(m, "unit_active", lambda _: False)
     with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
     assert exc.value.code == 0
     assert json.loads(capsys.readouterr().out)["proxy_recovered"] == [["agent", "run"]]
     assert m.proxy_row(c, args) is None
+
+def test_task_proxy_refuses_owner_pid_reuse_before_reservation(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.owner_pid = 123
+    args._owner_identity = {"pid": 123, "start": "old"}
+    monkeypatch.setattr(m, "process_identity", lambda _: {"pid": 123, "start": "new"})
+    monkeypatch.setattr(m, "port_open", lambda _: pytest.fail("no port allocation"))
+    with pytest.raises(SystemExit) as exc:
+        m.start_proxy(m.db(), args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "owner-unavailable"
+    assert m.db().execute("select count(*) from task_proxies").fetchone()[0] == 0
+
+
+def test_reap_reports_unowned_old_proxy_without_stopping_it(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set updated=?,owner=NULL", (time.time() - 9000,)); c.commit()
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("no owner proof"))
+    with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_blocked"] == {"task-owner-unrecorded": 1}
+    assert result["proxy_recovered"] == []
+    assert m.proxy_row(c, args)["state"] == "running"
+
+def test_reap_reports_failed_eligible_proxy_finish(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set updated=?,owner=?",
+              (time.time() - 9000, json.dumps({"pid": 123}))); c.commit()
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
+    monkeypatch.setattr(m, "proxy_quiet", lambda _: True)
+    monkeypatch.setattr(m, "finish_proxy", lambda *_a, **_k: m.emit({"status": "proxy-stop-failed", "detail": "private"}, 2))
+    with pytest.raises(SystemExit): m.reap(argparse.Namespace())
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_blocked"] == {"proxy-stop-failed": 1}
+    assert "private" not in json.dumps(result)
+    assert m.proxy_row(c, args)["state"] == "running"
 
 def test_task_reuse_rejects_rotated_ca_and_replaced_unit(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path); args = start_args(); args.proxy = "mitm"; args.proxy_cert_mode = "import"
@@ -832,8 +886,10 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
     flow = Path(m.proxy_metadata(m.proxy_row(c, args))["flow_file"])
     fixture = (
         "from mitmproxy import connection, http, io; import sys; "
-        "f=http.HTTPFlow(connection.Client(('127.0.0.1',12345),"
-        "('127.0.0.1',8081),1.0), connection.Server(('example.test',443))); "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',12345),"
+        "sockname=('127.0.0.1',8081),timestamp_start=1.0), "
+        "connection.Server(peername=('example.test',443),"
+        "address=('example.test',443))); "
         "f.request=http.Request.make('GET','https://example.test/check'); "
         "o=open(sys.argv[1],'wb'); io.FlowWriter(o).add(f); o.close()"
     )

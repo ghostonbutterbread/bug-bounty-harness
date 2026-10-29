@@ -30,8 +30,7 @@ is selected, the normal published scope and AI Policies gates below still apply.
    helper. Program-only maintained helpers are indexed in the resolved program
    lane, not the BBH launcher.
    Load `/data-store-guidance` early, before choosing persistent reads or writes;
-   it is the canonical store-ownership map and evidence-navigation workflow,
-   not an instruction to preload every store.
+   it is the store-ownership map: what each store holds and its owning skill.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.
@@ -40,9 +39,11 @@ is selected, the normal published scope and AI Policies gates below still apply.
    Behavior query as an optional orientation map rather than rediscovering
    known input-to-consumer edges from scratch. Verify relevant edges live and
    explore beyond the map; absence means unknown, not safe. Do not preload
-   broad prior leads, findings, or peer theory queues. When mapping a
-   user-influenced value or workflow, consult `/live-map` for its consumer
-   question. Its runtime route map is distinct from MapStore's named, factual
+   broad prior leads, findings, or peer theory queues. For a live application
+   hunt, consult `/live-map` for class-neutral browser/proxy and source/stack
+   understanding of the relevant flow; use each view to inform the next. Do not
+   wait for a complete map before following a strong lead, and keep explicitly
+   offline work offline. Its runtime route map is distinct from MapStore's named, factual
    Application Behaviors; create/update a Behavior only from concrete URL
    observations through `/map-store`. Keep class-specific testing and lineage
    with the specialist lane.
@@ -62,9 +63,8 @@ is selected, the normal published scope and AI Policies gates below still apply.
    For an observed open-source component, version, and reachable feature, load
    `/vulnerability-patch-research` for concurrent CVE/diff research and its
    detailed disposable-local-proof reference.
-5. Use `/data-store-guidance` to select the existing owner, resolve its lane and
-   owning host, and follow evidence links. Detailed reads/writes and lifecycle
-   rules stay with that owner; do not create a competing ledger or artifact index.
+5. `/data-store-guidance` describes store purposes; operational details stay with
+   each store's owning skill.
 6. For shared evidence, storage, projections, or secret-reference work, read
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has

@@ -48,7 +48,9 @@ before retrying `notify`, which can duplicate an ambiguous delivery.
 See [`scripts/README.md`](../scripts/README.md) for its mutation boundary.
 
 `bbh --root` prints the selected checkout. `bbh --print-command <path>` prints
-the resolved executable without running it.
+the resolved path of an existing repository-owned file without running it; this
+diagnostic may resolve non-executable files such as a playbook. It does not
+assert that the path is executable.
 
 ## Adding a runnable BBH skill
 
@@ -56,8 +58,9 @@ the resolved executable without running it.
    `bbh <repository-relative-script-path> ...`.
 2. Do not add a launcher registry entry, absolute checkout path, or
    `the active BBH checkout` fallback.
-3. Use normal relative links for skill-local reference files; `bbh` is only for
-   executable files owned by this repository.
+3. Use normal relative links for skill-local reference files. Normal `bbh`
+   dispatch runs only supported repository-owned executables; use the read-only
+   `--print-command` diagnostic to locate another repository-owned file.
 
 Reference-only skills need no command entry.
 
@@ -71,3 +74,30 @@ must resolve to the stable checkout. The command is then identical in both
 lanes.
 
 `HARNESS_SHARED_BASE` remains the resolver for external shared program data.
+
+## Dependency drift warning
+
+The launcher compares the manifest's modification time with its checkout-local
+environment as a screen, not proof of dependency drift. A fresh checkout or a
+restored environment may trigger it even if revisions match. For the pinned
+Bounty Core revision, compare the manifest with the installed VCS commit:
+
+```bash
+root="$(bbh --root)"
+"$root/.venv/bin/python" -c 'import importlib.metadata as m,json; d=m.distribution("bounty-core"); u=json.loads(d.read_text("direct_url.json")); print(u.get("vcs_info",{}).get("commit_id","unknown"))'
+```
+
+Read `requirements.txt` in that same root and compare its pinned revision.
+An absent distribution or missing VCS metadata needs investigation rather than
+being treated as a match. A matching Bounty Core revision does not establish
+that every other dependency matches; compare the relevant installed packages
+with the manifest too. If the actual environment is mismatched, run the
+checkout's documented installer from that root:
+
+```bash
+(cd "$(bbh --root)" && ./setup.sh --install-python-deps)
+```
+
+The mtime warning may persist after comparison because it does not record
+verification. `BBH_SKIP_DEP_CHECK=1` suppresses this screen for an individual
+invocation; it is not proof that the environment is current.

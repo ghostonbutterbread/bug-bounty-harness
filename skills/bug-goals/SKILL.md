@@ -97,6 +97,39 @@ for a “find vulnerability” objective. Only independently verified fulfillmen
 of the stated objective merits goal completion. This BBH helper does not
 intercept the external goal runner's completion operation.
 
+## Before calling a hunt goal done
+
+This is an explicit behavioral requirement for a vulnerability-hunt `/goal`.
+Agents were treating a finished current path as a finished objective, so a
+stop never asked whether other surface would still serve the goal. The
+question is guidance for the next skill, not a sweep and not a second checklist.
+
+Before treating a vulnerability-hunt goal as done, ask whether unexamined surface would still move this objective.
+That question also applies before a negative exhaustion stop. A strong current
+signal still comes first. Do not leave a warm or hot chain to satisfy the question.
+
+Answer by loading the skill that owns the missing question:
+
+- Another consumer, API operation, parameter, or JavaScript corpus might still
+  serve the goal → `surface-expansion`.
+- The runtime map is thin or an owned flow was never exercised → `live-map`.
+- An observed component could change the next decision → `technology-research`.
+- A filter, parser, or access control is why the current path stopped →
+  `bypass`, or `waf` when that skill's trigger applies. That is the creative
+  question: a distinct mechanism, not a second idea list.
+- An auth or role state the goal could depend on is untested → `access-control`.
+  A client or UI claim whose server enforcement is unproven → `assumption-testing`.
+
+If none of those questions would change the next action, say why. Only verified
+fulfillment completes the goal; otherwise record a bounded stop with the residual
+and wake condition. Do not reopen a locally exhausted lane without a new wake
+condition.
+
+The goal router's completion contract carries this question for broad, focused,
+and continuation hunts. Technology-review and revalidation goals do not get it:
+a technology question stays on the observed component, and a retest stays on the
+prior issue.
+
 ## Goal modes
 
 ### Broad program
@@ -123,7 +156,9 @@ client/JS capabilities, authorized task-MITM feature traffic, available
 role/auth states, and material consumer families. Record unavailable UI, missing
 access, failed auth recovery, or absent authorized MITM traffic as coverage gaps,
 not evidence of exhaustion. This reconciliation does not reopen a locally
-exhausted lane without a new wake condition.
+exhausted lane without a new wake condition. When an unvisited family might
+still move the goal, choose the owning skill in **Before calling a hunt goal
+done** rather than treating the family as exhaustion.
 
 ### Focused surface
 
@@ -226,3 +261,14 @@ next discriminator.
 - Keep exact attempts/evidence in the appropriate program artifact lane.
 
 Do not create a competing permanent knowledge store from the goal state.
+
+## Related skills
+
+- If a hunt goal is about to be called done and another consumer, API, parameter,
+  or JavaScript corpus might still serve it, load `surface-expansion`.
+- If the runtime map is thin, load `live-map`.
+- If an observed component could change the next decision, load `technology-research`.
+- If a filter, parser, or access control stopped the path, load `bypass`; if the
+  obstacle is a WAF or payload filter, load `waf`.
+- If an auth or role state is untested, load `access-control`. If a client claim's
+  server enforcement is unproven, load `assumption-testing`.

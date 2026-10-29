@@ -386,9 +386,9 @@ def test_reports_are_passive_and_stale_release_status_is_honest(tmp_path):
     report.manager_id = "manager"
     report.disposition = "completed"
     report.profile_health = "healthy"
-    released = profiles.cmd_release(report)["lease"]
-    assert released["browser_status"] == "stopped"
-    assert released["cdp_url"] is None and released["service_unit"] is None
+    assert profiles.cmd_release(report)["status"] == "managed-by-provisioner"
+    with profiles.connect(tmp_path / "browser_profile_leases.sqlite") as c:
+        assert c.execute("SELECT status FROM browser_profile_leases WHERE lease_id=?", (one["lease_id"],)).fetchone()[0] == "active"
 
 
 @pytest.mark.parametrize("key", ["../other", "UPPER", "with space", "/absolute", "x" * 65])
@@ -568,6 +568,24 @@ def test_cleanup_requires_exact_canonical_owner_identity(monkeypatch, tmp_path):
                        ("different-run", row["lease_id"]))
     assert not m.canonical_owner(row)
     assert m.cleanup_unused(c) == []
+
+
+def test_reap_reports_unowned_browser_without_releasing_it(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, None)
+    canonical_record(m, row)
+    Path(row["launch_file"]).write_text(json.dumps({"command": ["chromium", "--headless=new"]}))
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "activity_snapshot", lambda _: dict(idle_seconds=9000, inflight=0,
+        reserved_seconds=0, attached_clients=0))
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("no task terminal proof"))
+    with pytest.raises(SystemExit) as exc:
+        m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["browser_blocked"] == {"task-owner-not-terminal-or-unrecorded": 1}
+    assert result["idle_stopped"] == []
+    assert c.execute("select state from browsers where lease_id=?", (row["lease_id"],)).fetchone()[0] == "running"
 
 
 def test_request_performs_idle_cleanup_before_capacity(monkeypatch, tmp_path, capsys):

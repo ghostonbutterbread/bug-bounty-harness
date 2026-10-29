@@ -57,7 +57,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 
 | Skill | Command | Playbook |
 |-------|---------|----------|
-| **data-store-guidance** | Load early in bounty work, before persistent reads/writes | `skills/data-store-guidance/SKILL.md`; canonical store ownership and evidence navigation |
+| **data-store-guidance** | Load early in bounty work, before persistent reads/writes | `skills/data-store-guidance/SKILL.md`; store purposes and owning skills |
 | **bb-script-rules** | `/bb-script-rules` with the relevant BBH skill before a bug-bounty script investigates a target | `skills/bb-script-rules/SKILL.md`; interpretation of bug-bounty script output |
 | **upload-surface** | `/upload-surface {program} {file-flow}` | `skills/upload-surface/SKILL.md`; trace file lineage and route the observed consumer to a specialist; `/pfp` owns avatar orchestration |
 | **rce** | `/rce {program} {execution-question}` | `skills/rce/SKILL.md`; class entry for server-side execution chains |
@@ -69,6 +69,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |
 | **csp-bypass** | Load when CSP appears to block a plausible XSS path | `skills/csp-bypass/SKILL.md`; researched policy-analysis and trusted-script bypass mechanisms; route to the active XSS lane for source-to-sink proof |
 | **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
+| **cloudflare-xss** | Cloudflare observed during XSS work, with or without a WAF block | `skills/cloudflare-xss/SKILL.md`; single source-cited knowledge shelf, reached from XSS and WAF skills |
 | **xss-gtm** | Load with `/xss` when a controlled path selects a GTM ID or loads its script | `skills/xss-gtm/SKILL.md`; preconfigured XSS fixture, not GTM account management |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
 | **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |

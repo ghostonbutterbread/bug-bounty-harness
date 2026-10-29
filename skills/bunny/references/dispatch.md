@@ -1,9 +1,6 @@
 # Bunny team dispatch
 
-Spawn the subagents needed for the campaign and let them work. Use the current harness's ordinary subagent tools; do not build or require a harness-specific adapter. The role files in this skill's `agents/` directory are the workers'
-instructions. Give each worker its role, scoped task, applicable skills, and
-evidence destination. Do not substitute a generic implementation worker. In
-explicit offhand mode, use ordinary scoped workers under `bunny-offhand`; do not launch these collaborative role files or require a collaboration protocol.
+Spawn the subagents needed for the campaign and let them work. Use the current harness's ordinary subagent tools; do not build or require a harness-specific adapter. Give each worker its role, scoped task, applicable skills, and evidence destination. Have each worker read the canonical role file and applicable skills before acting. Role files are in the selected BBH checkout at `agents/bunny-<role>.md`; a role name alone is not the instructions. Do not substitute a generic implementation worker.
 
 ## Team communication
 

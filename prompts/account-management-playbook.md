@@ -134,6 +134,12 @@ spellings unless live traffic proves a second header exists.
 - `destructible`: `yes`, `no`, or `unknown`
 - `source`: where the value came from
 
+The `auth_session_mode`, `auth_refresh_source`, `auth_refresh_hint`,
+`auth_check_url`, and `auth_host_filter` fields are a projection of
+`auth-contract.md` in that program's scope directory, not a second narrative.
+When login is needed, write the file if missing, update it if a path is new,
+and set these fields in the same pass.
+
 ## Minimum Resource Fields
 
 - `type`: design, document, upload, workspace, team, order, invoice, profile, asset, etc.

@@ -2,9 +2,12 @@
 
 ## Separation of authority
 
-- Scope/testing policy: what is authorized to test.
+- Scope/testing policy: what is authorized to test. The one operational
+  login document is `auth-contract.md` in that program's scope directory
+  (`program-testing-policy`); load it when login is needed.
 - Account-management and browser owner: current non-secret login/handoff
-  instructions; an `auth-policy.json` loader is not implemented by the resolver.
+  instructions and inventory projection of that contract; an `auth-policy.json`
+  loader is not implemented by the resolver.
 - Account registry: exact owned aliases, lifecycle, capabilities, lease
   eligibility, and opaque Bitwarden/Gmail references.
 - Secret systems and live browser: passwords, OTPs, magic links, cookies, and

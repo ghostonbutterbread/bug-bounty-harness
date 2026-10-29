@@ -27,12 +27,12 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 
 ## Implemented behavior and tests
 
-- Pi package exports the four canonical role files; `advertise: true` enables native discovery. No alternate role copies per harness.
-- Native role/skill dispatch reference is linked from the router and collaborative mode. Restricted Pi parents must preserve extension coordination tools in their `--tools` allowlist.
+- Current branch uses the canonical root-owned role files, with short harness-neutral team dispatch guidance; the earlier Pi package manifest and launch-specific reference were removed by `339c48f`. Historical Stage 1–5 Pi receipts below still describe the older candidate, not the current branch.
+- The router and collaborative mode link the team dispatch reference. A worker must read its canonical role and applicable skills before acting; verifier and reporter are conditional.
 - Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
 - Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
-- Focused source tests: 22 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, investigative acceptance, continuity, and terse blunt challenges.
-- Latest broad run: 373 passed, 1 skipped, 3 failed, with 196 subtests passed. All three failures reproduced on unchanged base using the same interpreter: stack-to-program index missing Outputs/Mutates; direct-checkout example rejected by lane-safety; upload-surface expects obsolete wording. No unrelated source was repaired or excluded-and-called-green.
+- Historical source tests before simplification: 22 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, investigative acceptance, continuity, and terse blunt challenges. These assertions describe that earlier candidate, not the current change.
+- After reconciling `origin/beta` at `dc0661b3cab1db8d5df08b57411c63537975642b`, the interim merged tree ran `PYTHONPATH="$PWD" .venv/bin/python -m pytest tests/ -q --tb=short --show-capture=no`: 410 passed, 1 skipped, 231 subtests passed. Subsequent focused review fixes added two contract tests; their RED and GREEN are separate from this earlier broad receipt. The full suite must be rerun on the final tree.
 - Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
 ## Stage 1 receipts

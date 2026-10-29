@@ -13,6 +13,11 @@ payload is evidence about a boundary, not a verdict on a plausible XSS path.
 
 ## Entry and lane selection
 
+For a live XSS investigation, `live-map` helps understand the relevant feature
+and connect browser/proxy observations with available JS or source evidence.
+Explore a strong source or sink immediately; a full map or inventory is not a
+prerequisite. XSS lanes still own the vulnerability investigation and proof.
+
 Read `general-security-testing-policy` and `live-testing-policy` before live
 action. For a new hunt, use the former's
 `references/opening-and-knowledge.md` for scope and cold-start guidance rather
@@ -54,6 +59,7 @@ and a reflected value may become dangerous only after client-side parsing.
 
 | Evidence or decision | Load |
 | --- | --- |
+| Cloudflare is observed while investigating XSS, with or without a WAF block | `cloudflare-xss` for Cloudflare-specific knowledge and ideas |
 | Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
 | Need to discover named inputs and render sites on a live route or the observed stack | `references/source-acquisition.md`; if JS evidence is the chosen lens, use `js` for paired source/sink review. Use `browser-session-policy` for browser-mediated flows. A known strong path need not wait for a census. |
 | A plausible sink/renderer is known but its claimed consumer does not mount, or a vector is about to be parked as gated | `references/consumer-reach.md` to distinguish reachability from defense and policy stops; load `assumption-testing` for a UI/client prerequisite claim |

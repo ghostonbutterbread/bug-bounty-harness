@@ -1,30 +1,19 @@
 """Discovery contracts for the canonical Bunny roles (no model calls)."""
-import json
 from pathlib import Path
-
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_pi_package_exports_the_existing_role_definitions():
-    manifest = ROOT / "skills/bunny/package.json"
-    if not manifest.exists():
-        return
-    package = json.loads(manifest.read_text())
-    roots = package["pi"]["subagents"]["agents"]
-    assert roots == ["./agents"]
-    roles = {}
-    for directory in roots:
-        for path in (manifest.parent / directory).glob("*.md"):
-            _, header, body = path.read_text().split("---", 2)
-            metadata = yaml.safe_load(header)
-            roles[metadata["name"]] = (metadata, body)
-    assert set(roles) == {"bunny-hunter", "bunny-recon", "bunny-verifier", "bunny-reporter"}
-    for metadata, body in roles.values():
-        assert metadata.get("advertise") is True
-        assert "bunny-collaborative" in body
-        assert "Do not allocate other workers" in body
+def test_role_instructions_are_read_before_workers_act():
+    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    assert "read the canonical role file" in text
+    assert "before acting" in text
+
+
+def test_verifier_and_reporter_are_spawned_only_when_needed():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    assert "`bunny-verifier` for a credible candidate" in text
+    assert "`bunny-reporter` after verified evidence" in text
 
 
 def test_router_loads_the_team_dispatch_contract():
@@ -48,7 +37,7 @@ def test_router_loads_the_team_dispatch_contract():
 
 
 def test_dispatch_does_not_load_collaborative_roles_for_offhand_workers():
-    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    text = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().lower().split())
     assert "explicit offhand" in text
     assert "ordinary scoped workers" in text
     assert "do not launch these collaborative role files" in text

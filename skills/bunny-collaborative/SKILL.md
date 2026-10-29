@@ -17,7 +17,7 @@ When Bunny is invoked with the explicit `multi` parameter (with or without `/goa
 
 ## Coordinator and worker contract
 
-Use the current harness's ordinary subagent tools. Follow [team dispatch](../bunny/references/dispatch.md): spawn `bunny-recon`, `bunny-hunter`, `bunny-verifier`, and `bunny-reporter` with their role instructions and scoped packets. Use the interactive worker route in `bunny` when the selected worker model requires it. Do not substitute a generic implementation worker, and do not use approval-bypassing one-shot for live work.
+Use the current harness's ordinary subagent tools. Follow [team dispatch](../bunny/references/dispatch.md): spawn `bunny-recon` and `bunny-hunter` with their role instructions and scoped packets. Spawn `bunny-verifier` for a credible candidate and `bunny-reporter` after verified evidence is ready for reporting. Use the interactive worker route in `bunny` when the selected worker model requires it. Do not substitute a generic implementation worker, and do not use approval-bypassing one-shot for live work.
 
 For an interactive CLI worker, send one bounded turn at a time through the same owned PTY, read its checkpoint and run status, choose the next decision, then send the next steer there—not `delegate_task` steer/stop, which cannot control that process. A pending approval is a pause for the operator through that worker's approval channel; do not auto-approve, bypass it, or count silence as a checkpoint. Track each process ID and confirmed exit alongside native subagent IDs in the campaign record; if the PTY is lost, account for the still-running worker before admitting another or re-leasing its surface.
 

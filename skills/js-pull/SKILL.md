@@ -6,8 +6,10 @@ description: Use when collecting, deduplicating, and packetizing scoped JavaScri
 # JavaScript Pull
 
 This skill owns the **existing** JavaScript acquisition path, not the security
-interpretation. Run it for an explicit collection request or as the prerequisite
-when `/js-hunt` has no suitable current inventory. The canonical detail is in
+interpretation. Run it for an explicit collection request or permitted broader
+collection when useful, not as a prerequisite to tracing a strong lead or local
+artifact. Explicitly offline analysis has no network collection; inspect existing
+material and report missing artifacts instead. The canonical detail is in
 `prompts/js-playbook.md` (inventory, source maps, provenance, scope, and artifact
 contracts); do not create a second downloader or copy bundles into prompts.
 

@@ -675,6 +675,19 @@ def test_lease_acquire_skips_active_port_and_release_frees_it(tmp_path):
     assert third["lease"]["proxy_port"] == 8081
 
 
+def test_query_help_displays_literal_sql_like_patterns_without_opening_db(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/proxy_store.py"
+    db = tmp_path / "unused.sqlite"
+    result = subprocess.run(
+        [sys.executable, str(script), "--db", str(db), "query", "--help"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "%.example.com" in result.stdout
+    assert "/api/%" in result.stdout
+    assert not db.exists()
+
+
 def test_query_filters_account_and_run_attribution(tmp_path):
     module = load_proxy_store()
     db = tmp_path / "proxy.sqlite"

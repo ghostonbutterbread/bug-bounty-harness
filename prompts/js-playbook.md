@@ -276,10 +276,11 @@ Use the DB for lookup questions:
   integration flows?
 - which proxy request IDs or endpoint contracts are near this script?
 
-Keep citations and durable handoffs tied to the JSONL row, manifest, packet
-path, source JS URL, SHA256, and any sanitized proxy/analyze-endpoint artifact.
-If the SQLite schema changes, rebuild it from `_library/provenance.jsonl`; do
-not treat DB-only rows as durable evidence.
+Cite the available evidence in durable handoffs: local file/function or packet,
+JSONL row, manifest, source JS URL, SHA256, and sanitized proxy/analyze-endpoint
+artifact where present. Mark missing provenance and records as gaps; do not
+invent them. If the SQLite schema changes and provenance is available, rebuild it
+from `_library/provenance.jsonl`; do not treat DB-only rows as durable evidence.
 
 When a deep-review worker selects a packet, it should first ask:
 
@@ -503,8 +504,9 @@ Start review from `source_map_modules.jsonl` and `source_map_packets/`; do not
 paste raw maps into an agent prompt. Check `modules_with_content`,
 `embedded_source_recovered`, packet counts and budget omissions separately.
 
-After a worker reviews packets, write its pre-finding conclusions as JSONL and
-index them:
+After a worker reviews packets, preserve its cited pre-finding conclusions.
+When the required observation records exist, write JSONL and index them; otherwise
+retain the local handoff and report missing records without inventing them:
 
 ```bash
 bbh agents/js_analyzer.py observe canva \
@@ -640,9 +642,10 @@ Review goals per packet:
 - Are referenced third-party integrations evidence of a Canva-owned connect,
   callback, import, or app-install flow? Treat third-party URLs as context, not
   test targets, unless the program scope explicitly includes them.
-- If a suspicious function is only partly visible in one chunk, use
-  `packets.jsonl` and the chunk-set manifest to inspect adjacent chunks from the
-  same file hash before finalizing the review.
+- If a suspicious function is only partly visible in one chunk, inspect related
+  content from the same file when adjacent chunks and their indexes are available.
+  Otherwise preserve the partial trace and identify the missing continuation as
+  a gap; do not claim the function was fully reviewed.
 - If the JavaScript reads hidden or non-rendered page state, compare it with the
   actual page HTML/source during follow-up. Hidden inputs, hydration scripts,
   JSON blobs, `data-*` attributes, disabled controls, feature flags, and
@@ -790,8 +793,9 @@ bbh agents/url_ingest.py mark canva \
   --evidence "/mnt/bounty/canva/web/recon/js/<run-id>/manifest.json"
 ```
 
-After agent deep review, mark the JS URL or route as `deep_reviewed` for
-`--skill js --test-family js-deep-review`.
+After agent deep review, when a real JS URL or route and coverage records exist,
+mark it `deep_reviewed` for `--skill js --test-family js-deep-review`. Otherwise
+report exact local coverage and missing records without inventing a URL or mark.
 
 Use `/bounty-notes` for durable summaries and handoffs when review produces
 learning that future agents need.

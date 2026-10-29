@@ -88,6 +88,17 @@ def test_partial_inventory_route_uses_available_artifacts_across_documents():
     assert "exact local packet/provenance paths" not in playbook
 
 
+def test_partial_evidence_conditions_apply_to_entire_js_playbook():
+    playbook = text("prompts/js-playbook.md")
+    assert "cite the available evidence" in playbook
+    assert "when the required observation records exist" in playbook
+    assert "when adjacent chunks and their indexes are available" in playbook
+    assert "preserve the partial trace" in playbook
+    assert "when a real js url or route and coverage records exist" in playbook
+    assert "keep citations and durable handoffs tied to the jsonl row, manifest" not in playbook
+    assert "after a worker reviews packets, write its pre-finding conclusions as jsonl and index them" not in playbook
+
+
 def test_local_file_handoff_is_not_inventory_dependent():
     hunt = text("skills/js-hunt/SKILL.md")
     assert "standalone local" in hunt

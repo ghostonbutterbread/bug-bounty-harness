@@ -377,6 +377,20 @@ def test_absent_optional_scope_is_empty_and_allows_fallback(tmp_path: Path) -> N
     assert ScopeValidator("synthetic").is_in_scope("example.test")
 
 
+def test_dangling_canonical_directory_does_not_fall_back(tmp_path: Path) -> None:
+    from agents.scope_validator import ScopeAllowReadError
+
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.parent.mkdir(parents=True)
+    canonical.symlink_to(tmp_path / "missing", target_is_directory=True)
+    fallback = tmp_path / "legacy" / "synthetic" / "scope" / "in-scope.txt"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_text("*.example.test\n")
+    with pytest.raises(ScopeAllowReadError, match="in-scope.txt") as failure:
+        ScopeValidator("synthetic")
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+
+
 def test_absent_optional_scope_preserves_opt_in_unscoped(monkeypatch: pytest.MonkeyPatch) -> None:
     from agents import recon_ry
 
@@ -493,3 +507,142 @@ def test_partial_read_never_commits_entries(tmp_path: Path, monkeypatch: pytest.
     assert not validator._entries and not validator._out_of_scope
     with pytest.raises(ScopeFileReadError):
         validator.is_empty()
+
+
+@pytest.mark.parametrize("excluded", [False, True])
+def test_partial_parse_failure_poisoned_and_chained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excluded: bool) -> None:
+    from agents import scope_validator as module
+
+    validator = ScopeValidator("synthetic")
+    validator.add_domain("*.example.test")
+    path = tmp_path / "partial.txt"
+    path.write_text("first.example.test\nsecond.example.test\n")
+    original = module.optional_host_variants
+    cause = ValueError("synthetic parser failure")
+
+    def fail_second(value):
+        if value == "second.example.test":
+            raise cause
+        return original(value)
+
+    monkeypatch.setattr(module, "optional_host_variants", fail_second)
+    error_type = module.ScopeExclusionReadError if excluded else module.ScopeAllowReadError
+    with pytest.raises(error_type, match=r"parse.*partial.txt.*line 2") as failure:
+        validator.load_from_file(str(path), is_out_of_scope=excluded)
+    assert failure.value.__cause__ is cause
+    assert len(validator._entries) == 1
+    assert not validator._out_of_scope
+    assert not validator.is_in_scope("good.example.test")
+    with pytest.raises(error_type):
+        validator.is_empty()
+    with pytest.raises(error_type):
+        validator.get_domains()
+
+
+@pytest.mark.parametrize("groups", [9, 1050])
+def test_optional_exclusion_expansion_is_bounded_and_poisoned(tmp_path: Path, groups: int) -> None:
+    from agents.scope_validator import ScopeExclusionReadError
+
+    validator = ScopeValidator("synthetic")
+    validator.add_domain("*.example.test")
+    path = tmp_path / "deny.txt"
+    path.write_text("first.example.test\n" + "a" + "(-b)?" * groups + ".example.test\n")
+    with pytest.raises(ScopeExclusionReadError, match=r"parse.*deny.txt.*line 2") as failure:
+        validator.load_from_file(str(path), is_out_of_scope=True)
+    assert isinstance(failure.value.__cause__, ValueError)
+    assert "optional" in str(failure.value.__cause__).lower()
+    assert not validator._out_of_scope
+    assert not validator.is_in_scope("first.example.test")
+    assert not validator.is_in_scope("good.example.test")
+    with pytest.raises(ScopeExclusionReadError):
+        validator.is_empty()
+
+
+def test_failed_manual_exclusion_cannot_leave_earlier_allow_usable() -> None:
+    from agents.scope_validator import ScopeExclusionReadError
+
+    validator = ScopeValidator("synthetic")
+    validator.add_domain("*.example.test")
+    with pytest.raises(ScopeExclusionReadError, match="optional") as failure:
+        validator.add_domain("a" + "(-b)?" * 9 + ".example.test", is_out_of_scope=True)
+    assert isinstance(failure.value.__cause__, ValueError)
+    assert not validator.is_in_scope("good.example.test")
+    with pytest.raises(ScopeExclusionReadError):
+        validator.get_wildcards()
+
+
+@pytest.mark.parametrize("ancestor", ["scopes", "program"])
+def test_dangling_ancestor_is_not_absence(tmp_path: Path, ancestor: str) -> None:
+    from agents.scope_validator import ScopeAllowReadError
+
+    link = tmp_path / "scopes"
+    if ancestor == "program":
+        link.mkdir()
+        link /= "synthetic"
+    link.symlink_to(tmp_path / "missing", target_is_directory=True)
+    with pytest.raises(ScopeAllowReadError) as failure:
+        ScopeValidator("synthetic")
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+
+
+def test_valid_directory_symlink_with_missing_scope_allows_legacy(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    scopes = tmp_path / "scopes"
+    scopes.mkdir()
+    (scopes / "synthetic").symlink_to(actual, target_is_directory=True)
+    fallback = tmp_path / "legacy" / "synthetic" / "scope" / "in-scope.txt"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_text("example.test\n")
+    assert ScopeValidator("synthetic").is_in_scope("example.test")
+
+
+def test_optional_expansion_limits_and_ordinary_hosts(tmp_path: Path) -> None:
+    from agents.scope_seed_files import optional_host_variants
+    from agents.scope_validator import ScopeExclusionReadError
+
+    variants = optional_host_variants("a" + "(-b)?" * 8 + ".example.test")
+    assert len(variants) == 256
+    assert variants[0] == "a.example.test"
+    assert variants[-1] == "a" + "-b" * 8 + ".example.test"
+    validator = ScopeValidator("synthetic")
+    for entry in ("example.test", "192.0.2.0/24", "xn--bcher-kva.example", "api(-eu1)?.example.test"):
+        validator.add_domain(entry)
+    for target in ("example.test", "192.0.2.25", "xn--bcher-kva.example", "api.example.test", "api-eu1.example.test"):
+        assert validator.is_in_scope(target)
+    path = tmp_path / "long.txt"
+    path.write_text("a" * 4097 + "(-x)?.example.test\n")
+    with pytest.raises(ScopeExclusionReadError, match="4096") as failure:
+        validator.load_from_file(str(path), is_out_of_scope=True)
+    assert isinstance(failure.value.__cause__, ValueError)
+    assert not validator.is_in_scope("example.test")
+
+
+def test_optional_file_disappearing_during_read_cannot_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import builtins
+    from agents.scope_validator import ScopeAllowReadError
+
+    path = tmp_path / "scopes" / "synthetic" / "in-scope.txt"
+    path.parent.mkdir(parents=True)
+    path.write_text("placeholder\n")
+    fallback = tmp_path / "legacy" / "synthetic" / "scope" / "in-scope.txt"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_text("*.example.test\n")
+    original = builtins.open
+    cause = FileNotFoundError("synthetic interrupted read")
+
+    class InterruptedFile:
+        def __enter__(self):
+            path.unlink()
+            return self
+        def __exit__(self, *args):
+            return False
+        def __iter__(self):
+            yield "first.example.test\n"
+            raise cause
+
+    monkeypatch.setattr(builtins, "open", lambda candidate, *args, **kwargs:
+                        InterruptedFile() if Path(candidate) == path else original(candidate, *args, **kwargs))
+    with pytest.raises(ScopeAllowReadError) as failure:
+        ScopeValidator("synthetic")
+    assert failure.value.__cause__ is cause

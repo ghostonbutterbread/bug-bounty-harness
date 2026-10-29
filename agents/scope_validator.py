@@ -35,9 +35,17 @@ Scope files are loaded from standard locations:
 The first present allow file wins, including an empty one. Standard files that
 are genuinely absent are optional; an unreadable or undecodable selected file
 raises ScopeAllowReadError or ScopeExclusionReadError, both ScopeFileReadError
-and OSError subclasses, with a chained cause and path. Explicit load_from_file
-also raises on a missing file. A caught failure poisons that instance: scope
-checks refuse and is_empty() raises; reconstruct after correcting the file.
+and OSError subclasses, with a chained cause and path. Dangling ancestor links
+are not absence. Explicit load_from_file also raises on a missing file. Parse
+failures use the same typed classes, with path, line number and chained cause;
+manual additions identify the entry kind. Files commit entries only after full
+read and parse, not as a transaction across all files. A caught failure poisons
+that instance: scope checks refuse, and is_empty(), entry_count(), get_domains()
+and get_wildcards() raise; reconstruct after correcting the source.
+Optional host syntax expands at most eight groups (256 variants) and is limited
+to 4096 characters for host patterns containing '('. Over-limit inputs raise,
+including exclusions; they are never silently truncated or ignored. The shared
+seed helper raises ValueError directly. URL patterns are not expanded.
 Invalid allow authorities grant nothing; invalid exclusion authorities deny
 all targets. These entry semantics are distinct from a file-read exception.
 
@@ -62,6 +70,7 @@ Usage:
 import ipaddress
 import json
 import re
+import stat
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, urlsplit
@@ -83,7 +92,7 @@ class OutOfScopeError(Exception):
 
 
 class ScopeFileReadError(OSError):
-    """A scope file could not be inspected, read, or decoded."""
+    """A scope source could not be inspected, read, decoded, or parsed."""
 
 
 class ScopeAllowReadError(ScopeFileReadError):
@@ -350,10 +359,14 @@ class ScopeValidator:
 
     def _load_file(self, path: Path, is_out_of_scope: bool = False, *, optional: bool = False) -> bool:
         """Parse a scope file and add its entries."""
+        line_number = 0
+        opened = False
         try:
             entries = []
-            with open(path, encoding="utf-8") as f:
-                for line in f:
+            f = open(path, encoding="utf-8")
+            opened = True
+            with f as source:
+                for line_number, line in enumerate(source, 1):
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
@@ -367,11 +380,30 @@ class ScopeValidator:
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
             return True
         except FileNotFoundError as e:
-            if optional:
+            if optional and not opened:
                 try:
                     path.lstat()
                 except FileNotFoundError:
-                    return False
+                    # A missing leaf can conceal a dangling ancestor symlink.
+                    # Only genuine absence permits the legacy fallback.
+                    try:
+                        for ancestor in path.parents:
+                            try:
+                                info = ancestor.lstat()
+                            except FileNotFoundError:
+                                continue
+                            if stat.S_ISLNK(info.st_mode):
+                                ancestor.stat()
+                    except FileNotFoundError:
+                        pass  # report the original open error below
+                    except OSError as stat_error:
+                        kind = "exclusion" if is_out_of_scope else "allow"
+                        error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+                        error = error_type(f"could not inspect {kind} file {path}: {stat_error}")
+                        self._scope_file_load_error = error
+                        raise error from stat_error
+                    else:
+                        return False
                 except OSError as stat_error:
                     kind = "exclusion" if is_out_of_scope else "allow"
                     error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
@@ -389,21 +421,29 @@ class ScopeValidator:
             error = error_type(f"could not read {kind} file {path}: {e}")
             self._scope_file_load_error = error
             raise error from e
+        except Exception as e:
+            kind = "exclusion" if is_out_of_scope else "allow"
+            error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+            error = error_type(f"could not parse {kind} file {path} at line {line_number}: {e}")
+            self._scope_file_load_error = error
+            raise error from e
 
     def load_from_file(self, path: str, is_out_of_scope: bool = False) -> None:
-        """Load a file; a read failure poisons this validator and raises."""
+        """Load a file; read or parse failure poisons this validator and raises."""
         self._load_file(Path(path).expanduser(), is_out_of_scope=is_out_of_scope)
 
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
         """Manually add a domain or pattern to scope."""
-        for variant in optional_host_variants(domain.strip()):
-            entry = _ScopeEntry(variant)
-            if entry.entry_type == "comment":
-                continue
-            if is_out_of_scope:
-                self._out_of_scope.append(entry)
-            else:
-                self._entries.append(entry)
+        try:
+            entries = [_ScopeEntry(variant) for variant in optional_host_variants(domain.strip())]
+            entries = [entry for entry in entries if entry.entry_type != "comment"]
+            (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
+        except Exception as e:
+            kind = "exclusion" if is_out_of_scope else "allow"
+            error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+            error = error_type(f"could not parse manual {kind} entry: {e}")
+            self._scope_file_load_error = error
+            raise error from e
 
     def add_domains(self, domains: list[str], is_out_of_scope: bool = False) -> None:
         """Add multiple domains at once."""
@@ -562,6 +602,8 @@ class ScopeValidator:
 
     def scope_summary(self) -> str:
         """Return a short human-readable summary of in-scope entries."""
+        if getattr(self, "_scope_file_load_error", None):
+            return "(unusable scope: load failed)"
         if not self._entries:
             return "(no scope loaded)"
         entries = [e.raw for e in self._entries[:10]]
@@ -570,6 +612,7 @@ class ScopeValidator:
 
     def get_domains(self) -> list[str]:
         """Return all in-scope domain entries (exact + wildcard base domains)."""
+        self.is_empty()  # A caught load failure must not expose partial grants.
         domains = []
         for entry in self._entries:
             base = entry.base_domain
@@ -579,9 +622,11 @@ class ScopeValidator:
 
     def get_wildcards(self) -> list[str]:
         """Return all wildcard entries (raw form, e.g. '*.example.com')."""
+        self.is_empty()
         return [e.raw for e in self._entries if e.is_wildcard]
 
     def entry_count(self) -> int:
+        self.is_empty()
         return len(self._entries)
 
     def is_empty(self) -> bool:

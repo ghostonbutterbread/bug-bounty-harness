@@ -7,7 +7,7 @@
 - **Fetched base commit:** `52252b96c6d6eb9ebd44f81b9646e6be3ab4214b`
 - **Intended integration target:** `origin/beta` (parent controls integration)
 - **Last updated:** 2026-10-29
-- **Latest immutable recovery checkpoint:** base above; see subsequent handoff commit for test checkpoint
+- **Latest immutable recovery checkpoint:** `620e321526b2fb2dcf63ef81e55198f3e7ae4493` (red test and dossier; verify later dossier-only commits separately)
 - **Feature implementation commits:** none
 - **References:** BBH `AGENTS.md`; local Recon-Ry `6777eea`, `docs/defensive-maintenance.md` lines 18–42; separate validator fix `fix/scope-path-normalization` is outside this branch.
 

@@ -24,6 +24,7 @@ Projected parameter-mining skill names a repo-relative playbook but does not ide
 - Beta advanced to `6f34e62bcda278cba7d29d50916271f0b0c30171`; merged into feature `0c1e3a1c48b241d12981a2bb4a1132e9e6420141` and reran 43 tests successfully. `git diff --check` passed; independent reconciliation re-review pending.
 - Independent reviewer approved reconciled `1d665d36c61c0924b70b9b8c352b86f322d1471f` and passed 43 tests. Beta subsequently advanced to `379e8fcc1dfc89b967a4cc2b260a09b5c842efbb`; merged into `04eba39c4c6d6483250a5c4a8e758a44ca757a9b` without conflicts and reran 43 tests. Final reconciliation review remains.
 - Independent reviewer approved `77a6a63c7ccce060d3aaf09b72f1f5cbe0f94655`, rerunning 43 tests. Beta then advanced to `f8b3253fb4abebc4e1016728b6d82106be74deb3`; merged into `4b5dfc48ad8bae0fac579f7c2739d49c0bd07f48` without conflicts and reran 43 tests. Fresh reconciliation review remains.
+- Release gate reviewed `8c9079c`, passed 43 tests and found no code blocker, but stopped because `.venv/bin/python -m pip freeze` failed with `No module named pip`. Parent then used stdlib `importlib.metadata` `direct_url.json` and verified installed Bounty Core revision exactly equals the manifest's immutable pin `6c36ee88a60073e1b687ec32deeade24ffafdd4f`; no reinstall or environment modification. Independent final release gate must reproduce this pin comparison and verify the exact current feature tip.
 
 ## Blockers and deferred work
 
@@ -33,7 +34,7 @@ Independent re-review and integrated-tree checks are pending. Runtime projection
 
 - **Owning branch:** `fix/parameter-mining-playbook-path`.
 - **Checkpoint:** `4b5dfc48ad8bae0fac579f7c2739d49c0bd07f48`; review feature tip including this handoff update.
-- **Exact resume point:** independent review of focused diff and lane/negative tests; reconcile current beta; run integrated checks; verify active projection.
+- **Exact resume point:** independent release gate should use stdlib `importlib.metadata` to compare installed Bounty Core `direct_url.json` commit to the manifest pin (no pip is installed), then inspect current beta ancestry, rerun focused tests and integrate if all gates pass; verify active projection.
 - **Working tree:** intended clean after initial commit.
 
 ## Decision gates
@@ -49,3 +50,4 @@ Independent re-review and integrated-tree checks are pending. Runtime projection
 - 2026-10-28 — re-review approved, merged advanced beta and passed 43 tests; independent reconciliation review pending.
 - 2026-10-28 — reconciliation review approved, merged further advanced beta and reran 43 tests; final review pending.
 - 2026-10-28 — latest reconciliation review approved; merged advanced beta and reran 43 tests; fresh reconciliation review pending.
+- 2026-10-28 — release gate stopped on missing pip; parent verified installed VCS pin with standard-library metadata without changing the environment; independent final gate pending.

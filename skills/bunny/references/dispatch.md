@@ -20,5 +20,9 @@ Spawn the subagents needed for the campaign and let them work. Use the current h
   protocol.
 
 A worker's displayed name is not proof that it loaded its role and skills.
-Using the available worker transcript or tool-read evidence, confirm the worker loaded its canonical role and `bunny-collaborative` before any target action. If that cannot be confirmed, stop that worker before target action and resolve the missing read.
-The model, approval, scope, and rate gates in `bunny` still apply.
+Give it the canonical role and the selected checkout's `bunny-collaborative`
+paths; have it read both, report readiness, and wait for Bunny's go-ahead before
+any target action. Check the actual reads and applicable model/approval gates,
+then release it to work; if a read or route cannot be confirmed, resolve that
+first. If a completed worker cannot be resumed, continue in a bounded follow-up
+with its evidence rather than pretending it was steered in place.

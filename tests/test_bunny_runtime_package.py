@@ -12,9 +12,9 @@ def test_role_instructions_are_read_before_workers_act():
 
 def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
     text = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().split())
+    assert "selected checkout's `bunny-collaborative`" in text
+    assert "wait for Bunny's go-ahead" in text
     assert "before any target action" in text
-    assert "confirm the worker loaded its canonical role and `bunny-collaborative`" in text
-    assert "If that cannot be confirmed, stop that worker before target action" in text
 
 
 def test_verifier_and_reporter_are_spawned_only_when_needed():
@@ -82,7 +82,9 @@ def test_team_messages_are_direct_with_explicit_relay_fallback():
 def test_operations_and_evidence_ownership_stay_separate():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     assert "Coordinator-owned operational support" in text
-    assert "designated worker identity" in text
+    assert "share one team browser by default" in text
+    assert "one active controller at a time" in text
+    assert "another browser" in text
     assert "unrelated productive work" in text
     assert "Evidence authorship stays with the producer" in text
     assert "not an implicit surface-lease transfer" in text

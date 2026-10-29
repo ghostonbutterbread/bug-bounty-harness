@@ -32,9 +32,12 @@ The coordinator owns productive conditions: dependency ordering, resource
 placement, browser/proxy provisioning, login recovery, and collision resolution
 through the existing owning skills. A worker reports the concrete prerequisite
 and a non-secret identity alias; it does not become its own provisioning agent.
-Provision or recover under the designated worker identity, retain that identity
-for resume/cleanup, and return a private attachment/reference rather than raw
-credentials. A parent-owned endpoint is not automatically a child lease.
+For compatible work, share one team browser by default, with one active controller at a time.
+Bunny coordinates access through the existing lease/control mechanism; do not
+assume a parent-owned endpoint is automatically a child lease. If it is busy or
+a separate identity or concurrent work needs isolation, provision another browser
+under the appropriate identity. Keep ownership and cleanup explicit, and pass a
+private attachment/reference rather than raw credentials.
 
 Inspect a conflicting resource's owner before acting. Do not take over another
 worker's controller, account session, port, or live process; allocate an isolated

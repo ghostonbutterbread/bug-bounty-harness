@@ -5,7 +5,7 @@
 - **Branch/worktree:** `fix/bbh-dependency-drift-guidance`, `/home/ryushe/worktrees/bbh-dependency-drift-guidance`.
 - **Base:** `6f34e62bcda278cba7d29d50916271f0b0c30171` (`origin/beta`); target `beta`.
 - **Last updated:** 2026-10-28.
-- **Recovery checkpoint / implementation:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint / implementation:** `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`.
 - **Inspiration:** `PC-20261023-225539-746d33d4`; shared `coding-policy` dependency drift screen.
 
 ## Intent and implemented contract
@@ -26,7 +26,7 @@ Independent review, beta reconciliation, integrated tests and original runtime v
 ## Interruption / resume handoff
 
 - **Branch:** `fix/bbh-dependency-drift-guidance`.
-- **Recovery checkpoint:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint:** `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`.
 - **Exact resume:** independent release review, fetch beta, integrate only if reviewer accepts proportional improvement, then verify actual selected launcher and determine papercut disposition.
 - **Working tree:** intended clean after initial commit.
 

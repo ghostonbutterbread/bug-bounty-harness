@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `feat/android-hierarchy-output-safety`
-- **Latest immutable recovery checkpoint:** none yet; commit this dossier with the work
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `22d0ff5f1ef4e1111bcafed7082bc03718b3d310`
+- **Feature implementation commit(s):** `22d0ff5f1ef4e1111bcafed7082bc03718b3d310`
 - **Inspiration / canonical references:** PC-20260824-211007; `skills/android-adb/SKILL.md`; `AGENTS.md`; `agents/index.md`
 
 ## Intent
@@ -72,11 +72,11 @@ not claim an existing sanitizer or producer enforcement.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/android-hierarchy-output-safety`
-- **Latest immutable recovery checkpoint:** none yet; record after implementation commit
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `22d0ff5f1ef4e1111bcafed7082bc03718b3d310`
+- **Feature implementation commit(s):** `22d0ff5f1ef4e1111bcafed7082bc03718b3d310`
 - **Exact resume point:** inspect feature tip and dossier, run focused static tests,
   obtain independent review, then follow parent-owned beta integration gate.
-- **Working-tree state at handoff:** to be committed; no unrelated edits intended.
+- **Working-tree state at handoff:** clean after the dossier checkpoint commit.
 
 ## Decision gates
 

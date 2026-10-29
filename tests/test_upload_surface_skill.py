@@ -27,7 +27,9 @@ class UploadSurfaceSkillTests(unittest.TestCase):
         skill = SKILL.read_text(encoding="utf-8")
         for phrase in (
             "program-testing-policy", "resource-safety-policy", "public-forums",
-            "Before even a baseline upload", "An accepted file is not an RCE or XSS finding",
+            "Before a baseline upload", "An accepted file is not an RCE or XSS finding",
+            "Ordinary owned public rendering alone does not require `public-forums`",
+            "route direct-impact submissions there, including its approval and lease boundary",
             "only owned objects", "No high-volume upload", "original→stored/derived transformation",
         ):
             with self.subTest(phrase=phrase):

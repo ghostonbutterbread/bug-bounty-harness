@@ -5,7 +5,10 @@
 `/js` routes explicit acquisition to `/js-pull` and broad or focused review to
 `/js-hunt`. An unqualified "hunt the JavaScript" means the complete adaptive
 behavior-map -> prioritize -> deep-trace -> evidence-handoff workflow in
-`skills/js-hunt/SKILL.md`; if there is no suitable inventory, pull first.
+`skills/js-hunt/SKILL.md`. Trace a strong lead or available local artifact
+without waiting for inventory. For broader work, use `/js-pull` for scoped
+collection when permitted; explicitly offline work uses available artifacts
+without network collection and records missing material as a gap.
 `--focus endpoints|params|secrets|application-logic|dataflows` biases the same
 workflow rather than creating separate tools or claiming review of other areas.
 The existing acquisition and provenance mechanics below remain canonical.
@@ -122,8 +125,9 @@ General review order (the behavioral map and evidence rules live in `/js-hunt`):
    or dataflows for focused tracing. Reuse the three complementary review roles
    over bounded independent packets; the parent covers gaps without adding a
    worker per category.
-3. Each worker writes concise findings with source JS URL, SHA, packet path,
-   trace, controllability, provenance/proxy links, confidence, and next skill.
+3. Each worker cites its local file or packet and trace, controllability,
+   confidence, and next skill; include source JS URL, SHA and provenance/proxy
+   links when available, and identify missing evidence rather than invent it.
 4. The main agent merges results into dated notes/handoffs and routes only
    concrete, scoped follow-ups to the owning skills.
 
@@ -272,10 +276,11 @@ Use the DB for lookup questions:
   integration flows?
 - which proxy request IDs or endpoint contracts are near this script?
 
-Keep citations and durable handoffs tied to the JSONL row, manifest, packet
-path, source JS URL, SHA256, and any sanitized proxy/analyze-endpoint artifact.
-If the SQLite schema changes, rebuild it from `_library/provenance.jsonl`; do
-not treat DB-only rows as durable evidence.
+Cite the available evidence in durable handoffs: local file/function or packet,
+JSONL row, manifest, source JS URL, SHA256, and sanitized proxy/analyze-endpoint
+artifact where present. Mark missing provenance and records as gaps; do not
+invent them. If the SQLite schema changes and provenance is available, rebuild it
+from `_library/provenance.jsonl`; do not treat DB-only rows as durable evidence.
 
 When a deep-review worker selects a packet, it should first ask:
 
@@ -499,8 +504,9 @@ Start review from `source_map_modules.jsonl` and `source_map_packets/`; do not
 paste raw maps into an agent prompt. Check `modules_with_content`,
 `embedded_source_recovered`, packet counts and budget omissions separately.
 
-After a worker reviews packets, write its pre-finding conclusions as JSONL and
-index them:
+After a worker reviews packets, preserve its cited pre-finding conclusions.
+When the required observation records exist, write JSONL and index them; otherwise
+retain the local handoff and report missing records without inventing them:
 
 ```bash
 bbh agents/js_analyzer.py observe canva \
@@ -535,9 +541,10 @@ Use two first-wave task shapes:
   parsers, surprising trust assumptions, and state machines missed by named
   categories.
 
-Each child receives exact local packet/provenance paths, an offline-only
-boundary, a bounded output contract, and a requirement to cite packet paths and
-line/function evidence. Use the active CLI's native delegation facility and
+Each child receives exact local packet paths and provenance paths when available;
+mark missing provenance as a gap. Include an offline-only boundary, a bounded
+output contract, and a requirement to cite packet paths and line/function evidence.
+Use the active CLI's native delegation facility and
 prefer its current fast sibling for the parent model's generation during this
 high-volume pass. Resolve that choice through the CLI's native model selector or
 advertised model list; do not guess or encode a provider/model name in BBH. If
@@ -635,9 +642,10 @@ Review goals per packet:
 - Are referenced third-party integrations evidence of a Canva-owned connect,
   callback, import, or app-install flow? Treat third-party URLs as context, not
   test targets, unless the program scope explicitly includes them.
-- If a suspicious function is only partly visible in one chunk, use
-  `packets.jsonl` and the chunk-set manifest to inspect adjacent chunks from the
-  same file hash before finalizing the review.
+- If a suspicious function is only partly visible in one chunk, inspect related
+  content from the same file when adjacent chunks and their indexes are available.
+  Otherwise preserve the partial trace and identify the missing continuation as
+  a gap; do not claim the function was fully reviewed.
 - If the JavaScript reads hidden or non-rendered page state, compare it with the
   actual page HTML/source during follow-up. Hidden inputs, hydration scripts,
   JSON blobs, `data-*` attributes, disabled controls, feature flags, and
@@ -785,8 +793,9 @@ bbh agents/url_ingest.py mark canva \
   --evidence "/mnt/bounty/canva/web/recon/js/<run-id>/manifest.json"
 ```
 
-After agent deep review, mark the JS URL or route as `deep_reviewed` for
-`--skill js --test-family js-deep-review`.
+After agent deep review, when a real JS URL or route and coverage records exist,
+mark it `deep_reviewed` for `--skill js --test-family js-deep-review`. Otherwise
+report exact local coverage and missing records without inventing a URL or mark.
 
 Use `/bounty-notes` for durable summaries and handoffs when review produces
 learning that future agents need.
@@ -843,7 +852,12 @@ into Notes.
 
 ## Output Contract
 
-Every meaningful JS run should leave:
+For a completed inventory run, the output artifacts include the following when
+produced. For standalone local files or an interrupted inventory, cite the
+available files and evidence, mark missing indexes, provenance and unreviewed
+coverage as gaps, and do not fabricate records or resume acquisition in offline
+work. Inventory-only artifacts and coverage writes below are not prerequisites
+for review:
 
 - `manifest.json`: inputs, run id, counts, and output paths
 - `metadata.jsonl`: one row per downloaded JS body
@@ -863,8 +877,9 @@ Every meaningful JS run should leave:
 - Large JS bodies stayed on disk, not in chat.
 - Existing URL aliases, file hashes, and chunk sets were reused unless
   `--refresh` was intentional.
-- Agent packets were bounded and page-context aware.
+- Agent packets were bounded and page-context aware where context exists.
 - Cheap signals were treated as leads, not confirmed findings.
 - Reviewed chunks produced structured outputs.
-- Coverage was marked so future agents do not repeat the same depth pass.
+- Coverage was marked when the relevant records exist; otherwise exact local
+  coverage and missing records were reported without claiming indexed coverage.
 - Wordlist and vuln-lane handoffs were routed to the owning skills.

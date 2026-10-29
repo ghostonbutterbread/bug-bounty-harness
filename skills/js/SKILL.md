@@ -8,9 +8,12 @@ description: Use when collecting or hunting JavaScript for application behavior 
 Use `/js` to choose between acquiring JavaScript evidence and interpreting it. An
 unqualified request such as "hunt the JavaScript", "dig into the JS", or "look
 at the JS for vulnerabilities" means **run the adaptive `/js-hunt` workflow**;
-the operator need not name a vulnerability class. If the inventory is missing,
-`/js-hunt` calls `/js-pull` first. Explicit collection-only requests stop after
-`/js-pull` has produced a usable corpus.
+the operator need not name a vulnerability class. Trace a strong lead or
+available local artifact immediately; a missing inventory is not a gate.
+For a broader hunt without suitable material, use `/js-pull` for scoped
+collection when permitted. Explicitly offline work uses available artifacts
+with no network collection; report missing material as a gap. Explicit
+collection-only requests stop after `/js-pull` has produced a usable corpus.
 
 ## Intent Routes
 

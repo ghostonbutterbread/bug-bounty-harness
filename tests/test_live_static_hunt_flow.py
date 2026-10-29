@@ -55,6 +55,26 @@ def test_existing_js_or_strong_lead_never_forces_online_collection():
     assert "explicitly offline" in playbook and "without network collection" in playbook
 
 
+def test_offline_fanout_uses_existing_packets_not_acquisition():
+    fanout = text("skills/js/references/offline-fanout.md")
+    assert "explicitly offline" in fanout
+    assert "do not run" in fanout and "inventory command" in fanout
+    assert "existing local packets" in fanout
+    pull = text("skills/js-pull/SKILL.md")
+    assert "prerequisite when `/js-hunt` has no suitable current inventory" not in pull
+    assert "explicitly offline" in pull and "no network" in pull
+
+
+def test_local_file_handoff_is_not_inventory_dependent():
+    hunt = text("skills/js-hunt/SKILL.md")
+    assert "standalone local" in hunt
+    assert "inventory-backed" in hunt
+    assert "without an inventory" in hunt
+    assert "unavailable provenance" in hunt
+    assert "do not invent" in hunt
+    assert "when the library and indexes exist" in hunt
+
+
 def test_known_shape_direct_http_is_an_explicit_browser_exception():
     for path in ("skills/hunt/SKILL.md", "skills/live-map/SKILL.md"):
         body = text(path)

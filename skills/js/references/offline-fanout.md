@@ -5,9 +5,9 @@ packets for native-subagent review. An unqualified "hunt the JavaScript" runs
 the adaptive methodology whether or not fanout is warranted; this reference
 only owns the optional offline execution strategy.
 
-The purpose is broad offline depth: download once, review locally with native
+The purpose is broad offline depth: review existing local packets with native
 subagents, synthesize in the parent model, and hand only selected hypotheses to
-live testing later. There is no repository-specific JavaScript team runner. The
+separately authorized live testing later. There is no repository-specific JavaScript team runner. The
 active parent reads inventory artifacts and directly dispatches bounded worker
 tasks through its native delegation capability.
 
@@ -46,8 +46,13 @@ tasks through its native delegation capability.
 
 ## Flow
 
-1. Run `bbh agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
-   packet JavaScript. Pass an explicit `--run-id` or `--output-root` when early
+1. Start from existing local packets. In explicitly offline work, do not run the
+   inventory command: it can fetch URLs, source maps, or archives. If packets
+   are unavailable, inspect available local artifacts directly and report the
+   gap instead of collecting. Only when network collection is authorized and
+   useful, a separate acquisition step can run `bbh agents/js_analyzer.py inventory`
+   to collect, hash, dedupe, chunk, and packet JavaScript. Pass an explicit
+   `--run-id` or `--output-root` when early
    packet review is intended so the consumer knows the run root. During a long
    run, newly visible `packets/*.md` and
    `source_map_packets/**/*.md` files are complete atomic publications and may

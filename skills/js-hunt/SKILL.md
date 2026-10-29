@@ -37,7 +37,13 @@ never send target requests. Collection-only requests remain collection-only.
   Read `source_sites` beside `sink_sites` in bundle and source-map module rows;
   account for truncated/capped sites before declaring a source or sink absent.
   A shared file or nearby offset is a review lead, not a proven data-flow edge.
-- **Scope the queue from recorded coverage, not from run names.** Content-review
+- For a standalone local artifact without an inventory, inspect the available
+  file and relevant local context directly, citing the path and function or
+  offsets. Record unavailable provenance and unreviewed material as gaps; do not
+  invent a URL, packet, page/flow, request, library entry, or coverage. Skip
+  inventory-only queries and observation writes when their inputs do not exist.
+- **For inventory-backed work, scope the queue from recorded coverage, not from
+  run names.** Content-review
   state lives in sha256-keyed `js_observations` in the library's
   `js_info.sqlite`; `/js-pull` owns writing it and defines the status vocabulary.
   An observation records **depth**, not completion. `/url-ingest` owns per-lane
@@ -151,10 +157,13 @@ next discriminator. A client-side check never proves that the server lacks one.
 
 ## 3. Correlate, Classify, and Hand Off
 
-Tie the trace to the JS URL, sha256, packet path/function or source-map module,
-page/flow, and nearby scoped proxy request. Query `js_info.sqlite` for aliases
-and links, but cite the durable JSONL and packet artifacts. If a request was
-observed, load `/analyze-endpoint` to establish its contract; if not, say so.
+Tie the trace to available evidence: local path/function or offsets, JS URL,
+sha256, packet or source-map module, page/flow, and nearby scoped proxy request.
+When the library and indexes exist, query `js_info.sqlite` for aliases and links,
+and cite the durable JSONL and packet artifacts. For a standalone file, cite its
+actual local evidence and mark unavailable provenance and runtime context as
+unknown. If a request was observed, load `/analyze-endpoint` to establish its
+contract; if not, say so.
 Do not infer current reachability from a historical bundle or a GraphQL
 operation name alone.
 
@@ -168,16 +177,18 @@ Output three bounded sections:
 
 1. **Surface map:** feature families, actions, request/field vocabulary, and
    noteworthy decisions or data flows with evidence pointers.
-2. **Selected lead packets:** behavior and why it matters; exact JS URL,
-   sha256, packet path, page/flow and optional request reference; source-to-
-   consumer or transaction trace; controllability; observed versus inferred
-   edges; missing proof; next discriminator; owning specialist skill.
+2. **Selected lead packets:** behavior and why it matters; exact local evidence
+   and available JS URL, sha256, packet path, page/flow and request reference;
+   source-to-consumer or transaction trace; controllability; observed versus
+   inferred edges; missing proof; next discriminator; owning specialist skill.
 3. **Coverage and handoffs:** reviewed and unreviewed bundle/flow families,
    truncated maps or missing runtime evidence, candidate wordlists/contracts,
-   and separate scoped live-validation hypotheses. Mark `/url-ingest` inventory
-   versus `deep_reviewed` only for what was actually reviewed, and record
-   per-chunk content coverage through `js_analyzer.py observe`; coverage stated
-   only in synthesis prose is not queryable and gets re-done. Send useful
+   and separate scoped live-validation hypotheses. For inventory-backed work,
+   mark `/url-ingest` inventory versus `deep_reviewed` only for what was actually
+   reviewed, and record per-chunk content coverage through `js_analyzer.py observe`;
+   coverage stated only in synthesis prose is not queryable and gets re-done.
+   Without an inventory, report the exact local coverage and its limits rather
+   than creating or claiming indexed coverage. Send useful
    verified observations through `/map-store` and durable notes, not raw bundle
    dumps; dedupe run-local proposals before promoting.
 

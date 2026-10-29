@@ -5,7 +5,10 @@
 `/js` routes explicit acquisition to `/js-pull` and broad or focused review to
 `/js-hunt`. An unqualified "hunt the JavaScript" means the complete adaptive
 behavior-map -> prioritize -> deep-trace -> evidence-handoff workflow in
-`skills/js-hunt/SKILL.md`; if there is no suitable inventory, pull first.
+`skills/js-hunt/SKILL.md`. Trace a strong lead or available local artifact
+without waiting for inventory. For broader work, use `/js-pull` for scoped
+collection when permitted; explicitly offline work uses available artifacts
+without network collection and records missing material as a gap.
 `--focus endpoints|params|secrets|application-logic|dataflows` biases the same
 workflow rather than creating separate tools or claiming review of other areas.
 The existing acquisition and provenance mechanics below remain canonical.

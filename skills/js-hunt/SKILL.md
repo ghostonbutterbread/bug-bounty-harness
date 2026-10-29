@@ -25,10 +25,14 @@ never send target requests. Collection-only requests remain collection-only.
 
 ## Start and Focus
 
-- If a suitable inventory exists, reuse its run root and content-addressed
-  library. Otherwise load `/js-pull` once for scoped collection. Start from
-  `manifest.json`, `metadata.jsonl`, `packets.jsonl`, page/JS provenance,
-  source-map module index, and completed packet paths. Work in bounded
+- Trace a strong lead or available local artifact immediately; an inventory is
+  not a prerequisite. Explicitly offline work uses available artifacts with no
+  network collection and names missing material as a gap. For broader work,
+  reuse a suitable inventory and content-addressed library; if none is suitable,
+  use `/js-pull` for scoped collection when the requested work permits it.
+  For inventory-backed work, start from `manifest.json`, `metadata.jsonl`,
+  `packets.jsonl`, page/JS provenance, source-map module index, and completed
+  packet paths. Work in bounded
   page/flow, bundle-family, route-cluster, or module packets, not a giant prompt.
   Read `source_sites` beside `sink_sites` in bundle and source-map module rows;
   account for truncated/capped sites before declaring a source or sink absent.

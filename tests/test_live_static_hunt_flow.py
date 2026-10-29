@@ -40,6 +40,29 @@ def test_xss_uses_generic_mapping_without_adding_generic_xss_routing():
     assert "load `xss`" not in live
 
 
+def test_existing_js_or_strong_lead_never_forces_online_collection():
+    router = text("skills/js/SKILL.md")
+    hunt = text("skills/js-hunt/SKILL.md")
+    for body in (router, hunt):
+        assert "available local" in body
+        assert "strong lead" in body
+        assert "explicitly offline" in body
+        assert "no network" in body
+    assert "`/js-hunt` calls `/js-pull` first" not in router
+    assert "otherwise load `/js-pull` once for scoped collection" not in hunt
+    playbook = text("prompts/js-playbook.md")
+    assert "if there is no suitable inventory, pull first" not in playbook
+    assert "explicitly offline" in playbook and "without network collection" in playbook
+
+
+def test_known_shape_direct_http_is_an_explicit_browser_exception():
+    for path in ("skills/hunt/SKILL.md", "skills/live-map/SKILL.md"):
+        body = text(path)
+        assert "known-shape" in body
+        assert "direct http" in body
+        assert "browser-session-policy" in body
+
+
 def test_hunter_playbook_does_not_limit_browser_to_js_heavy_flows():
     playbook = text("prompts/hunter-loop-playbook.md")
     assert "browser/cdp first when the flow is js-heavy or stateful" not in playbook

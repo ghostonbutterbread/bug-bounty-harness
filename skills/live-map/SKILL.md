@@ -13,10 +13,11 @@ Order applies when building that universal runtime map.
 
 ## Connect the application views
 
-For a live application hunt, use the authorized task browser and its task-MITM
-to explore relevant features, user actions, requests, and state changes. Let
-runtime and available source evidence inform each other rather than treating
-one as a prerequisite for the other:
+For live application behavior, use the authorized task browser and its task-MITM
+to explore relevant features, user actions, requests, and state changes.
+`browser-session-policy` also permits direct HTTP for small, known-shape
+questions. Let runtime and available source evidence inform each other rather
+than treating one as a prerequisite for the other:
 
 - **Runtime → source:** use the observed page, interaction, request and loaded
   assets to select relevant JavaScript, source maps or available local code.

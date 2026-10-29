@@ -17,6 +17,8 @@ def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
     assert "before any target action" in text
     assert "For a completion-only worker" in text
     assert "do not claim Bunny confirmed it before the action" in text
+    assert "model/provider and applicable approval gate before live work" in text
+    assert "If those gates cannot be verified" in text
 
 
 def test_verifier_and_reporter_are_spawned_only_when_needed():
@@ -79,6 +81,9 @@ def test_team_messages_are_direct_with_explicit_relay_fallback():
     text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
     assert "Recon and the hunter talk with each other" in text
     assert "Bunny relays" in text
+    normalized = " ".join(text.split())
+    assert "relay the actual message promptly" in normalized
+    assert "verify the exact evidence pointer" in normalized
 
 
 def test_operations_and_evidence_ownership_stay_separate():

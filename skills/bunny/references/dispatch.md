@@ -12,7 +12,10 @@ Spawn the subagents needed for the campaign and let them work. Use the current h
 - Recon and the hunter exchange relevant discoveries and follow-up questions.
   Put the details in the existing evidence stores and pass a concise reference.
 - If the harness cannot deliver a direct worker-to-worker message, Bunny relays
-  that same message. Say that it was relayed; do not call the relay direct.
+  that same message. When a worker asks for a handoff, relay the actual message
+  promptly and verify the exact evidence pointer; report a missing pointer rather than
+  substituting a different observation. Say that it was relayed; do not call the
+  relay direct. The recipient chooses its own investigation.
 - Workers do not allocate other workers or transfer scope, ownership, or
   authority by talking to each other.
 - In explicit offhand mode, use ordinary scoped workers under `bunny-offhand`.
@@ -21,9 +24,12 @@ Spawn the subagents needed for the campaign and let them work. Use the current h
 
 A worker's displayed name is not proof that it loaded its role and skills.
 Give it the canonical role and the selected checkout's `bunny-collaborative`
-paths, and have it read both before any target action. Check the actual reads and
-applicable model/approval gates. When the worker can pause and continue, have it
+paths, and have it read both before any target action. Verify the effective
+model/provider and applicable approval gate before live work. If those gates
+cannot be verified, use a suitable worker route or stop before target actions.
+Check the actual reads.
+When the worker can pause and continue, have it
 report readiness and wait for Bunny's go-ahead. For a completion-only worker,
-inspect its returned transcript and report any unverified read or route; do not
+inspect its returned transcript and report any unverified read; do not
 claim Bunny confirmed it before the action. If it cannot be resumed, continue in
 a bounded follow-up with its evidence rather than pretending it was steered.

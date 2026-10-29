@@ -12,6 +12,17 @@ not stop at endpoint extraction, run a fixed vulnerability-class matrix, or
 claim exhaustive coverage from a scanner. Collection mechanics belong to
 `/js-pull`; class-specific live validation belongs to the owning skills.
 
+## Connect the code with the application
+
+For a live JS hunt, the parent can use `live-map` and the task browser/proxy to
+understand the relevant feature, actual request and loaded assets, then trace the
+corresponding code; a source-derived action or consumer can in turn guide the
+next browser observation. Use `technology-research` when a stack detail changes
+the question. Correlate the page, flow and asset; code alone does not establish
+current reachability or server enforcement. A strong lead need not wait for a
+complete map or inventory. Explicitly offline work stays offline; offline workers
+never send target requests. Collection-only requests remain collection-only.
+
 ## Start and Focus
 
 - If a suitable inventory exists, reuse its run root and content-addressed

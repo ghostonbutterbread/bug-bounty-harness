@@ -13,6 +13,11 @@ payload is evidence about a boundary, not a verdict on a plausible XSS path.
 
 ## Entry and lane selection
 
+For a live XSS investigation, `live-map` helps understand the relevant feature
+and connect browser/proxy observations with available JS or source evidence.
+Explore a strong source or sink immediately; a full map or inventory is not a
+prerequisite. XSS lanes still own the vulnerability investigation and proof.
+
 Read `general-security-testing-policy` and `live-testing-policy` before live
 action. For a new hunt, use the former's
 `references/opening-and-knowledge.md` for scope and cold-start guidance rather

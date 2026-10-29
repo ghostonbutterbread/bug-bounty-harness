@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/scope-path-normalization`
-- **Prior immutable recovery checkpoint:** `7ef37bd50e8c4416fdb8b57a6db8c7f69c9b4c67`; the current branch tip includes the subsequent A-label and exclusion-loading candidate below.
-- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`, `db9f27dcb564843dfeec9dee0b1b313e99474252`
+- **Latest immutable recovery checkpoint:** `584f029e6f025d0ebbe9959e6c76f1449c426f3f` (A-label and exclusion-loading code, tests and dossier; also review this later dossier-only commit).
+- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`, `db9f27dcb564843dfeec9dee0b1b313e99474252`, `584f029e6f025d0ebbe9959e6c76f1449c426f3f`
 - **References:** PC-20261029-173518-a6033739; user-specified offline synthetic reproduction
 
 ## Intent and implemented candidate

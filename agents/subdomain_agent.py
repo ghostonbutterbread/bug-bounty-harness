@@ -514,37 +514,65 @@ def is_target_host(host: str, target: str) -> bool:
 # Async HTTP prober
 # ---------------------------------------------------------------------------
 
+async def _capture_probe_response(response):
+    # HTTPX may parse Location before send() returns, even when not following.
+    # Capture headers before that and before any response body is decoded.
+    state = response.request.extensions.get("subdomain_probe_response")
+    if state is not None:
+        state.append(response)
+
+
 async def probe_subdomain(subdomain: str, sem: asyncio.Semaphore,
                           client, timeout: int = 10) -> Optional[ProbeResult]:
-    """Probe a subdomain with httpx async. Returns None on total failure."""
+    """Probe once per scheme; retry HTTP only if HTTPS yielded no response."""
     for scheme in ("https", "http"):
         url = f"{scheme}://{subdomain}"
-        try:
-            async with sem:
-                resp = await client.get(url)
+        captured = []
+        resp = None
+        async with sem:
+            try:
+                request = client.build_request("GET", url)
+                request.extensions["subdomain_probe_response"] = captured
+                try:
+                    resp = await client.send(request, stream=True, follow_redirects=False)
+                finally:
+                    request.extensions.pop("subdomain_probe_response", None)
+            except Exception:
+                # Exception messages can contain request URLs or Location values.
+                if captured:
+                    resp = captured[0]
+                else:
+                    continue
+            try:
                 title = ""
-                m = re.search(r"<title[^>]*>([^<]{1,200})</title>",
-                              resp.text, re.IGNORECASE)
-                if m:
-                    title = m.group(1).strip()
+                content_length = 0
+                redirect_url = ""
+                if 300 <= resp.status_code < 400:
+                    if "location" in resp.headers:
+                        redirect_url = "[redacted]"
+                else:
+                    try:
+                        await resp.aread()
+                        content_length = len(resp.content)
+                        m = re.search(r"<title[^>]*>([^<]{1,200})</title>",
+                                      resp.text, re.IGNORECASE)
+                        if m:
+                            title = m.group(1).strip()
+                    except Exception:
+                        # Headers arrived: preserve status and never retry.
+                        pass
                 ip = ""
                 try:
                     ip = socket.getaddrinfo(subdomain, None)[0][4][0]
                 except Exception:
-                    ip = ""
-                redirect_url = str(resp.url) if str(resp.url) != url else ""
-                return ProbeResult(
-                    subdomain=subdomain,
-                    url=url,
-                    status=resp.status_code,
-                    title=title,
-                    content_length=len(resp.content),
-                    ip=ip,
-                    redirect_url=redirect_url,
-                    source="httpx",
-                )
-        except Exception:
-            continue
+                    pass
+                return ProbeResult(subdomain, url, resp.status_code, title,
+                                   content_length, ip, redirect_url, "httpx")
+            finally:
+                try:
+                    await resp.aclose()
+                except Exception:
+                    pass
     return ProbeResult(
         subdomain=subdomain,
         url=f"https://{subdomain}",
@@ -567,8 +595,9 @@ async def probe_all(subdomains: list[str], threads: int = 20,
     sem = asyncio.Semaphore(threads)
     async with _httpx.AsyncClient(
         verify=False,
-        follow_redirects=True,
+        follow_redirects=False,
         timeout=timeout,
+        event_hooks={"response": [_capture_probe_response]},
         limits=_httpx.Limits(max_keepalive_connections=20, max_connections=100),
     ) as client:
         tasks = [probe_subdomain(sub, sem, client, timeout) for sub in subdomains]

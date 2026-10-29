@@ -205,3 +205,39 @@ def test_recon_consumers_enforce_saved_scope_offline(tmp_path, monkeypatch):
         with pytest.raises(SystemExit, match="NOT in scope"):
             recon_ry.validate_start_scope("synthetic", url)
     assert bus.scope_violations("synthetic", "url", [good, *denied]) == denied
+
+
+def test_invalid_alabel_target_is_refused(validator):
+    validator._out_of_scope.clear()
+    assert not validator.is_in_scope("https://xn--a.example.test/public")
+
+
+@pytest.mark.parametrize("entry", ["xn--a.example.test", "https://xn--a.example.test/private/"])
+def test_invalid_alabel_exclusion_fails_closed_with_reason(validator, entry):
+    validator._out_of_scope.clear()
+    validator.add_domain(entry, is_out_of_scope=True)
+    assert not validator.is_in_scope("https://api.example.test/public")
+    with pytest.raises(OutOfScopeError, match="invalid exclusion authority"):
+        validator.validate_or_fail("https://api.example.test/public")
+
+
+def test_valid_alabel_dns_and_ip_keep_working(validator):
+    validator._out_of_scope.clear()
+    validator.add_domains(["xn--bcher-kva.example.test", "xn--zca.example.test", "192.0.2.1", "2001:db8::1"])
+    for url in ("https://xn--bcher-kva.example.test/", "https://xn--zca.example.test/", "https://api.example.test/",
+                "http://192.0.2.1/", "https://[2001:db8::1]/"):
+        assert validator.is_in_scope(url)
+
+
+def test_invalid_allow_authority_does_not_grant(validator):
+    validator._entries.clear()
+    validator._out_of_scope.clear()
+    validator.add_domain("xn--a.example.test")
+    assert not validator.is_in_scope("xn--a.example.test")
+    with pytest.raises(OutOfScopeError, match="invalid allow authority"):
+        validator.validate_or_fail("xn--a.example.test")
+
+
+def test_invalid_exclusion_refuses_wildcard_promotion(validator):
+    validator.add_domain("xn--a.example.test", is_out_of_scope=True)
+    assert not validator.is_wildcard_scope("example.test")

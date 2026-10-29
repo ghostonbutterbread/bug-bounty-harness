@@ -123,3 +123,142 @@ def test_optional_host_variants_are_consistent_for_allow_and_exclusion(tmp_path:
     for host in ("x.blocked.site.example.net", "x.blocked-eu1.site.example.net"):
         assert not validator.is_in_scope(host)
     assert not validator.is_in_scope("other.example.com")
+
+
+def test_canonical_exclusion_files_are_combined_without_legacy(tmp_path: Path) -> None:
+    canonical = tmp_path / "scopes" / "synthetic"
+    legacy = tmp_path / "legacy" / "synthetic" / "scope"
+    canonical.mkdir(parents=True)
+    legacy.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    (canonical / "out-of-scope.txt").write_text("one.example.test\n")
+    (canonical / "excluded.txt").write_text("two.example.test\n")
+    (legacy / "out-of-scope.txt").write_text("legacy.example.test\n")
+    validator = ScopeValidator("synthetic")
+    assert not validator.is_in_scope("one.example.test")
+    assert not validator.is_in_scope("two.example.test")
+    assert validator.is_in_scope("legacy.example.test")
+    assert validator.is_in_scope("good.example.test")
+
+
+@pytest.mark.parametrize("primary", ["", "one.example.test\n"])
+def test_empty_canonical_primary_does_not_hide_alternate(tmp_path: Path, primary: str) -> None:
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    (canonical / "out-of-scope.txt").write_text(primary)
+    (canonical / "excluded.txt").write_text("two.example.test\n")
+    assert not ScopeValidator("synthetic").is_in_scope("two.example.test")
+
+
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("error", [PermissionError("denied"), OSError("I/O failure")])
+@pytest.mark.parametrize("other_content", [None, "", "other.example.test\n"])
+def test_standard_exclusion_read_failure_is_not_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str, error: OSError, other_content: str | None
+) -> None:
+    import builtins
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    denied_path = canonical / filename
+    denied_path.write_text("denied.example.test\n")
+    other = canonical / ("excluded.txt" if filename == "out-of-scope.txt" else "out-of-scope.txt")
+    if other_content is not None:
+        other.write_text(other_content)
+    real_open = builtins.open
+    def failing_open(path, *args, **kwargs):
+        if Path(path) == denied_path:
+            raise error
+        return real_open(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", failing_open)
+    with pytest.raises(OSError, match=filename):
+        ScopeValidator("synthetic")
+
+
+def test_missing_optional_files_do_not_reject(tmp_path: Path) -> None:
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    assert ScopeValidator("synthetic").is_in_scope("ok.example.test")
+
+
+def test_explicit_unreadable_exclusion_reports_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import builtins
+    validator = ScopeValidator("synthetic")
+    path = tmp_path / "explicit.txt"
+    path.write_text("denied.example.test\n")
+    real_open = builtins.open
+    def failing_open(candidate, *args, **kwargs):
+        if Path(candidate) == path:
+            raise PermissionError("denied")
+        return real_open(candidate, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", failing_open)
+    validator.add_domain("*.example.test")
+    with pytest.raises(OSError, match="explicit.txt") as failure:
+        validator.load_from_file(str(path), is_out_of_scope=True)
+    assert isinstance(failure.value.__cause__, PermissionError)
+    assert not validator.is_in_scope("ok.example.test")
+    assert validator.is_out_of_scope("ok.example.test")
+    assert not validator.is_wildcard_scope("example.test")
+
+
+@pytest.mark.parametrize("primary", ["", "one.example.test\n"])
+def test_legacy_both_exclusion_names_are_combined(tmp_path: Path, primary: str) -> None:
+    legacy = tmp_path / "legacy" / "synthetic" / "scope"
+    legacy.mkdir(parents=True)
+    (legacy / "in-scope.txt").write_text("*.example.test\n")
+    (legacy / "out-of-scope.txt").write_text(primary)
+    (legacy / "excluded.txt").write_text("two.example.test\n")
+    validator = ScopeValidator("synthetic")
+    assert not validator.is_in_scope("two.example.test")
+    assert validator.is_in_scope("good.example.test")
+
+
+def test_missing_explicit_exclusion_is_an_error(tmp_path: Path) -> None:
+    validator = ScopeValidator("synthetic")
+    validator.add_domain("*.example.test")
+    with pytest.raises(OSError, match="missing.txt") as failure:
+        validator.load_from_file(str(tmp_path / "missing.txt"), is_out_of_scope=True)
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+    assert not validator.is_in_scope("good.example.test")
+
+
+def test_dangling_exclusion_symlink_is_not_treated_as_absent(tmp_path: Path) -> None:
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    (canonical / "excluded.txt").symlink_to(canonical / "missing-target.txt")
+    with pytest.raises(OSError, match="excluded.txt"):
+        ScopeValidator("synthetic")
+
+
+def test_empty_canonical_prevents_legacy_fallback(tmp_path: Path) -> None:
+    canonical = tmp_path / "scopes" / "synthetic"
+    legacy = tmp_path / "legacy" / "synthetic" / "scope"
+    canonical.mkdir(parents=True)
+    legacy.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    (canonical / "out-of-scope.txt").write_text("")
+    (legacy / "excluded.txt").write_text("old.example.test\n")
+    assert ScopeValidator("synthetic").is_in_scope("old.example.test")
+
+
+def test_consumer_start_rejects_exclusion_read_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import builtins
+    from agents import recon_ry
+    from agents.scope_validator import ScopeExclusionReadError
+    canonical = tmp_path / "scopes" / "synthetic"
+    canonical.mkdir(parents=True)
+    (canonical / "in-scope.txt").write_text("*.example.test\n")
+    path = canonical / "excluded.txt"
+    path.write_text("denied.example.test\n")
+    real_open = builtins.open
+    def failing_open(candidate, *args, **kwargs):
+        if Path(candidate) == path:
+            raise PermissionError("denied")
+        return real_open(candidate, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", failing_open)
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ScopeValidator)
+    with pytest.raises(ScopeExclusionReadError, match="excluded.txt"):
+        recon_ry.validate_start_scope("synthetic", "https://good.example.test/", allow_unscoped=True)

@@ -7,7 +7,7 @@
 - **Base:** `3fa84b824c9cbefbba2dcb0d09e3bb11b331c335` (fetched `origin/beta`).
 - **Target:** `beta`; stable promotion and runtime activation not authorized.
 - **Last updated:** 2026-10-28.
-- **Recovery checkpoint / implementation:** pending initial commit; feature tip after commit.
+- **Recovery checkpoint / implementation:** `df092f0f2137db6d400b22f22eccc3dbe38f3686`.
 - **Inspiration:** `PC-20261011-parameter-mining-playbook-path`.
 
 ## Intent and implemented contract
@@ -28,7 +28,7 @@ Review and integrated-tree checks are pending. Runtime projection/activation mus
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/parameter-mining-playbook-path`.
-- **Checkpoint:** initial commit pending; feature tip after commit.
+- **Checkpoint:** `df092f0f2137db6d400b22f22eccc3dbe38f3686`; review feature tip including this handoff update.
 - **Exact resume point:** independent review of focused diff and lane/negative tests; reconcile current beta; run integrated checks; verify active projection.
 - **Working tree:** intended clean after initial commit.
 

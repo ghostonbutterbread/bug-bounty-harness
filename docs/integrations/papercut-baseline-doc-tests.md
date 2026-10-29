@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-28
 - **Owning feature branch/ref:** `fix/papercut-baseline-doc-tests`
-- **Latest immutable recovery checkpoint:** pending initial commit
-- **Feature implementation commit(s):** pending initial commit
+- **Latest immutable recovery checkpoint:** `4c1c4851c27ce3bb124b0f577527f97720d35b25`
+- **Feature implementation commit(s):** `4c1c4851c27ce3bb124b0f577527f97720d35b25`
 - **Inspiration / canonical references:** `PC-20261027-015844-064d4082`; BBH `AGENTS.md`, `SCRIPT_POLICY.md`.
 
 ## Intent
@@ -33,8 +33,8 @@ Review and integrated-tree tests are pending; these block beta integration and p
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercut-baseline-doc-tests`
-- **Latest immutable recovery checkpoint:** pending initial commit; use feature tip after commit.
-- **Feature implementation commit(s):** pending initial commit; use feature tip after commit.
+- **Latest immutable recovery checkpoint:** `4c1c4851c27ce3bb124b0f577527f97720d35b25`; use feature tip after commit.
+- **Feature implementation commit(s):** `4c1c4851c27ce3bb124b0f577527f97720d35b25`; use feature tip after commit.
 - **Exact resume point:** inspect committed diff and run independent review; reconcile current beta before merge, then run focused tests in integration checkout.
 - **Working-tree state at handoff:** intended clean after initial commit.
 

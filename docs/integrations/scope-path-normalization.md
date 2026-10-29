@@ -1,6 +1,6 @@
 # Scope path normalization integration dossier
 
-- **Status:** blocked; candidate is not approved for integration or activation
+- **Status:** combined feature reconciled with beta; fresh independent combined security review is pending and integration or activation is not approved
 - **Owner:** BBH task `t_28a974bd`; parent owns integration and closure
 - **Branch:** `fix/scope-path-normalization`
 - **Worktree:** `/home/ryushe/worktrees/bbh-scope-path-normalization`
@@ -98,3 +98,11 @@ This is a conservative lexical boundary, **not** a proof of behavior for every U
 - **Integration gate:** blocked by unverified combined consumer enforcement, current-tip independent review, and beta drift reconciliation.
 - **Activation/promotion:** not authorized; no activation or stable promotion performed.
 - **Decision:** 2026-10-29 — retained blocked candidate and consumer finding for parent; no complete general safety claim.
+
+## Combined feature reconciliation — supersedes historical drift/resume notes
+
+- The separately developed validator checkpoint `4d30b212f2c2bf350eacc9ce8415a7522b5ad3d7` is in the combined feature's ancestry. The source validator worktree and branch remain separate and were not modified by this reconciliation. Historical blocked consumer and review findings above remain evidence; do not read their old resume steps as the current combined status or as approval.
+- **Combined owner:** `fix/recon-ry-scope-handoff-t5647b0ee`, `/home/ryushe/worktrees/bbh-recon-ry-scope-handoff`; target `origin/beta`. Feature-only merge checkpoint `ebc3c65b2ee781f10c80eb20b2c0449e4d96b560` has parents `cbb27c78a4b23c3935c1bb4c9251a16a37847b7a` and exact fetched beta `dc0661b3cab1db8d5df08b57411c63537975642b`. Inspect the subsequent dossier-only handoff and current tip separately. There were no overlapping changed paths or merge conflicts; all 16 feature paths and all 14 beta paths were independently compared byte-identical to their respective pre-merge tips, and the preview tree matched the merged tree. Both temporary dossiers remain in the feature.
+- At that checkpoint, the combined 13-file offline suite returned **1594 passed, 37 subtests passed, no skips**; the two incoming beta test files returned **15 passed, 16 subtests passed, no skips**. Network socket creation/connect was blocked by inherited Linux x86_64 seccomp in parent and children; a separate parent/child probe denied IPv4/IPv6 TCP/UDP, denied AF_UNIX connect, and failed `.invalid` DNS resolution. This is not a complete adversarial sandbox. The skipped parser fixture described in older checkpoints ran using a synthetic HOME symlink to clean local Recon-Ry `6777eeaeec9fa2aebb6a19b93ea6da8d6a95f074`, not Hoster. The prior section and companion Recon-Ry dossier contain the exact selection, runner, and limitations.
+- Source imports resolved to the combined worktree; the selected venv's `bounty-core` direct URL commit/requested revision matched manifest pin `6c36ee88a60073e1b687ec32deeade24ffafdd4f`. `git diff --check` passed. Remote beta was read back at the same exact SHA after testing.
+- **Exact resume / release gate:** fresh independent security review of the full reconciled combined feature and both dossiers, with explicit attention to consumer enforcement, read consistency, parser/transport limits, and the intentionally non-atomic scope snapshot. Parent must decide ancestor propagation and re-fetch/check current beta before separately authorized integration. Tests and merge do not constitute approval. No beta integration, push, Hoster/target traffic, service operation, activation, stable propagation, or task closure occurred.

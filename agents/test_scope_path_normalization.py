@@ -200,10 +200,16 @@ def test_recon_consumers_enforce_saved_scope_offline(tmp_path, monkeypatch):
         "https://api.example.test\\@other.example.test/private/x",
         "https://api.example.test:/public",
     ]
-    recon_ry.validate_start_scope("synthetic", good)
-    for url in denied:
-        with pytest.raises(SystemExit, match="NOT in scope"):
+    # Recon-Ry cannot enforce path restrictions downstream, so it refuses the
+    # entire run; the validator and bus still reject each ambiguous spelling.
+    validator = ScopeValidator(program="synthetic", strict=True)
+    validator.validate_or_fail(good)
+    for url in [good, *denied]:
+        with pytest.raises(SystemExit, match="request-level containment"):
             recon_ry.validate_start_scope("synthetic", url)
+    for url in denied:
+        with pytest.raises(OutOfScopeError, match="NOT in scope"):
+            validator.validate_or_fail(url)
     assert bus.scope_violations("synthetic", "url", [good, *denied]) == denied
 
 

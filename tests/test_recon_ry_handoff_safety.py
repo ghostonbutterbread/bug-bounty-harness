@@ -1,10 +1,12 @@
 """Synthetic offline tests for the Recon-Ry launch containment gate."""
 
+import builtins
 import socket
 
 import pytest
 
 from agents import recon_ry
+from scope_validator import ScopeExclusionReadError
 
 
 @pytest.fixture
@@ -36,6 +38,140 @@ def arguments(mode, tmp_path, *, dry_run=False):
     if dry_run:
         args.append("--dry-run")
     return recon_ry.build_parser().parse_args(args)
+
+
+def fail_exclusion_open(monkeypatch, path, *, fail_on_read=1):
+    real_open = builtins.open
+    reads = 0
+
+    def guarded_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(path):
+            reads += 1
+            if reads >= fail_on_read:
+                raise PermissionError("synthetic exclusion read failure")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", guarded_open)
+
+
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("builder", ["scope", "seed", "seed_unscoped"])
+def test_builders_propagate_exclusion_read_failure(isolated_scope, monkeypatch, filename, builder):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    exclusion = isolated_scope / filename
+    exclusion.write_text("blocked.example.test\n")
+    fail_exclusion_open(monkeypatch, exclusion)
+    with pytest.raises(ScopeExclusionReadError, match=filename) as failure:
+        if builder == "scope":
+            recon_ry.build_remote_scope_files("synthetic")
+        else:
+            recon_ry.build_remote_seed_files("synthetic", "https://app.example.test/", allow_unscoped=builder == "seed_unscoped")
+    assert isinstance(failure.value.__cause__, PermissionError)
+    assert "synthetic exclusion read failure" in str(failure.value)
+
+
+def test_exact_late_exclusion_failure_precedes_auth_process(isolated_scope, tmp_path, monkeypatch):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    exclusion = isolated_scope / "excluded.txt"
+    exclusion.write_text("blocked.example.test\n")
+    # Initial guard and seed load succeed; scope-file load fails.
+    fail_exclusion_open(monkeypatch, exclusion, fail_on_read=3)
+    args = arguments("exact", tmp_path)
+    with pytest.raises(ScopeExclusionReadError, match="excluded.txt"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("mode", ["exact", "default", "queue"])
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("grants", ["", "*.example.test\n"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_launch_initial_exclusion_read_failure(isolated_scope, tmp_path, monkeypatch, mode, filename, grants, allow_unscoped):
+    (isolated_scope / "in-scope.txt").write_text(grants)
+    exclusion = isolated_scope / filename
+    exclusion.write_text("blocked.example.test\n")
+    fail_exclusion_open(monkeypatch, exclusion)
+    args = arguments(mode, tmp_path)
+    args.allow_unscoped = allow_unscoped
+    with pytest.raises(ScopeExclusionReadError, match=filename) as failure:
+        args.func(args)
+    assert str(exclusion) in str(failure.value)
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("mode,fail_on_read", [
+    ("exact", 2), ("exact", 3),
+    ("default", 2), ("default", 3), ("default", 4),
+    ("queue", 2),
+])
+def test_later_exclusion_read_failure_never_launches(isolated_scope, tmp_path, monkeypatch, filename, mode, fail_on_read):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    exclusion = isolated_scope / filename
+    exclusion.write_text("blocked.example.test\n")
+    fail_exclusion_open(monkeypatch, exclusion, fail_on_read=fail_on_read)
+    args = arguments(mode, tmp_path)
+    if mode == "queue":
+        (tmp_path / "queue.txt").write_text("https://app.example.test/\nhttps://other.example.test/\n")
+    with pytest.raises(ScopeExclusionReadError, match=filename) as failure:
+        args.func(args)
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("mode,fail_on_read", [
+    ("exact", 2), ("exact", 3),
+    ("default", 2), ("default", 3), ("default", 4), ("default", 5), ("default", 6),
+    ("queue", 2),
+])
+def test_unscoped_later_exclusion_read_failure_never_launches(isolated_scope, tmp_path, monkeypatch, filename, mode, fail_on_read):
+    (isolated_scope / "in-scope.txt").write_text("")
+    exclusion = isolated_scope / filename
+    exclusion.write_text("")
+    fail_exclusion_open(monkeypatch, exclusion, fail_on_read=fail_on_read)
+    args = arguments(mode, tmp_path)
+    args.allow_unscoped = True
+    if mode == "queue":
+        (tmp_path / "queue.txt").write_text("https://app.example.test/\nhttps://other.example.test/\n")
+    with pytest.raises(ScopeExclusionReadError, match=filename) as failure:
+        args.func(args)
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize("mode", ["exact", "default", "queue"])
+def test_two_exclusion_files_include_denied_seed(isolated_scope, tmp_path, mode):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    (isolated_scope / "out-of-scope.txt").write_text("blocked.example.test\n")
+    (isolated_scope / "excluded.txt").write_text("app.example.test\n")
+    args = arguments(mode, tmp_path)
+    with pytest.raises(SystemExit, match="NOT in scope"):
+        args.func(args)
+    files, _ = recon_ry.build_remote_scope_files("synthetic")
+    assert "blocked.example.test" in files["_scope/out-of-scope-hosts.txt"]
+    assert "app.example.test" in files["_scope/out-of-scope-hosts.txt"]
+
+
+@pytest.mark.parametrize("mode", ["exact", "default", "queue"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_two_exclusion_files_include_later_restriction(isolated_scope, tmp_path, mode, allow_unscoped):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    (isolated_scope / "out-of-scope.txt").write_text("blocked.example.test\n")
+    (isolated_scope / "excluded.txt").write_text("app.example.test/private\n")
+    args = arguments(mode, tmp_path)
+    args.allow_unscoped = allow_unscoped
+    with pytest.raises(SystemExit, match="request-level containment"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("mode", ["exact", "default", "queue"])
+def test_host_only_without_exclusions_reaches_mock_ssh(isolated_scope, tmp_path, monkeypatch, mode):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    calls = []
+    monkeypatch.setattr(recon_ry.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    args = arguments(mode, tmp_path)
+    args.auth = None
+    args.func(args)
+    assert len(calls) == 1 and calls[0][0] == "ssh"
 
 
 def test_exact_start_refuses_host_with_path_exclusion(isolated_scope, tmp_path, capsys):

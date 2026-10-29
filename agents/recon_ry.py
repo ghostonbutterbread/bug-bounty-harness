@@ -287,11 +287,8 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     """Build recon-ry project seed files from saved scope plus the requested seed URL."""
     domains: list[str] = []
     urls: list[str] = [seed_url]
-    try:
-        validator = ScopeValidator(program=program, strict=True)
-    except Exception:
-        validator = None
-    if validator and not validator.is_empty():
+    validator = ScopeValidator(program=program, strict=True)
+    if not validator.is_empty():
         # A wildcard exclusion covering a whole root must not become an enum
         # input merely because the inclusive scope also lists that root.
         denied_lines, _ = recon_scope_file_lines([
@@ -329,10 +326,7 @@ def build_remote_scope_files(program: str) -> tuple[dict[str, str], list[str]]:
     left out rather than widened to their whole host. An empty mapping means
     saved scope yielded nothing usable and the run must stay unscoped.
     """
-    try:
-        validator = ScopeValidator(program=program, strict=True)
-    except Exception:
-        return {}, []
+    validator = ScopeValidator(program=program, strict=True)
     if validator.is_empty():
         return {}, []
 
@@ -398,12 +392,6 @@ def start_remote(args: argparse.Namespace) -> None:
         # roots were excluded; an exact seed host does not authorize its subtree.
         if not ScopeValidator(program=args.program, strict=True).is_empty():
             raise SystemExit(f"Profile {args.profile!r} has no eligible wildcard roots; use --profile exact-urls")
-    auth_seed, auth_summary = resolve_auth_seed(args)
-    # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
-    # header-bearing seed is supplied, use the equivalent exact-host profile
-    # that contains only tools with verified header forwarding.
-    effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
-    profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
     # Exact-host mode must never seed sibling scope entries into its project.
     if args.profile == "exact-urls":
         seed_files = {
@@ -429,6 +417,13 @@ def start_remote(args: argparse.Namespace) -> None:
         if "_scope/out-of-scope-hosts.txt" in scope_files:
             scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
     seed_files = {**seed_files, **scope_files}
+    # Finish all scope reloads before the auth resolver or SSH can start.
+    auth_seed, auth_summary = resolve_auth_seed(args)
+    # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
+    # header-bearing seed is supplied, use the equivalent exact-host profile
+    # that contains only tools with verified header forwarding.
+    effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
+    profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
     remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
     auth_host = host_from_seed_url(args.url)

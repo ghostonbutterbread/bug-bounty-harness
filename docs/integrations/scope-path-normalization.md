@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/scope-path-normalization`
-- **Latest immutable recovery checkpoint:** base above; candidate and this record committed together at branch tip
-- **Feature implementation commit(s):** branch tip; see git log for immutable SHA
+- **Latest immutable recovery checkpoint:** `f601c942fb6280f5b592b6f10eb140eb1d366231` (implementation and initial dossier)
+- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`
 - **References:** PC-20261029-173518-a6033739; user-specified offline synthetic reproduction
 
 ## Intent and implemented candidate

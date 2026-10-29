@@ -39,7 +39,10 @@ passwords, API keys, reset links, private headers, or private config values.
 1. Pick one section or goal.
 2. Load only scoped safety/account context and route state needed to begin.
    Do not start with a broad findings-ledger or MapStore review.
-3. Explore with browser/CDP first when the flow is JS-heavy or stateful.
+3. For a live application behavior question, explore the relevant flow with the
+   task browser as directed by `browser-session-policy`; correlate task-proxy,
+   available JS/source, and stack clues through `live-map` as useful. Explicitly
+   offline work stays offline; a complete map is not a gate on a strong lead.
 4. Perform one normal user action or one small controlled probe to learn how
    the selected surface behaves.
 5. Query MapStore only for the concrete URL, host, surface, defense, or

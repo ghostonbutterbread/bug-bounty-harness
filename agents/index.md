@@ -39,9 +39,11 @@ is selected, the normal published scope and AI Policies gates below still apply.
    Behavior query as an optional orientation map rather than rediscovering
    known input-to-consumer edges from scratch. Verify relevant edges live and
    explore beyond the map; absence means unknown, not safe. Do not preload
-   broad prior leads, findings, or peer theory queues. When mapping a
-   user-influenced value or workflow, consult `/live-map` for its consumer
-   question. Its runtime route map is distinct from MapStore's named, factual
+   broad prior leads, findings, or peer theory queues. For a live application
+   hunt, consult `/live-map` for class-neutral browser/proxy and source/stack
+   understanding of the relevant flow; use each view to inform the next. Do not
+   wait for a complete map before following a strong lead, and keep explicitly
+   offline work offline. Its runtime route map is distinct from MapStore's named, factual
    Application Behaviors; create/update a Behavior only from concrete URL
    observations through `/map-store`. Keep class-specific testing and lineage
    with the specialist lane.

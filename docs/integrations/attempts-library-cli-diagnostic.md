@@ -6,7 +6,7 @@
 - **Base:** `6f34e62bcda278cba7d29d50916271f0b0c30171` (`origin/beta`).
 - **Target:** `beta`; no stable promotion or runtime activation implied.
 - **Last updated:** 2026-10-28.
-- **Recovery checkpoint / implementation:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint / implementation:** `6a51208a843725f66bcd60576a0e8a59c57abc0e`.
 - **Inspiration:** `PC-20261022-233604-9046d9c8`.
 
 ## Intent and implemented contract
@@ -26,7 +26,7 @@ Review, beta reconciliation and integrated tests are required before integration
 ## Interruption / resume handoff
 
 - **Branch:** `fix/attempts-library-cli-diagnostic`.
-- **Recovery checkpoint:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint:** `6a51208a843725f66bcd60576a0e8a59c57abc0e`.
 - **Exact resume:** fresh review and focused tests; fetch beta; integrate and verify selected runtime before closing papercut.
 - **Working tree:** intended clean after commit.
 

@@ -17,7 +17,8 @@ The launcher warns on manifest versus site-packages mtime, which is a heuristic 
 - Active checkout manifest and installed `bounty-core` direct_url commit both `6c36ee88a60073e1b687ec32deeade24ffafdd4f`; warning was reproduced. Other dependencies were not claimed fresh.
 - RED: targeted `tests/test_bbh_launcher.py::BbhLauncherTests::test_stale_venv_warns_on_stderr_and_preserves_stdout_and_exit` failed on missing heuristic explanation before production change.
 - GREEN: `env PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q tests/test_bbh_launcher.py` returned 14 passed. `git diff --check` passed. No environment installation or service changes.
-- Fresh independent review pending; evaluate if this partial explanation sufficiently addresses papercut or whether a safe complete comparison is necessary. Do not close an unresolved noisy-warning issue by claiming the heuristic is precise.
+- Independent review blocked `84b9c74`: warning lacked a usable VCS comparison, did not explain persistence, and used `./setup.sh` relative to an arbitrary cwd. Added selected-lane `bbh --root` remediation, persistent-warning explanation, and a BBH launcher guide with a read-only installed VCS revision check. Added targeted failing assertions before correcting the warning.
+- After correction, launcher and lane-safety tests returned 16 passed. The documented read-only revision command ran against the actual selected checkout and returned `6c36ee88a60073e1b687ec32deeade24ffafdd4f`. Independent re-review pending; the original warning continues to appear after a valid comparison and the papercut must not be closed merely because the wording changed.
 
 ## Blockers and deferred work
 
@@ -39,3 +40,4 @@ Independent review, beta reconciliation, integrated tests and original runtime v
 ## Decision record
 
 - 2026-10-28 — reproduced ambiguous warning; clarified heuristic and conditional remediation.
+- 2026-10-28 — independent review blocked; added actionable selected-root diagnostics and persistent-warning disclosure, awaiting re-review.

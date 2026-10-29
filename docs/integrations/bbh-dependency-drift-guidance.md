@@ -1,11 +1,11 @@
 # BBH dependency drift warning integration dossier
 
-- **Status:** blocked; independent release re-review lacks required command execution.
+- **Status:** reconciled with fetched beta; fresh independent review of the reconciled tip is required before integration.
 - **Owner:** Hermes bugfix, task `t_4bf322c9`.
 - **Branch/worktree:** `fix/bbh-dependency-drift-guidance`, `/home/ryushe/worktrees/bbh-dependency-drift-guidance`.
 - **Base:** `6f34e62bcda278cba7d29d50916271f0b0c30171` (`origin/beta`); target `beta`.
-- **Last updated:** 2026-10-28.
-- **Recovery checkpoint:** `0690b30502ef06eeb695a110176f02a304a03e6f`; implementation `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`, review corrections `80967d8561d17afd05ceda08666ce9f6ce82d843`.
+- **Last updated:** 2026-10-29.
+- **Recovery checkpoint:** `fa475713e5212f5214c594fbdc596f022aa622f6` (merge; this dossier update is a successor); implementation `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`, review corrections `80967d8561d17afd05ceda08666ce9f6ce82d843`.
 - **Inspiration:** `PC-20261023-225539-746d33d4`; shared `coding-policy` dependency drift screen.
 
 ## Intent and implemented contract
@@ -21,17 +21,19 @@ The launcher warns on manifest versus site-packages mtime, which is a heuristic 
 - After correction, launcher and lane-safety tests returned 16 passed. The documented read-only revision command ran against the actual selected checkout and returned `6c36ee88a60073e1b687ec32deeade24ffafdd4f`. Independent re-review pending; the original warning continues to appear after a valid comparison and the papercut must not be closed merely because the wording changed.
 - Beta `379e8fcc1dfc89b967a4cc2b260a09b5c842efbb` was merged as `414655017b7821de42346a7fdb1c8eb6417ae68b`; the same 16 tests and diff check passed after reconciliation. Re-review the reconciled tip.
 - Independent re-review blocked `0690b30`: source changes and 16 tests looked correct, but the reviewer could not execute the documented read-only revision command because tool approval timed out. Parent's earlier successful command is not an independent execution receipt. No bypass or retry of the blocked operation was attempted.
+- Subsequent independent review of `1419b80c99a8cc6d2cf12797e8c661a326537f10`, as reported by the parent, executed the guide's exact read-only pin comparison and independently verified 16 focused tests. The comparison matched; integration was blocked pending reconciliation with advanced beta. This supersedes the earlier missing-command blocker, not the requirement to review the reconciled tip.
+- Fetched `origin/beta` at `70edc5a8b9494df6b4b18a927d8cbb87e7d1fe94` and merged it into the feature as `fa475713e5212f5214c594fbdc596f022aa622f6` without conflict. The launcher dependency diagnostics and beta's parameter-mining documentation are both retained. `env PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q tests/test_bbh_launcher.py tests/test_skill_command_lane_safety.py` returned **16 passed**; `git diff --check origin/beta...HEAD` and `git diff --check` passed. The test environment's manifest matched this checkout; no installation was performed.
 
 ## Blockers and deferred work
 
-Missing independent evidence: execute the guide's read-only Bounty Core VCS revision command using a context where the approval gate permits it; compare output with the selected checkout's manifest, then re-review the exact feature tip. This blocks release. Integrated tests and original runtime verification also remain. No automated full manifest reconciliation was implemented; a matching single VCS pin is not sufficient evidence that all dependencies are current.
+Fresh independent review of the reconciled feature tip blocks integration; the prior review predates the beta merge. Integrated tests and original runtime verification also remain. No automated full manifest reconciliation was implemented; a matching single VCS pin is not sufficient evidence that all dependencies are current. The warning can remain noisy even after a valid comparison, so the original issue remains open.
 
 ## Interruption / resume handoff
 
 - **Branch:** `fix/bbh-dependency-drift-guidance`.
-- **Recovery checkpoint:** `0690b30502ef06eeb695a110176f02a304a03e6f` (this blocker update will be a dossier-only successor).
-- **Exact resume:** once independent command execution is approved, re-review exact feature tip; reconcile current beta, integrate only if approved, and verify selected launcher. Keep the noisy-warning papercut open until its full issue is actually resolved.
-- **Working tree:** intended clean after initial commit.
+- **Recovery checkpoint:** `fa475713e5212f5214c594fbdc596f022aa622f6` (reconciled merge; dossier-only successor must also be reviewed).
+- **Exact resume:** obtain fresh independent review of the exact successor feature tip and its merged beta context; refetch the named beta before any owner-controlled integration, integrate only if approved, and verify the selected launcher. Keep the noisy-warning papercut open until its full issue is actually resolved.
+- **Working tree:** intended clean after the dossier checkpoint commit.
 
 ## Decision gates
 
@@ -44,3 +46,4 @@ Missing independent evidence: execute the guide's read-only Bounty Core VCS revi
 - 2026-10-28 — reproduced ambiguous warning; clarified heuristic and conditional remediation.
 - 2026-10-28 — independent review blocked; added actionable selected-root diagnostics and persistent-warning disclosure, awaiting re-review.
 - 2026-10-28 — independent re-review blocked because required read-only command approval timed out; no integration.
+- 2026-10-29 — subsequent independent command and focused tests verified on the previous feature tip; merged fetched beta, reran focused tests, and deferred fresh independent review of the reconciled tip. No integration or activation.

@@ -6,4 +6,4 @@
 - Constraints: keep explicit offline and collection-only requests, immediate strong leads, partial evidence and provenance gaps. Browser-observed asset discovery can inform collection; no full inventory gate or unrequested live target tests. Avoid duplicated analysis doctrine and preserve compatibility routes.
 - Verification: RED route regressions followed by full feature suite using checkout-local environment and feature `PYTHONPATH`: 406 passed, 1 skipped, 231 subtests. Packaged symlink reference resolution checked by a test; independent semantic walkthrough and review remain pending. No live target action or account creation.
 - Activation: beta publication and runtime projection are separate; do not touch unrelated Hoster AI Policies work. Hoster fresh-consumer verification is a separate gate when authorized.
-- Recovery checkpoint: none yet; initial implementation pending.
+- Recovery checkpoint: implementation and tests commit `2ee868cc37fc2fd563c3b709a9b105a94b42bebd`; a later dossier-only commit records this immutable checkpoint. Next: fresh independent semantic review, resolve blockers, re-review before beta integration.

@@ -1,17 +1,17 @@
 # Bunny role-native pipeline
 
-Status: 339c48fff69a79e0a6632cb40a071f99092e02bc simplifies team communication to harness-neutral guidance. A preliminary Juice Shop trial exercised relay and investigative use but did not sandbox the agent processes; the requested sandboxed-agent trial remains pending. Independent review, current-beta reconciliation, and release remain pending.
+Status: harness-neutral team communication is implemented. Feature checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2` reconciles beta; independent re-review found no code/security blocker but identified a skill-reference repair and metadata corrections. A preliminary Juice Shop trial exercised relay and investigative use but did not sandbox agent processes. A new sandboxed-agent trial is in progress; its behavioral result and any release remain pending.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
 
 ## Branch and scope
 
-- Feature: `feat/bunny-pipeline`, worktree `/home/ryushe/worktrees/bbh-bunny-pipeline`.
-- Base: `9e0702536791c49d38e9b5cc48442dea91e613ee` (fetched origin/beta).
+- Feature: `feat/bunny-pipeline-canonical-roles`, worktree `/home/ryushe/worktrees/bbh-bunny-pipeline`.
+- Original base: `9e0702536791c49d38e9b5cc48442dea91e613ee`; reconciled `origin/beta` at `dc0661b3cab1db8d5df08b57411c63537975642b` in checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2`.
 - Intended integration target: `beta`, not main.
-- Owners: `skills/bunny/` canonical role definitions and `bunny-collaborative` behavior.
-- No live target traffic, real account creation, external submission, global provider changes, or unattended scheduler in these trials. Fixtures and isolated store records are explicitly synthetic.
+- Owners: `agents/bunny-*.md` canonical role definitions and `bunny-collaborative` behavior.
+- No external target traffic, real account creation, external submission, global provider changes, or unattended scheduler in these trials. Local Juice Shop traffic, fixtures and isolated store records are explicitly synthetic.
 - Hoster raw run: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/`.
 - Durable local evidence: `/home/ryushe/.hermes/state/validation/bunny-pipeline/`.
 
@@ -32,7 +32,7 @@ Each behavior gate uses real model calls and native transport on a synthetic loc
 - Explicit offhand mode remains ordinary scoped workers; collaborative role files must not silently change that mode.
 - Store handoffs use existing canonical owners, exact pointer envelopes, and recipient read-before-ACK. Native peer messaging is conditional; a coordinator may forward the envelope without reauthoring evidence.
 - Historical source tests before simplification: 22 passed after test-first REDs for discovery, dispatch, offhand isolation, tool selection, pointer pickup, async dependency barriers, operational ownership, investigative acceptance, continuity, and terse blunt challenges. These assertions describe that earlier candidate, not the current change.
-- After reconciling `origin/beta` at `dc0661b3cab1db8d5df08b57411c63537975642b`, the interim merged tree ran `PYTHONPATH="$PWD" .venv/bin/python -m pytest tests/ -q --tb=short --show-capture=no`: 410 passed, 1 skipped, 231 subtests passed. Subsequent focused review fixes added two contract tests; their RED and GREEN are separate from this earlier broad receipt. The full suite must be rerun on the final tree.
+- At checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2`, `PYTHONPATH="$PWD" .venv/bin/python -m pytest tests/ -q --tb=short --show-capture=no` returned 411 passed, 1 skipped, 231 subtests passed. The later skill-reference repair was test-first RED (1 failed), then focused GREEN: 28 passed, 16 subtests passed across `test_bunny_runtime_package.py`, `test_bunny_skill.py`, and `test_bunny_agent_sources.py`. The skill tree has no remaining `../bunny/references/dispatch.md` references.
 - Feature `.venv` installed via repository setup; Bounty Core resolved through that environment.
 
 ## Stage 1 receipts
@@ -72,7 +72,7 @@ Stage5 passed at `7ea9f4e4560e3c1c925414f3c686f475767e4b3b`; receipt `/home/ryus
 - Branch implementation checkpoint `339c48fff69a79e0a6632cb40a071f99092e02bc` removes mandatory Pi-specific dispatch guidance and describes Bunny/recon/hunter communication with explicit relay fallback. Focused tests: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_bunny_runtime_package.py tests/test_bunny_skill.py tests/test_bunny_agent_sources.py -q` returned 25 passed, 12 subtests passed. These are structural checks, not evidence of sandboxed-agent behavior. No clean test-first RED was captured for the full guidance edit.
 - App ran in a task-owned Docker internal network with no published port; a probe returned HTTP 200. The coordinator and two Hermes workers ran as host PTYs and accessed the app using Docker. **Agent processes were not sandboxed**, so this run does not satisfy the requested isolation or validate all harnesses. Earlier claims the lab or whole trial met that requirement are superseded.
 - Recon published scratch evidence; Bunny relayed the pointer; hunter read it and chose an actual local follow-up. Hunter then asked recon a follow-up and Bunny relayed the answer. Direct peer messaging was not demonstrated. No BBH MapStore/Attempts/Coverage writer or browser-driven exploration was exercised. Coordinator repeated the candidate request; an independent verifier was not spawned. Sanitized notes: `/home/ryushe/.hermes/state/validation/bunny-pipeline/juice-shop-20261029/`; source artifacts live under idle-pruned scratch.
-- Required next gate: run coordinator and workers themselves in an isolated container/VM with only the local Juice Shop target, an explicitly bounded model access route, and isolated evidence storage. Verify actual execution namespaces and target/model boundaries before sending the hunt objective; inspect actual communication, operational provisioning, evidence use and independent verification. Do not substitute host-side PTYs or claim all-harness support from a single run. Resume after independent branch review and sandbox feasibility assessment.
+- Required next gate: evaluate the in-progress run of coordinator and workers inside a task-owned container, connected to the local Juice Shop and a loopback-only model relay, with isolated evidence storage. Inspect actual communication, operational provisioning, evidence use, independent verification, and isolation limitations. Do not substitute host-side PTYs or claim all-harness support from a single run.
 
 ## Alignment and release boundary
 

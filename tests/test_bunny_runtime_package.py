@@ -16,6 +16,12 @@ def test_verifier_and_reporter_are_spawned_only_when_needed():
     assert "`bunny-reporter` after verified evidence" in text
 
 
+def test_collaborative_routes_dispatch_through_owning_bunny_skill():
+    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    assert "`bunny` skill's `references/dispatch.md`" in text
+    assert "../bunny/references/dispatch.md" not in text
+
+
 def test_router_loads_the_team_dispatch_contract():
     bunny = ROOT / "skills/bunny"
     router = (bunny / "SKILL.md").read_text()

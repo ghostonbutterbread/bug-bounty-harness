@@ -52,6 +52,20 @@ or otherwise unidentified device.
 5. If the known transport is absent, restore only the documented Hoster tunnel
    or ask Ryushe; do not substitute another device or a public/Tailnet exposure.
 
+## UI Hierarchy Output Safety
+
+A raw UI hierarchy can contain sensitive dynamic values even when the screen
+visually masks them or accessibility password metadata is false. This is an
+output boundary: do not emit or persist raw hierarchy XML or copied values,
+including in tool results, stdout, errors, logs, or artifacts. Use a hierarchy
+producer only if verified pre-output sanitization enforces a fixed safe schema
+before any such output or persistence; otherwise fail closed and do not run it.
+This guidance does not assert that such a sanitizer exists.
+
+As an alternative, inspect the emulator screen manually and share only a
+non-sensitive summary without copying displayed values. Screenshots can also
+contain sensitive information; do not assume they are safe to capture or share.
+
 ## Abommie / WSL
 
 The Windows Android Studio ADB server already exposes the emulator to WSL:

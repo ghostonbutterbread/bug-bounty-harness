@@ -790,15 +790,22 @@ def parse_finding_text(
     parsed: dict[str, str] = {}
     narrative_lines: list[str] = []
     current_key: str | None = None
+    heading = ""
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
+        if not heading and not current_key and re.match(r"^\s*#\s+\S", line):
+            heading = _derive_title(line, first_line_only=True)
         match = FIELD_RE.match(line)
         if match:
             label = match.group("label").strip().lower().replace("-", " ")
             key = FIELD_ALIASES.get(label)
             if key:
                 value = match.group("value").strip()
+                # In **Label:** value, the label's closing bold marker is
+                # captured as part of the value; leave value formatting intact.
+                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", line):
+                    value = value[2:].lstrip()
                 if key == "review_tier":
                     value = _tier_field_value(value)
                     candidate = _infer_review_tier({"review_tier": value}) if value else None
@@ -869,6 +876,7 @@ def parse_finding_text(
     title = (
         _normalize_text(parsed.get("title"))
         or _normalize_text(parsed.get("type"))
+        or heading
         or _derive_title(description, first_line_only=True)
     )
     finding_type = _normalize_text(parsed.get("type")) or title

@@ -24,7 +24,7 @@ if str(_AGENT_DIR) not in sys.path:
 
 from bounty_core.recon import start_run, write_manifest
 
-from scope_validator import OutOfScopeError, ScopeValidator
+from scope_validator import OutOfScopeError, ScopeValidator, _extract_host
 from scope_seed_files import clean_scope_value, recon_scope_file_lines, recon_seed_lines
 from recon_store import summarize_url_index
 from recon.promote_run import promote_run
@@ -386,7 +386,34 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def validate_launch_target(target: str):
+    """Reject destinations the host-oriented downstream tool cannot represent.
+
+    This validates input only; it does not confine subsequent requests.
+    Bare host/path inputs retain the queue's existing HTTPS interpretation.
+    """
+    launch_target = target if "://" in target else f"https://{target}"
+    if "\\" in launch_target or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in launch_target):
+        raise SystemExit(f"Invalid URL: {target}")
+    try:
+        parsed = urlparse(launch_target)
+        port = parsed.port
+    except ValueError as exc:
+        raise SystemExit(f"Invalid port or URL: {target}") from exc
+    if parsed.netloc.endswith(":") or port == 0:
+        raise SystemExit(f"Invalid port: {target}")
+    if not parsed.hostname or parsed.scheme not in {"http", "https"} or parsed.username is not None:
+        raise SystemExit(f"Invalid URL: {target}")
+    if not _extract_host(launch_target):
+        # A malformed bracket/port spelling is not a safe authority either.
+        raise SystemExit(f"Invalid port or URL: {target}")
+    if port is not None and port != {"http": 80, "https": 443}[parsed.scheme]:
+        raise SystemExit(f"Recon-Ry cannot safely run a non-default port: {target}")
+    return launch_target, parsed
+
+
 def start_remote(args: argparse.Namespace) -> None:
+    validate_launch_target(args.url)
     initial = _load_recon_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
     expected_scope = _scope_signature(initial)
     validate_profile_scope(args.program, args.profile, url=args.url, allow_unscoped=args.allow_unscoped, expected_scope=expected_scope)
@@ -520,20 +547,8 @@ def queue_remote(args: argparse.Namespace) -> None:
         target = raw.strip()
         if not target or target.startswith("#"):
             continue
-        launch_target = target if "://" in target else f"https://{target}"
-        if "\\" in launch_target or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in launch_target):
-            raise SystemExit(f"Invalid URL in {source}: {target}")
-        try:
-            parsed = urlparse(launch_target)
-            port = parsed.port
-        except ValueError as exc:
-            raise SystemExit(f"Invalid port or URL in {source}: {target}") from exc
-        if not parsed.hostname or parsed.scheme not in {"http", "https"} or parsed.username is not None:
-            raise SystemExit(f"Invalid URL in {source}: {target}")
-        if parsed.netloc.endswith(":") or port == 0:
-            raise SystemExit(f"Invalid port in {source}: {target}")
-        if port is not None and port != {"http": 80, "https": 443}.get(parsed.scheme):
-            raise SystemExit(f"Queue cannot safely run a non-default port: {target}")
+        launch_target, parsed = validate_launch_target(target)
+        port = parsed.port
         if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
             raise SystemExit(f"Exact-host queue accepts root URLs only; handle path-scoped assets as source review: {target}")
         normalized = (parsed.scheme, parsed.hostname.lower(), port or {"http": 80, "https": 443}.get(parsed.scheme))

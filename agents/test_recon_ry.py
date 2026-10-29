@@ -268,7 +268,7 @@ def test_excluded_wildcard_roots_are_not_staged_as_roots(monkeypatch, capsys) ->
                 SimpleNamespace(raw="*.leaf.second.example", entry_type="wildcard"),
             ]
             self._out_of_scope = [
-                SimpleNamespace(raw="https://*.second.example", entry_type="url_pattern"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
                 SimpleNamespace(raw="*.sub.first.example", entry_type="wildcard"),
             ]
 
@@ -443,7 +443,7 @@ def test_start_and_queue_timeout_default_to_unlimited() -> None:
 def test_start_full_fails_closed_when_scope_has_no_wildcards(monkeypatch) -> None:
     class ExactOnlyScope:
         def __init__(self, program: str, strict: bool = True):
-            self._entries = [SimpleNamespace(raw="https://api.example.com", entry_type="url_pattern")]
+            self._entries = [SimpleNamespace(raw="api.example.com", entry_type="domain")]
 
         def is_empty(self) -> bool:
             return False
@@ -647,6 +647,7 @@ def test_validate_start_scope_fails_closed_when_no_scope(monkeypatch) -> None:
         def __init__(self, program: str, strict: bool = True):
             self.program = program
             self.strict = strict
+            self._entries = []
 
         def is_empty(self) -> bool:
             return True
@@ -666,6 +667,7 @@ def test_validate_start_scope_rejects_out_of_scope(monkeypatch) -> None:
         def __init__(self, program: str, strict: bool = True):
             self.program = program
             self.strict = strict
+            self._entries = []
 
         def is_empty(self) -> bool:
             return False

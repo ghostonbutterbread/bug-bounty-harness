@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
@@ -211,8 +212,36 @@ def ssh_command(remote: str, ssh_key: Path | None, command: str) -> list[str]:
     return cmd
 
 
+def validate_recon_scope_containment(validator: ScopeValidator) -> None:
+    """Refuse saved origin/path restrictions that host filters cannot enforce."""
+    for kind, entries in (("grant", validator._entries), ("exclusion", getattr(validator, "_out_of_scope", []))):
+        for entry in entries:
+            raw = str(getattr(entry, "raw", "")).split("#", 1)[0].strip()
+            if not raw:
+                continue
+            restricted = "://" in raw or "?" in raw
+            if not restricted and "/" in raw:
+                try:
+                    ip_network(raw, strict=False)
+                except ValueError:
+                    restricted = True
+            if not restricted and ":" in raw and "/" not in raw:
+                try:
+                    ip_address(raw.strip("[]"))
+                except ValueError:
+                    restricted = True
+            if restricted:
+                raise SystemExit(
+                    f"Recon-Ry refused: saved scope {kind} has an origin, port or path restriction "
+                    f"({raw}); host filters do not provide request-level containment for redirects, "
+                    "subresources and nested tools. Active coverage is deferred; use a separately "
+                    "verified request-contained method for the restricted scope."
+                )
+
+
 def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False) -> None:
     validator = ScopeValidator(program=program, strict=True)
+    validate_recon_scope_containment(validator)
     if validator.is_empty():
         if allow_unscoped:
             return
@@ -377,9 +406,8 @@ def start_remote(args: argparse.Namespace) -> None:
         # Keep the URL for BBH scope validation, but let the staged wildcard
         # roots drive the remote enumeration instead of silently using one.
         url_part = ""
-    # recon-ry filters tool input, constrains the crawler and filters promoted
-    # artifacts when given an explicit scope. Derive it from the same saved
-    # scope that gates this launch so the remote run cannot drift wider.
+    # Recon-Ry filters some inputs and output artifacts using these host rules;
+    # this is not request-level confinement for redirects or subresources.
     scope_arg = ""
     scope_files: dict[str, str] = {}
     deferred_scope: list[str] = []

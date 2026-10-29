@@ -29,6 +29,25 @@ Scope files are loaded from standard locations:
   Legacy fallback:
   ~/Shared/bounty_recon/{program}/scope/in-scope.txt
   ~/Shared/bounty_recon/{program}/scope/domains.txt
+  ~/Shared/bounty_recon/{program}/scope/scope.txt
+  ~/Shared/bounty_recon/{program}/recon/scope.txt
+
+The first present allow file wins, including an empty one. Standard files that
+are genuinely absent are optional; an unreadable or undecodable selected file
+raises ScopeAllowReadError or ScopeExclusionReadError, both ScopeFileReadError
+and OSError subclasses, with a chained cause and path. Explicit load_from_file
+also raises on a missing file. A caught failure poisons that instance: scope
+checks refuse and is_empty() raises; reconstruct after correcting the file.
+Invalid allow authorities grant nothing; invalid exclusion authorities deny
+all targets. These entry semantics are distinct from a file-read exception.
+
+Callers must propagate or stop on scope-load failures, including when unscoped
+operation is permitted; never turn a caught failure into empty scope. Import
+ScopeValidator and its exception from the same module object. Python can load
+this file as both scope_validator and agents.scope_validator, producing distinct
+class identities. If the module identity is not guaranteed, catch OSError at
+the construction/load boundary and abort (do not swallow or treat as absent).
+This does not protect consumers that broadly catch Exception and continue.
 
 Usage:
     from scope_validator import ScopeValidator
@@ -63,7 +82,15 @@ class OutOfScopeError(Exception):
     pass
 
 
-class ScopeExclusionReadError(OSError):
+class ScopeFileReadError(OSError):
+    """A scope file could not be inspected, read, or decoded."""
+
+
+class ScopeAllowReadError(ScopeFileReadError):
+    """An allow file could not be read; callers must refuse the run."""
+
+
+class ScopeExclusionReadError(ScopeFileReadError):
     """An exclusion file could not be read; callers must refuse the run."""
 
 
@@ -280,7 +307,7 @@ class ScopeValidator:
         self.blocked_or_sensitive_classes: list[str] = []
         self._entries: list[_ScopeEntry] = []
         self._out_of_scope: list[_ScopeEntry] = []
-        self._exclusion_load_error: ScopeExclusionReadError | None = None
+        self._scope_file_load_error: ScopeFileReadError | None = None
         self.load_scope()
 
     # ── Loading ───────────────────────────────────────────────────────────
@@ -288,18 +315,15 @@ class ScopeValidator:
     def load_scope(self) -> None:
         """
         Load scope entries from standard file locations.
-        Missing standard files are optional. Unreadable exclusion files raise
-        ScopeExclusionReadError; callers must never convert that into unscoped
-        permission. Call add_domain() to add entries manually.
+        Missing standard files are optional. An unreadable allow or exclusion
+        raises ScopeFileReadError; never convert it into unscoped permission.
+        Call add_domain() to add entries manually.
         """
         canonical_dir = self.scopes_base / self.program
         legacy_program_dir = self.LEGACY_RECON_BASE / self.program
         self._load_policy(canonical_dir / "rules-of-engagement.json")
-        loaded = False
         for path in [canonical_dir / "in-scope.txt", *(legacy_program_dir / rel for rel in self.SCOPE_FILE_NAMES)]:
-            if path.exists():
-                self._load_file(path, is_out_of_scope=False)
-                loaded = True
+            if self._load_file(path, is_out_of_scope=False, optional=True):
                 break
 
         # Canonical sources take precedence over legacy, including when empty.
@@ -328,7 +352,7 @@ class ScopeValidator:
         """Parse a scope file and add its entries."""
         try:
             entries = []
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
@@ -349,25 +373,25 @@ class ScopeValidator:
                 except FileNotFoundError:
                     return False
                 except OSError as stat_error:
-                    error = ScopeExclusionReadError(f"could not inspect exclusion file {path}: {stat_error}")
-                    self._exclusion_load_error = error
+                    kind = "exclusion" if is_out_of_scope else "allow"
+                    error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+                    error = error_type(f"could not inspect {kind} file {path}: {stat_error}")
+                    self._scope_file_load_error = error
                     raise error from stat_error
-            if is_out_of_scope:
-                error = ScopeExclusionReadError(f"could not read exclusion file {path}: {e}")
-                self._exclusion_load_error = error
-                raise error from e
-            print(f"[scope_validator] Warning: could not read {path}: {e}")
-            return False
+            kind = "exclusion" if is_out_of_scope else "allow"
+            error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+            error = error_type(f"could not read {kind} file {path}: {e}")
+            self._scope_file_load_error = error
+            raise error from e
         except (OSError, UnicodeError) as e:
-            if is_out_of_scope:
-                error = ScopeExclusionReadError(f"could not read exclusion file {path}: {e}")
-                self._exclusion_load_error = error
-                raise error from e
-            print(f"[scope_validator] Warning: could not read {path}: {e}")
-            return False
+            kind = "exclusion" if is_out_of_scope else "allow"
+            error_type = ScopeExclusionReadError if is_out_of_scope else ScopeAllowReadError
+            error = error_type(f"could not read {kind} file {path}: {e}")
+            self._scope_file_load_error = error
+            raise error from e
 
     def load_from_file(self, path: str, is_out_of_scope: bool = False) -> None:
-        """Load a file; an exclusion read failure poisons this validator and raises."""
+        """Load a file; a read failure poisons this validator and raises."""
         self._load_file(Path(path).expanduser(), is_out_of_scope=is_out_of_scope)
 
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
@@ -409,7 +433,7 @@ class ScopeValidator:
             return False
         target = target.strip()
 
-        if getattr(self, "_exclusion_load_error", None):
+        if getattr(self, "_scope_file_load_error", None):
             return False
 
         # Must match at least one in-scope entry
@@ -423,7 +447,7 @@ class ScopeValidator:
 
     def is_out_of_scope(self, target: str) -> bool:
         """Return True if target is explicitly out of scope."""
-        if getattr(self, "_exclusion_load_error", None):
+        if getattr(self, "_scope_file_load_error", None):
             return True
         if not target or not target.strip():
             return False
@@ -442,7 +466,7 @@ class ScopeValidator:
         Example:
             is_wildcard_scope("example.com") → True if *.example.com is in scope
         """
-        if getattr(self, "_exclusion_load_error", None) or any(
+        if getattr(self, "_scope_file_load_error", None) or any(
             entry.has_invalid_authority() for entry in self._out_of_scope
         ):
             return False
@@ -516,8 +540,8 @@ class ScopeValidator:
         """
         if not self.is_in_scope(target):
             reason = ""
-            if getattr(self, "_exclusion_load_error", None):
-                reason = f"Exclusion file read failed: {self._exclusion_load_error}. "
+            if getattr(self, "_scope_file_load_error", None):
+                reason = f"Scope file read failed: {self._scope_file_load_error}. "
             elif any(e.has_invalid_authority() for e in self._out_of_scope):
                 reason = "Unusable scope: invalid exclusion authority; refusing all targets. "
             elif any(e.has_invalid_authority() for e in self._entries):
@@ -561,6 +585,9 @@ class ScopeValidator:
         return len(self._entries)
 
     def is_empty(self) -> bool:
+        error = getattr(self, "_scope_file_load_error", None)
+        if error is not None:
+            raise error
         return len(self._entries) == 0
 
     def __repr__(self) -> str:

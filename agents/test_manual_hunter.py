@@ -131,6 +131,84 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
 
+    def test_from_file_markdown_class_is_stored_without_bold_markers(self) -> None:
+        note = self.tmp / "markdown-class.md"
+        note.write_text(
+            "Title: Synthetic record access\n**Class:** idor\n"
+            "File: src/access.py\nDescription: Owned fixture returned an owned record.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["class_name"], "idor")
+        self.assertFalse(finding["class_inferred"])
+
+    def test_from_file_markdown_severity_is_normalized(self) -> None:
+        note = self.tmp / "markdown-severity.md"
+        note.write_text(
+            "Title: Synthetic record access\nClass: idor\n**Severity:** HIGH\n"
+            "File: src/access.py\nDescription: Owned fixture returned an owned record.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["severity"], "HIGH")
+        self.assertEqual(finding["severity_label"], "HIGH")
+
+    def test_from_file_heading_supplies_title_with_explicit_description(self) -> None:
+        note = self.tmp / "markdown-heading.md"
+        note.write_text(
+            "# Synthetic record access\nClass: idor\nFile: src/access.py\n"
+            "Description: Owned fixture returned an owned record.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["title"], "Synthetic record access")
+        self.assertEqual(finding["type"], "Synthetic record access")
+        self.assertEqual(finding["description"], "Owned fixture returned an owned record.")
+
+    def test_from_file_bold_metadata_preserves_web_route_and_title_precedence(self) -> None:
+        note = self.tmp / "web-metadata.md"
+        note.write_text(
+            "# Synthetic heading\n**Title:** Explicit title\n**Type:** Explicit type\n"
+            "**Class:** idor\n**Severity:** P2\n**File:** src/access.py\n"
+            "**URL:** https://app.example.test/records/owned?key=one\n"
+            "**Description:** Owned fixture returned an owned record.\n"
+            "**Scoring Authority:** Test rubric\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "web", "--from-file", str(note)]), 0)
+        storage = resolve_storage(self.program, family="web_bounty", lane="web", create=False)
+        finding = json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["title"], "Explicit title")
+        self.assertEqual(finding["type"], "Explicit type")
+        self.assertEqual(finding["class_name"], "idor")
+        self.assertEqual(finding["severity"], "HIGH")
+        self.assertEqual(finding["file"], "https://app.example.test/records/owned")
+        self.assertEqual(finding["asset"], "https://app.example.test/records/owned")
+        self.assertEqual(finding["description"], "Owned fixture returned an owned record.")
+        self.assertEqual(finding["scoring_authority"], "Test rubric")
+
+    def test_markdown_preserves_plain_labels_value_format_and_type_precedence(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        parsed = parse_finding_text(
+            "# Synthetic heading\n**Type**: Explicit type\nClass: idor\n"
+            "Severity: HIGH\nFile: src/access.py\n"
+            "Description: **Important** owned fixture detail.\n",
+            source_label="synthetic", family="binaries", lane="apk",
+        ).finding
+        self.assertEqual(parsed["title"], "Explicit type")
+        self.assertEqual(parsed["type"], "Explicit type")
+        self.assertEqual(parsed["class_name"], "idor")
+        self.assertEqual(parsed["severity"], "HIGH")
+        self.assertEqual(parsed["description"], "**Important** owned fixture detail.")
+
     def test_set_submission_updates_existing_finding(self) -> None:
         note_path = self.tmp / "finding.md"
         note_path.write_text(

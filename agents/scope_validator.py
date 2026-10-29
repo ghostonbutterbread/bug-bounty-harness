@@ -7,9 +7,25 @@ Supports:
   - URL patterns:          https://api.example.com/v1/*
   - CIDR ranges:           10.0.0.0/8, 192.168.1.0/24
 
+Authority spellings with percent escapes, userinfo, malformed ports, non-ASCII
+hosts or backslashes are refused before comparison; an invalid exclusion can
+therefore deny all targets. URL grants require a full URL, even at the root.
+ASCII A-labels must pass IDNA2008 validation; this is intentionally stricter
+than some browser URL parsers. Invalid exclusion authorities deny all targets.
+Path-scoped URLs use conservative lexical checks, not a model of application
+routing or HTTP redirects. With a path restriction, ambiguous path spellings
+(including percent escapes at any depth, dot/trailing-dot segments, repeated
+separators, backslashes, matrix parameters, whitespace or non-ASCII) are
+refused; a path exclusion also refuses colon-bearing paths. Verify the actual
+consumer enforces scope for every request and redirect. Do not decode or
+rewrite an ambiguous target into a purportedly authorized one without checking
+the program's scope and downstream behavior.
+
 Scope files are loaded from standard locations:
   ~/Shared/scopes/{program}/in-scope.txt
   ~/Shared/scopes/{program}/rules-of-engagement.json
+  Both out-of-scope.txt and excluded.txt in the selected directory are read.
+  Either canonical exclusion file, even empty, suppresses legacy fallback.
   Legacy fallback:
   ~/Shared/bounty_recon/{program}/scope/in-scope.txt
   ~/Shared/bounty_recon/{program}/scope/domains.txt
@@ -29,7 +45,9 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
+
+import idna
 
 try:
     from agents.scope_seed_files import optional_host_variants
@@ -43,6 +61,10 @@ except ModuleNotFoundError:
 class OutOfScopeError(Exception):
     """Raised by validate_or_fail() when a target is not in scope."""
     pass
+
+
+class ScopeExclusionReadError(OSError):
+    """An exclusion file could not be read; callers must refuse the run."""
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +102,7 @@ class _ScopeEntry:
             return "ip"
         return "domain"
 
-    def matches(self, target: str) -> bool:
+    def matches(self, target: str, *, exclusion: bool = False) -> bool:
         """
         Check if target matches this scope entry.
 
@@ -89,17 +111,22 @@ class _ScopeEntry:
         if self._type == "comment":
             return False
 
+        # An unparseable exclusion could name any destination after another
+        # parser normalizes it. Do not silently discard it as a non-match.
+        if self.has_invalid_authority():
+            return exclusion
+
         # Normalise target: extract hostname/IP from URL if needed
         host = _extract_host(target)
         if not host:
-            return False
+            return exclusion
 
         if self._type == "domain":
-            return host.lower() == self.raw.lower()
+            return host == _safe_host(self.raw)
 
         if self._type == "wildcard":
             # *.example.com matches api.example.com, x.y.example.com
-            base = self.raw[2:].lower()  # strip "*."
+            base = _safe_host(self.raw[2:])  # strip "*."
             h = host.lower()
             return h == base or h.endswith("." + base)
 
@@ -115,37 +142,78 @@ class _ScopeEntry:
                 return False
 
         if self._type == "url_pattern":
-            return self._match_url_pattern(target, host)
+            return self._match_url_pattern(target, host, exclusion=exclusion)
 
         return False
 
-    def _match_url_pattern(self, target: str, host: str) -> bool:
-        """
-        Match a URL pattern like https://api.example.com/v1/*.
-        Supports * glob at end of path.
-        """
-        pattern_parsed = urlparse(self.raw)
-        pattern_host = pattern_parsed.hostname or ""
-        pattern_path = pattern_parsed.path.rstrip("*")
+    def has_invalid_authority(self) -> bool:
+        if self._type in {"comment", "cidr"}:
+            return False
+        if self._type == "url_pattern":
+            return not _extract_host(self.raw.replace("*.", "wildcard.", 1))
+        return not _safe_host(self.raw[2:] if self._type == "wildcard" else self.raw)
 
-        # Host must match exactly or via wildcard prefix
-        if host.lower() != pattern_host.lower():
-            if not (pattern_host.startswith("*.") and
-                    host.lower().endswith(pattern_host[1:].lower())):
+    def _match_url_pattern(self, target: str, host: str, *, exclusion: bool) -> bool:
+        """Match URL scope conservatively; a path exclusion wins ambiguity."""
+        try:
+            pattern_parsed = urlsplit(self.raw)
+            raw_host = pattern_parsed.hostname or ""
+            pattern_host = (
+                "*." + _safe_host(raw_host[2:])
+                if raw_host.startswith("*.") else _safe_host(raw_host)
+            )
+            pattern_path = pattern_parsed.path.rstrip("*")
+        except ValueError:
+            return False
+
+        # Exclusions cover either HTTP scheme and every port; allows must not
+        # infer permission for another origin.
+        if host.lower() != pattern_host:
+            wildcard_match = pattern_host.startswith("*.") and (
+                host.lower().endswith(pattern_host[1:])
+                or (exclusion and host.lower() == pattern_host[2:])
+            )
+            if not wildcard_match:
                 return False
 
-        # Path check: only applies if target is a full URL
-        if target.startswith("http://") or target.startswith("https://"):
-            try:
-                target_path = urlparse(strip_tool_annotation(target)).path
-            except ValueError:
-                # Unparseable authority: no path to compare, so no pattern
-                # match. Refuse rather than raising through the caller.
-                return False
-            if pattern_path and not target_path.startswith(pattern_path):
-                return False
+        if _ambiguous_path(pattern_path) or any(ord(c) < 32 or ord(c) == 127 for c in self.raw):
+            return exclusion
 
-        return True
+        target = strip_tool_annotation(target)
+        if not target.startswith(("http://", "https://")):
+            # A bare hostname cannot preserve any URL origin restriction.
+            # An exclusion still covers an unknown path and origin.
+            return exclusion
+        try:
+            target_parsed = urlsplit(target)
+            target_path = target_parsed.path or "/"
+            pattern_port = pattern_parsed.port
+            target_port = target_parsed.port
+            if pattern_port is None:
+                pattern_port = {"http": 80, "https": 443}.get(pattern_parsed.scheme)
+            if target_port is None:
+                target_port = {"http": 80, "https": 443}.get(target_parsed.scheme)
+        except ValueError:
+            return exclusion
+        if not exclusion and (target_parsed.scheme != pattern_parsed.scheme or target_port != pattern_port):
+            return False
+        if pattern_path not in ("", "/") and (
+            _ambiguous_path(target_path)
+            or (exclusion and ":" in target_path)
+            or any(ord(c) < 32 or ord(c) == 127 for c in target)
+        ):
+            return exclusion
+        if exclusion:
+            # Deny case-insensitively and include the directory itself; some
+            # servers redirect /private to /private/ or fold path case.
+            path = target_path.lower()
+            prefix = pattern_path.lower()
+            return path.startswith(prefix) or (prefix.endswith("/") and path == prefix[:-1])
+        if not pattern_path or pattern_path == "/":
+            return True
+        if pattern_parsed.path.endswith("*") or pattern_path.endswith("/"):
+            return target_path.startswith(pattern_path)
+        return target_path == pattern_path or target_path.startswith(pattern_path + "/")
 
     @property
     def entry_type(self) -> str:
@@ -212,6 +280,7 @@ class ScopeValidator:
         self.blocked_or_sensitive_classes: list[str] = []
         self._entries: list[_ScopeEntry] = []
         self._out_of_scope: list[_ScopeEntry] = []
+        self._exclusion_load_error: ScopeExclusionReadError | None = None
         self.load_scope()
 
     # ── Loading ───────────────────────────────────────────────────────────
@@ -219,7 +288,9 @@ class ScopeValidator:
     def load_scope(self) -> None:
         """
         Load scope entries from standard file locations.
-        Silently skips missing files — call add_domain() to add manually.
+        Missing standard files are optional. Unreadable exclusion files raise
+        ScopeExclusionReadError; callers must never convert that into unscoped
+        permission. Call add_domain() to add entries manually.
         """
         canonical_dir = self.scopes_base / self.program
         legacy_program_dir = self.LEGACY_RECON_BASE / self.program
@@ -231,16 +302,13 @@ class ScopeValidator:
                 loaded = True
                 break
 
-        # Also check for out-of-scope file
-        out_of_scope_candidates = [
-            canonical_dir / "out-of-scope.txt",
-            canonical_dir / "excluded.txt",
-            legacy_program_dir / "scope/out-of-scope.txt",
-            legacy_program_dir / "scope/excluded.txt",
-        ]
-        for path in out_of_scope_candidates:
-            if path.exists():
-                self._load_file(path, is_out_of_scope=True)
+        # Canonical sources take precedence over legacy, including when empty.
+        # Within the selected directory both names contribute exclusions.
+        for directory in (canonical_dir, legacy_program_dir / "scope"):
+            present = False
+            for name in ("out-of-scope.txt", "excluded.txt"):
+                present = self._load_file(directory / name, is_out_of_scope=True, optional=True) or present
+            if present:
                 break
 
     def _load_policy(self, path: Path) -> None:
@@ -256,9 +324,10 @@ class ScopeValidator:
         except (OSError, json.JSONDecodeError) as e:
             print(f"[scope_validator] Warning: could not read policy metadata {path}: {e}")
 
-    def _load_file(self, path: Path, is_out_of_scope: bool = False) -> None:
+    def _load_file(self, path: Path, is_out_of_scope: bool = False, *, optional: bool = False) -> bool:
         """Parse a scope file and add its entries."""
         try:
+            entries = []
             with open(path) as f:
                 for line in f:
                     line = line.strip()
@@ -270,15 +339,35 @@ class ScopeValidator:
                     for variant in optional_host_variants(line):
                         entry = _ScopeEntry(variant)
                         if entry.entry_type != "comment":
-                            if is_out_of_scope:
-                                self._out_of_scope.append(entry)
-                            else:
-                                self._entries.append(entry)
-        except (OSError, PermissionError) as e:
+                            entries.append(entry)
+            (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
+            return True
+        except FileNotFoundError as e:
+            if optional:
+                try:
+                    path.lstat()
+                except FileNotFoundError:
+                    return False
+                except OSError as stat_error:
+                    error = ScopeExclusionReadError(f"could not inspect exclusion file {path}: {stat_error}")
+                    self._exclusion_load_error = error
+                    raise error from stat_error
+            if is_out_of_scope:
+                error = ScopeExclusionReadError(f"could not read exclusion file {path}: {e}")
+                self._exclusion_load_error = error
+                raise error from e
             print(f"[scope_validator] Warning: could not read {path}: {e}")
+            return False
+        except (OSError, UnicodeError) as e:
+            if is_out_of_scope:
+                error = ScopeExclusionReadError(f"could not read exclusion file {path}: {e}")
+                self._exclusion_load_error = error
+                raise error from e
+            print(f"[scope_validator] Warning: could not read {path}: {e}")
+            return False
 
     def load_from_file(self, path: str, is_out_of_scope: bool = False) -> None:
-        """Load scope from an arbitrary file path."""
+        """Load a file; an exclusion read failure poisons this validator and raises."""
         self._load_file(Path(path).expanduser(), is_out_of_scope=is_out_of_scope)
 
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
@@ -316,7 +405,12 @@ class ScopeValidator:
         if not target or not target.strip():
             return False
 
+        if _unsafe_controls(target):
+            return False
         target = target.strip()
+
+        if getattr(self, "_exclusion_load_error", None):
+            return False
 
         # Must match at least one in-scope entry
         in_scope = any(e.matches(target) for e in self._entries)
@@ -324,14 +418,18 @@ class ScopeValidator:
             return False
 
         # Must not match any exclusion
-        excluded = any(e.matches(target) for e in self._out_of_scope)
+        excluded = any(e.matches(target, exclusion=True) for e in self._out_of_scope)
         return not excluded
 
     def is_out_of_scope(self, target: str) -> bool:
         """Return True if target is explicitly out of scope."""
+        if getattr(self, "_exclusion_load_error", None):
+            return True
         if not target or not target.strip():
             return False
-        return any(e.matches(target.strip()) for e in self._out_of_scope)
+        if _unsafe_controls(target):
+            return bool(self._out_of_scope)
+        return any(e.matches(target.strip(), exclusion=True) for e in self._out_of_scope)
 
     def is_wildcard_scope(self, domain: str) -> bool:
         """
@@ -340,6 +438,10 @@ class ScopeValidator:
         Example:
             is_wildcard_scope("example.com") → True if *.example.com is in scope
         """
+        if getattr(self, "_exclusion_load_error", None) or any(
+            entry.has_invalid_authority() for entry in self._out_of_scope
+        ):
+            return False
         domain = domain.lower().strip()
         for entry in self._entries:
             if entry.is_wildcard:
@@ -394,8 +496,18 @@ class ScopeValidator:
             OutOfScopeError: If target is out of scope and strict=True
         """
         if not self.is_in_scope(target):
+            reason = ""
+            if getattr(self, "_exclusion_load_error", None):
+                reason = f"Exclusion file read failed: {self._exclusion_load_error}. "
+            elif any(e.has_invalid_authority() for e in self._out_of_scope):
+                reason = "Unusable scope: invalid exclusion authority; refusing all targets. "
+            elif any(e.has_invalid_authority() for e in self._entries):
+                reason = "Unusable scope entry: invalid allow authority grants no access; correct the saved scope. "
             msg = (
                 f"[scope] {target!r} is NOT in scope for program {self.program!r}. "
+                f"{reason}"
+                f"Check the saved allow/exclusion entries and use an unambiguous full URL; "
+                f"do not normalize an unknown path without verifying program scope. "
                 f"In-scope entries: {self.scope_summary()}"
             )
             if self.strict:
@@ -445,9 +557,32 @@ class ScopeValidator:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _ambiguous_path(path: str) -> bool:
+    """Refuse path spellings whose interpretation can differ downstream.
+
+    Never decode a finite number of layers: another intermediary may decode
+    again. Matrix parameters and repeated separators can also be normalized.
+    """
+    return (
+        any(char in path for char in "%\\;")
+        or "//" in path
+        or any(segment.endswith(".") for segment in path.split("/"))
+        or any(ord(char) <= 32 or ord(char) >= 127 for char in path)
+    )
+
+
 # httpx-style output: a target followed only by bracketed annotations, e.g.
 # "https://api.example.com [192.168.1.1]" or "... [200] [nginx]".
 _TOOL_ANNOTATION = re.compile(r"^(\S+)(?:[ \t]+\[[^\]]*\])+$")
+
+
+def _unsafe_controls(value: str) -> bool:
+    controls = [c for c in value if ord(c) < 32 or ord(c) == 127]
+    if not controls:
+        return False
+    # Tabs are permitted only in an exact tool-annotation shape, which is
+    # stripped by the shared normalization contract before use.
+    return not (all(c == "\t" for c in controls) and _TOOL_ANNOTATION.fullmatch(value.strip(" ")))
 
 
 def strip_tool_annotation(value: str) -> str:
@@ -479,30 +614,75 @@ def _extract_host(target: str) -> str:
     """
     if not target:
         return ""
+    if _unsafe_controls(target):
+        return ""
     target = strip_tool_annotation(target)
     if not target:
         return ""
 
+    # Python and HTTP clients disagree on backslashes, encoded hosts,
+    # userinfo, control characters and malformed ports. Refuse these before
+    # comparing either side, rather than guessing a destination.
+    if any(ord(c) < 32 or ord(c) == 127 for c in target):
+        return ""
+    if "\\" in target.split("?", 1)[0].split("#", 1)[0]:
+        return ""
     if target.startswith("http://") or target.startswith("https://"):
         try:
             parsed = urlparse(target)
+            authority = parsed.netloc
+            if not re.fullmatch(r"(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]+)?", authority):
+                return ""
+            # Access validates both numeric form and range of the port.
+            parsed.port
+            host = parsed.hostname or ""
         except ValueError:
             # Unparseable authority: report no host so callers fail closed and
             # quarantine the value instead of aborting the whole run.
             return ""
         # Drop the DNS root label: "fab.com." is the same host as "fab.com",
         # and leaving it on matches neither the allow nor the exclusion list.
-        return (parsed.hostname or "").lower().rstrip(".")
+        return _safe_host(host)
 
     # Strip port
     if re.match(r"^\d{1,3}(\.\d{1,3}){3}:\d+$", target):
-        return target.rsplit(":", 1)[0]
+        if int(target.rsplit(":", 1)[1]) > 65535:
+            return ""
+        target = target.rsplit(":", 1)[0]
 
     # Strip path/query that may have been passed without scheme
     if "/" in target:
         target = target.split("/")[0]
 
-    return target.lower().rstrip(".")
+    return _safe_host(target)
+
+
+def _safe_host(host: str) -> str:
+    """Accept unambiguous ASCII DNS names and canonical IP literals only."""
+    host = host.lower()
+    if host.endswith("."):
+        host = host[:-1]
+    if not host or not host.isascii() or "%" in host:
+        return ""
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels):
+        return ""
+    for label in labels:
+        if label.startswith("xn--"):
+            try:
+                # IDNA2008 validation rejects malformed A-labels without the
+                # legacy stdlib codec's transitional mapping of e.g. ß.
+                idna.decode(label, uts46=True, std3_rules=True)
+            except idna.IDNAError:
+                return ""
+    # WHATWG clients can interpret numeric-ending names as alternate IPv4.
+    if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]+", labels[-1]):
+        return ""
+    return host
 
 
 def scope_from_campaign(campaign_state: dict, strict: bool = True) -> ScopeValidator:

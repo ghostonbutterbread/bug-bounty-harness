@@ -74,10 +74,24 @@ def test_partial_offline_fanout_does_not_require_final_inventory():
     assert "mark missing metadata" in fanout
 
 
+def test_partial_inventory_route_uses_available_artifacts_across_documents():
+    hunt = text("skills/js-hunt/SKILL.md")
+    playbook = text("prompts/js-playbook.md")
+    fanout = text("skills/js/references/offline-fanout.md")
+    for body in (hunt, playbook, fanout):
+        assert "interrupted inventory" in body
+        assert "missing" in body and "provenance" in body
+    assert "only when the library exists" in hunt
+    assert "when the required inventory records exist" in hunt
+    assert "when available" in playbook
+    assert "every meaningful js run should leave" not in playbook
+    assert "exact local packet/provenance paths" not in playbook
+
+
 def test_local_file_handoff_is_not_inventory_dependent():
     hunt = text("skills/js-hunt/SKILL.md")
     assert "standalone local" in hunt
-    assert "inventory-backed" in hunt
+    assert "when the required inventory records exist" in hunt
     assert "without an inventory" in hunt
     assert "unavailable provenance" in hunt
     assert "do not invent" in hunt

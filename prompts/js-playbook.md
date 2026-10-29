@@ -125,8 +125,9 @@ General review order (the behavioral map and evidence rules live in `/js-hunt`):
    or dataflows for focused tracing. Reuse the three complementary review roles
    over bounded independent packets; the parent covers gaps without adding a
    worker per category.
-3. Each worker writes concise findings with source JS URL, SHA, packet path,
-   trace, controllability, provenance/proxy links, confidence, and next skill.
+3. Each worker cites its local file or packet and trace, controllability,
+   confidence, and next skill; include source JS URL, SHA and provenance/proxy
+   links when available, and identify missing evidence rather than invent it.
 4. The main agent merges results into dated notes/handoffs and routes only
    concrete, scoped follow-ups to the owning skills.
 
@@ -538,9 +539,10 @@ Use two first-wave task shapes:
   parsers, surprising trust assumptions, and state machines missed by named
   categories.
 
-Each child receives exact local packet/provenance paths, an offline-only
-boundary, a bounded output contract, and a requirement to cite packet paths and
-line/function evidence. Use the active CLI's native delegation facility and
+Each child receives exact local packet paths and provenance paths when available;
+mark missing provenance as a gap. Include an offline-only boundary, a bounded
+output contract, and a requirement to cite packet paths and line/function evidence.
+Use the active CLI's native delegation facility and
 prefer its current fast sibling for the parent model's generation during this
 high-volume pass. Resolve that choice through the CLI's native model selector or
 advertised model list; do not guess or encode a provider/model name in BBH. If
@@ -846,7 +848,12 @@ into Notes.
 
 ## Output Contract
 
-Every meaningful JS run should leave:
+For a completed inventory run, the output artifacts include the following when
+produced. For standalone local files or an interrupted inventory, cite the
+available files and evidence, mark missing indexes, provenance and unreviewed
+coverage as gaps, and do not fabricate records or resume acquisition in offline
+work. Inventory-only artifacts and coverage writes below are not prerequisites
+for review:
 
 - `manifest.json`: inputs, run id, counts, and output paths
 - `metadata.jsonl`: one row per downloaded JS body
@@ -866,8 +873,9 @@ Every meaningful JS run should leave:
 - Large JS bodies stayed on disk, not in chat.
 - Existing URL aliases, file hashes, and chunk sets were reused unless
   `--refresh` was intentional.
-- Agent packets were bounded and page-context aware.
+- Agent packets were bounded and page-context aware where context exists.
 - Cheap signals were treated as leads, not confirmed findings.
 - Reviewed chunks produced structured outputs.
-- Coverage was marked so future agents do not repeat the same depth pass.
+- Coverage was marked when the relevant records exist; otherwise exact local
+  coverage and missing records were reported without claiming indexed coverage.
 - Wordlist and vuln-lane handoffs were routed to the owning skills.

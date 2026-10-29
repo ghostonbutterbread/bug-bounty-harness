@@ -30,9 +30,10 @@ never send target requests. Collection-only requests remain collection-only.
   network collection and names missing material as a gap. For broader work,
   reuse a suitable inventory and content-addressed library; if none is suitable,
   use `/js-pull` for scoped collection when the requested work permits it.
-  For inventory-backed work, start from `manifest.json`, `metadata.jsonl`,
-  `packets.jsonl`, page/JS provenance, source-map module index, and completed
-  packet paths. Work in bounded
+  Use whichever inventory metadata, provenance and complete packet paths exist.
+  An interrupted inventory may lack final indexes or provenance: review its
+  complete packets and record missing metadata as gaps, without resuming
+  acquisition in offline work. Work in bounded
   page/flow, bundle-family, route-cluster, or module packets, not a giant prompt.
   Read `source_sites` beside `sink_sites` in bundle and source-map module rows;
   account for truncated/capped sites before declaring a source or sink absent.
@@ -42,8 +43,10 @@ never send target requests. Collection-only requests remain collection-only.
   offsets. Record unavailable provenance and unreviewed material as gaps; do not
   invent a URL, packet, page/flow, request, library entry, or coverage. Skip
   inventory-only queries and observation writes when their inputs do not exist.
-- **For inventory-backed work, scope the queue from recorded coverage, not from
-  run names.** Content-review
+- **Only when the library exists**, scope the queue from recorded coverage, not
+  from run names. If library records are unavailable, review available files or
+  complete packets and report the unknown queue and coverage as gaps instead.
+  Content-review
   state lives in sha256-keyed `js_observations` in the library's
   `js_info.sqlite`; `/js-pull` owns writing it and defines the status vocabulary.
   An observation records **depth**, not completion. `/url-ingest` owns per-lane
@@ -183,12 +186,13 @@ Output three bounded sections:
    inferred edges; missing proof; next discriminator; owning specialist skill.
 3. **Coverage and handoffs:** reviewed and unreviewed bundle/flow families,
    truncated maps or missing runtime evidence, candidate wordlists/contracts,
-   and separate scoped live-validation hypotheses. For inventory-backed work,
-   mark `/url-ingest` inventory versus `deep_reviewed` only for what was actually
-   reviewed, and record per-chunk content coverage through `js_analyzer.py observe`;
-   coverage stated only in synthesis prose is not queryable and gets re-done.
-   Without an inventory, report the exact local coverage and its limits rather
-   than creating or claiming indexed coverage. Send useful
+   and separate scoped live-validation hypotheses. When the required inventory
+   records exist, mark `/url-ingest` inventory versus `deep_reviewed` only for what
+   was actually reviewed, and record per-chunk content coverage through
+   `js_analyzer.py observe`; coverage stated only in synthesis prose is not
+   queryable and gets re-done. If records are absent, including in an interrupted
+   inventory, report exact local coverage and its limits rather than creating or
+   claiming indexed coverage. Send useful
    verified observations through `/map-store` and durable notes, not raw bundle
    dumps; dedupe run-local proposals before promoting.
 

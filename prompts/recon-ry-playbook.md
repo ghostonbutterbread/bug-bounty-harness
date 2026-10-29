@@ -34,8 +34,14 @@ If there are no grants but any loaded exclusions, the wrapper refuses an
 `--allow-unscoped` start or queue even when the seed does not match a deny:
 those runs do not stage enforceable exclusion filters. A genuinely unscoped,
 explicitly approved run without saved exclusions remains available.
-The current scope loader can silently miss unreadable or additional exclusion
-files; do not rely on this gate until the pending validator fix is integrated.
+The validator loads both standard exclusion files in the selected directory and
+raises on unreadable exclusions; canonical-directory precedence over legacy
+still applies. The wrapper refuses scope changes observed between its reads.
+This is not an atomic snapshot: changes during or after the last read, including
+while a remote queue runs, are not guaranteed to be detected. A grant-file read
+error can still be treated as empty scope; do not use `--allow-unscoped` until
+that failure path is repaired and reviewed. Review current scope and the
+independent review/activation status before a run.
 
 Start via the local wrapper so Hoster owns the long-running process:
 

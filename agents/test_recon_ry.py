@@ -249,7 +249,7 @@ def test_wildcard_start_rejects_unrepresentable_saved_host_filter(monkeypatch, c
             assert url == "first.example"
 
     monkeypatch.setattr(recon_ry, "ScopeValidator", SavedScope)
-    monkeypatch.setattr(recon_ry, "build_remote_scope_files", lambda _program: ({}, ["unrepresentable"]))
+    monkeypatch.setattr(recon_ry, "build_remote_scope_files", lambda _program, **_kwargs: ({}, ["unrepresentable"]))
     args = recon_ry.build_parser().parse_args(
         ["start", "demo", "--url", "first.example", "--profile", "full", "--allow-unscoped", "--dry-run"]
     )
@@ -608,17 +608,20 @@ def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:
             self._entries = [
                 SimpleNamespace(raw="*.example.com", entry_type="wildcard"),
                 SimpleNamespace(raw="api.example.com", entry_type="domain"),
-                SimpleNamespace(raw="https://app.example.com/login", entry_type="url_pattern"),
+                SimpleNamespace(raw="app.example.com", entry_type="domain"),
             ]
 
         def is_empty(self) -> bool:
             return False
 
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "example.com"
+
     monkeypatch.setattr(recon_ry, "ScopeValidator", DemoScope)
 
     files = recon_ry.build_remote_seed_files("demo", "example.com")
 
-    assert files["urls.txt"] == "example.com\nhttps://app.example.com/login\napi.example.com\n"
+    assert files["urls.txt"] == "example.com\napi.example.com\napp.example.com\n"
     assert "url.txt" not in files
     assert files["wild.txt"] == "example.com\n"
 

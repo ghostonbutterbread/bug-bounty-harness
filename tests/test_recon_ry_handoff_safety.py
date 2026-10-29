@@ -71,6 +71,182 @@ def test_builders_propagate_exclusion_read_failure(isolated_scope, monkeypatch, 
     assert "synthetic exclusion read failure" in str(failure.value)
 
 
+def test_exact_third_read_restriction_refuses_before_auth_or_ssh(isolated_scope, tmp_path, monkeypatch):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    exclusion = isolated_scope / "excluded.txt"
+    exclusion.write_text("")
+    real_open = builtins.open
+    reads = 0
+
+    def changing_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(exclusion):
+            reads += 1
+            if reads == 3:
+                exclusion.write_text("app.example.test/private\n")
+        return real_open(file, *args, **kwargs)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("auth or process reached after restrictive scope read")
+
+    monkeypatch.setattr(builtins, "open", changing_open)
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", forbidden)
+    args = arguments("exact", tmp_path)
+    with pytest.raises(SystemExit, match="request-level containment"):
+        args.func(args)
+    assert reads == 3
+
+
+@pytest.mark.parametrize("mode,read_number", [("exact", 3), ("queue", 2)])
+def test_host_scope_change_between_reads_refuses_before_launch(isolated_scope, tmp_path, monkeypatch, mode, read_number):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    exclusion = isolated_scope / "excluded.txt"
+    exclusion.write_text("")
+    real_open = builtins.open
+    reads = 0
+
+    def changing_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(exclusion):
+            reads += 1
+            if reads == read_number:
+                exclusion.write_text("blocked.example.test\n")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", changing_open)
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = arguments(mode, tmp_path)
+    if mode == "queue":
+        (tmp_path / "queue.txt").write_text("https://app.example.test/\nhttps://other.example.test/\n")
+    with pytest.raises(SystemExit, match="scope changed"):
+        args.func(args)
+    assert reads == read_number
+
+
+@pytest.mark.parametrize("profile,read_number", [
+    (profile, read_number)
+    for profile in ("snap", "full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls", "custom")
+    for read_number in range(1, 5 if profile in {"snap", "full", "subs", "fast", "urls"} else 4)
+])
+@pytest.mark.parametrize("filename,restriction", [
+    ("in-scope.txt", "*.example.test\nother.example.test/private\n"),
+    ("out-of-scope.txt", "app.example.test/private\n"),
+    ("excluded.txt", "app.example.test/private\n"),
+])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_restriction_at_each_start_read_refuses_before_side_effects(
+    isolated_scope, tmp_path, monkeypatch, profile, read_number, filename, restriction, allow_unscoped
+):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    path = isolated_scope / filename
+    if filename != "in-scope.txt":
+        path.write_text("")
+    real_open = builtins.open
+    reads = 0
+
+    def changing_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(path):
+            reads += 1
+            if reads == read_number:
+                path.write_text(restriction)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", changing_open)
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", "https://app.example.test/", "--profile", profile,
+    ])
+    args.allow_unscoped = allow_unscoped
+    with pytest.raises(SystemExit, match="request-level containment"):
+        args.func(args)
+    assert reads == read_number
+
+
+@pytest.mark.parametrize("filename", ["in-scope.txt", "out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_queue_later_restriction_refuses_before_ssh(isolated_scope, tmp_path, monkeypatch, filename, allow_unscoped):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    path = isolated_scope / filename
+    if filename != "in-scope.txt":
+        path.write_text("")
+    real_open = builtins.open
+    reads = 0
+
+    def changing_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(path):
+            reads += 1
+            if reads == 2:
+                path.write_text("*.example.test\nother.example.test/private\n" if filename == "in-scope.txt" else "app.example.test/private\n")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", changing_open)
+    args = arguments("queue", tmp_path)
+    args.allow_unscoped = allow_unscoped
+    (tmp_path / "queue.txt").write_text("https://app.example.test/\nhttps://other.example.test/\n")
+    with pytest.raises(SystemExit, match="request-level containment"):
+        args.func(args)
+    assert reads == 2
+
+
+@pytest.mark.parametrize("profile,read_number", [
+    (profile, read_number)
+    for profile in ("snap", "full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls", "custom")
+    for read_number in range(1, 5 if profile in {"snap", "full", "subs", "fast", "urls"} else 4)
+])
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_exclusion_read_error_at_each_start_stage_is_typed_and_precedes_side_effects(
+    isolated_scope, monkeypatch, profile, read_number, filename, allow_unscoped
+):
+    (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
+    path = isolated_scope / filename
+    path.write_text("")
+    fail_exclusion_open(monkeypatch, path, fail_on_read=read_number)
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", "https://app.example.test/", "--profile", profile,
+    ])
+    args.allow_unscoped = allow_unscoped
+    with pytest.raises(ScopeExclusionReadError, match=filename) as failure:
+        args.func(args)
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize("profile,read_number", [
+    (profile, read_number)
+    for profile in ("snap", "full", "subs", "fast", "urls")
+    for read_number in range(1, 7)
+])
+@pytest.mark.parametrize("filename", ["out-of-scope.txt", "excluded.txt"])
+def test_unscoped_restriction_at_every_fallback_read_refuses(
+    isolated_scope, monkeypatch, profile, read_number, filename
+):
+    (isolated_scope / "in-scope.txt").write_text("")
+    path = isolated_scope / filename
+    path.write_text("")
+    real_open = builtins.open
+    reads = 0
+
+    def changing_open(file, *args, **kwargs):
+        nonlocal reads
+        if str(file) == str(path):
+            reads += 1
+            if reads == read_number:
+                path.write_text("app.example.test/private\n")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", changing_open)
+    monkeypatch.setattr(recon_ry, "resolve_auth_seed", lambda *_: pytest.fail("auth reached"))
+    args = recon_ry.build_parser().parse_args([
+        "start", "synthetic", "--url", "https://app.example.test/", "--profile", profile, "--allow-unscoped",
+    ])
+    with pytest.raises(SystemExit, match="request-level containment"):
+        args.func(args)
+    assert reads == read_number
+
+
 def test_exact_late_exclusion_failure_precedes_auth_process(isolated_scope, tmp_path, monkeypatch):
     (isolated_scope / "in-scope.txt").write_text("*.example.test\n")
     exclusion = isolated_scope / "excluded.txt"

@@ -38,8 +38,9 @@ request builder may appear only after a route, click, form, or state transition.
 Retain page/flow, JS URL, initiator, and associated request/field provenance.
 When new JS is needed, feed scoped observed JS URLs to `js` → `js-pull`
 (`bbh agents/js_analyzer.py inventory <program> --input <scoped-js-url-list>
---target-host <in-scope-host>`); use `js-hunt` when selected functions need
-tracing. `inventory --page` fetches HTML script URLs and bounded inline scripts
+--target-host <in-scope-host>`); trace selected functions using `/js` and its
+`skills/js/references/analysis-lens.md` (BBH repository root), then return to the
+XSS question. `inventory --page` fetches HTML script URLs and bounded inline scripts
 from an HTTP page; it does **not** drive the browser or capture lazy-loaded chunks.
 The analyzer's `--input` list accepts `.js`, `.mjs`, `.cjs`, and extensionless
 URLs directly. For a browser-loaded `chunk.php` (or another non-JS suffix),

@@ -25,11 +25,22 @@ never send target requests. Collection-only requests remain collection-only.
 
 ## Start and Focus
 
+- For an unqualified standalone hunt, assess whether existing material is
+  sufficient for a meaningful hunt: consider relevance to app feature families,
+  account/flow coverage, provenance, freshness, and known gaps, not file count
+  alone. Reuse suitable artifacts. If inventory is missing or insufficient, use
+  `/js-pull` to acquire missing scoped material when live collection is
+  permitted. Existing recon/proxy URLs and task-browser observations can seed
+  collection; drive relevant features to discover runtime and lazy-loaded
+  assets as useful. Review completed material incrementally and return to
+  meaningful unreviewed families after following a strong lead. If collection
+  fails or is blocked, continue with available artifacts and report failed,
+  unattempted, and missing coverage; do not claim a complete hunt.
 - Trace a strong lead or available local artifact immediately; an inventory is
   not a prerequisite. Explicitly offline work uses available artifacts with no
-  network collection and names missing material as a gap. For broader work,
-  reuse a suitable inventory and content-addressed library; if none is suitable,
-  use `/js-pull` for scoped collection when the requested work permits it.
+  network collection and names missing material as a gap. Collection-only work
+  stops after collection. For a narrower current question, collect only what is
+  useful to that question when permitted, not an automatic broad campaign.
   Use whichever inventory metadata, provenance and complete packet paths exist.
   An interrupted inventory may lack final indexes or provenance: review its
   complete packets and record missing metadata as gaps, without resuming
@@ -100,81 +111,23 @@ never send target requests. Collection-only requests remain collection-only.
   pretending to have broadly reviewed other areas. Natural-language synonyms
   route here too.
 
-## 1. Broad Behavior Map
+## 1. Behavior Map and Deep Trace
 
-Before sorting findings by vulnerability class, group the reviewed code by
-**application capability** and the page/flow that loads it. Ask what the user
-can do, what changes, and what request or browser effect carries the action:
+Load `/js` and read its `skills/js/references/analysis-lens.md` (relative to the
+BBH repository root) for the canonical behavior
+map, request builders, state and authority, secrets and anomalies, prioritization,
+source-to-consumer deep trace, evidence ladder and specialist handoffs. Apply the
+same lens to the current packet or broader campaign; do not maintain a second
+analysis methodology here. For a sink/signature inventory, the lens routes to
+`references/static-signal-review.md` under this skill. Revisit broad coverage
+before ending so a strong lead does not silently replace the remaining hunt.
 
-- **Features and actions:** routes, navigation, lazy chunks, create/edit/share/
-  invite/import/export/delete/connect/payment flows, gated or hidden controls.
-  A route string or feature flag is not proof of current reachability.
-- **Request vocabulary:** API/GraphQL operations, methods, request builders,
-  body/query/header fields, object and tenant IDs, parameter defaults and
-  allowed values, callers that actually submit them. Separate discovered
-  fields from observed server contracts.
-- **State and authority:** session/account/role/entitlement and workflow state;
-  who sets each value, when checks happen, what the client hides or blocks,
-  and what must still be independently enforced at a server boundary.
-- **Data movement and consumers:** URL, form, storage, postMessage, bootstrap/
-  hydration and API-response inputs; parsing/coercion/escaping; later requests,
-  DOM writes, navigation, workers/cache, clipboard, or other effects.
-- **Secrets, config, and integrations:** concrete value, provider, intended
-  public/private status, the operation consuming it, and potential capability.
-  Generic `KEY`/`token` words or public client IDs alone are low-signal.
-- **Anomalies:** rare app-specific modules, custom parsers, debug/admin paths,
-  mismatched representations, dormant actions, surprising trust assumptions,
-  and state machines that do not fit a named class.
+## 2. Campaign Coverage and Handoff
 
-Use deterministic hits and `/jsluice` as **starting seeds**; inspect code beyond
-those lists. For a sink/signature inventory, read
-[`references/static-signal-review.md`](references/static-signal-review.md) to
-reconcile per-site hits with stack-specific consumers and acquisition gaps;
-this is a review lens, not a second scanner or a completeness claim. Compare
-relevant page HTML, hidden controls, `data-*` attributes, and bootstrap state
-when the code consumes them. Record visible coverage by feature family and
-missing artifact edges rather than saying “all JS checked.”
-
-## 2. Prioritize and Deep Trace
-
-Prioritize **consequential behavior**, plausible user control, app-specific
-logic, observed use in page/proxy flow, and unexplained trust boundaries. A
-high-consequence but unobserved action may be worth tracing; a generic vendor
-keyword usually is not. Do not turn this into a mandatory score or hard lead
-cap. Revisit the broad map before ending so one strong lead does not silently
-replace the rest of the user's broad hunt.
-
-For each selected candidate, write a transaction:
-
-`actor -> controllable input -> prior state -> transform/check -> decision ->
-side effect -> authority boundary`
-
-Trace caller to callee and **forward from the value and backward from the final
-consumer**. Follow a lazy module to its entrypoint and matching build, not a
-similarly named archived chunk; follow a source-map name only when its text is
-available. Check encoding, type coercion, serialization, validation, origin,
-execution context, and later consumers. Reconstruct an exact request shape
-where possible. State the strongest benign alternative (constant data, safe
-text rendering, server-side enforcement, inactive route, CSP, etc.) and one
-next discriminator. A client-side check never proves that the server lacks one.
-
-## 3. Correlate, Classify, and Hand Off
-
-Tie the trace to available evidence: local path/function or offsets, JS URL,
-sha256, packet or source-map module, page/flow, and nearby scoped proxy request.
-When the library and indexes exist, query `js_info.sqlite` for aliases and links,
-and cite the durable JSONL and packet artifacts. For a standalone file, cite its
-actual local evidence and mark unavailable provenance and runtime context as
-unknown. If a request was observed, load `/analyze-endpoint` to establish its
-contract; if not, say so.
-Do not infer current reachability from a historical bundle or a GraphQL
-operation name alone.
-
-For each lead distinguish **observed in artifact**, **plausible execution
-path**, **observed browser/proxy request**, **observed server effect**, and
-**validated impact**. Record controllability, missing proof, best alternative,
-next discriminator, and confidence at the actual evidence level. An offline
-hypothesis remains a hypothesis even when the code looks dangerous.
+For each selected lead, retain controllability, observed versus inferred edges,
+a hypothesis, missing proof and the next discriminator. Live validation is a
+separate policy-governed step on scoped, owned resources; offline workers never
+send target requests. Treat third-party URLs as context, not automatic scope.
 
 Output three bounded sections:
 
@@ -196,16 +149,10 @@ Output three bounded sections:
    verified observations through `/map-store` and durable notes, not raw bundle
    dumps; dedupe run-local proposals before promoting.
 
-A concrete request goes to `/analyze-endpoint`; object/role decisions to
-`/idor` or `/access-control`; source-to-rendering flows to `/dom-xss` or `/xss`;
-encoded round-tripped state, type-selected reconstruction, or a behavior-capable
-object-loader lead to `rce-deserialization` (its JavaScript Lens owns the
-discovery cues; client encoding alone does not prove a backend loader);
-workflow invariants to `/business-logic`; usable credentials to
-`/credential-exposure-validation`. Load the owning skill only for a supported
-lead. Live validation is a **separate** policy-governed step on scoped, owned
-resources; offline workers never send target requests. Treat third-party URLs
-seen in scoped JS as read-only context, never automatic test targets.
+Use the analysis lens's specialist routes, including `rce-deserialization`
+for encoded round-tripped state or a behavior-capable object-loader lead. The
+specialist owns discovery cues and proof; client encoding alone does not prove a
+backend loader.
 
 ## Scale and Execution
 

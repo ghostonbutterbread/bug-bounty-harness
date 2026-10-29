@@ -19,6 +19,96 @@ def test_dot_segment_cannot_bypass_exclusion(validator):
     assert not validator.is_in_scope("https://api.example.test/public/../private/x")
 
 
+def test_invalid_alabel_wildcard_is_not_promotable(tmp_path, monkeypatch):
+    from agents.recon import bus
+
+    monkeypatch.setattr(bus, "SHARED_BASE", tmp_path / "web_bounty")
+    monkeypatch.setattr(ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    scope = tmp_path / "scopes" / "synthetic"
+    scope.mkdir(parents=True)
+    (scope / "in-scope.txt").write_text("*.xn--a.example.test\n")
+    validator = ScopeValidator("synthetic", scopes_base=scope.parent)
+
+    assert not validator.is_in_scope("child.xn--a.example.test")
+    assert not validator.is_wildcard_scope("xn--a.example.test")
+    assert bus.scope_violations("synthetic", "wild", ["xn--a.example.test"]) == ["xn--a.example.test"]
+
+
+@pytest.mark.parametrize("denied", [
+    "*.example.test", "*.EXAMPLE.TEST.", "*.test",
+    "https://*.example.test/", "https://*.test/*", "https://*.example.test/%2f",
+])
+def test_fully_excluded_wildcard_cannot_be_promoted(tmp_path, monkeypatch, denied):
+    from agents.recon import bus
+
+    monkeypatch.setattr(bus, "SHARED_BASE", tmp_path / "web_bounty")
+    monkeypatch.setattr(ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    scope = tmp_path / "scopes" / "synthetic"
+    scope.mkdir(parents=True)
+    (scope / "in-scope.txt").write_text("*.Example.Test.\n")
+    (scope / "out-of-scope.txt").write_text(denied + "\n")
+    validator = ScopeValidator("synthetic", scopes_base=scope.parent)
+
+    assert not validator.is_in_scope("child.example.test")
+    assert not validator.is_wildcard_scope("example.test")
+    assert bus.scope_violations("synthetic", "wild", ["*.EXAMPLE.TEST."]) == ["*.EXAMPLE.TEST."]
+
+
+@pytest.mark.parametrize(("allow", "deny", "value"), [
+    ("*.xn--a.example.test", "", "*.xn--a.example.test"),
+    ("*.Example.Test.", "*.example.test", "example.test"),
+])
+def test_recon_bus_append_quarantines_nonpromotable_wildcard(tmp_path, monkeypatch, allow, deny, value):
+    from agents.recon import bus
+
+    shared = tmp_path / "web_bounty"
+    monkeypatch.setattr(ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    scope = tmp_path / "scopes" / "synthetic"
+    scope.mkdir(parents=True)
+    (scope / "in-scope.txt").write_text(allow + "\n")
+    (scope / "out-of-scope.txt").write_text(deny + "\n")
+    args = bus.build_parser().parse_args([
+        "append", "synthetic", "--kind", "wild", "--value", value,
+        "--shared-base", str(shared), "--no-index",
+    ])
+
+    with pytest.raises(SystemExit, match="out-of-scope"):
+        bus.append(args)
+    recon = shared / "synthetic" / "web" / "recon"
+    assert not (recon / "aggregated" / "wild.txt").exists()
+    assert (recon / "quarantine" / "out_of_scope_wild.txt").read_text().splitlines() == [value]
+
+
+@pytest.mark.parametrize(("deny", "blocked"), [
+    ("api.xn--bcher-kva.example.test", "api.xn--bcher-kva.example.test"),
+    ("xn--bcher-kva.example.test", "xn--bcher-kva.example.test"),
+    ("*.blocked.xn--bcher-kva.example.test", "child.blocked.xn--bcher-kva.example.test"),
+    ("https://*.xn--bcher-kva.example.test/private/", "https://api.xn--bcher-kva.example.test/private/x"),
+])
+def test_recon_bus_keeps_declared_root_with_subset_deny(tmp_path, monkeypatch, deny, blocked):
+    from agents.recon import bus
+
+    shared = tmp_path / "web_bounty"
+    monkeypatch.setattr(ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    monkeypatch.setattr(bus, "find_tool", lambda *args, **kwargs: None)
+    scope = tmp_path / "scopes" / "synthetic"
+    scope.mkdir(parents=True)
+    (scope / "in-scope.txt").write_text("*.XN--BCHER-KVA.Example.Test.\n")
+    (scope / "out-of-scope.txt").write_text(deny + "\n")
+    validator = ScopeValidator("synthetic", scopes_base=scope.parent)
+    assert validator.is_wildcard_scope("xn--bcher-kva.example.test.")
+    assert not validator.is_in_scope(blocked)
+    assert validator.is_in_scope("https://good.xn--bcher-kva.example.test/public")
+
+    value = "*.XN--BCHER-KVA.Example.Test."
+    args = bus.build_parser().parse_args([
+        "append", "synthetic", "--kind", "wild", "--value", value,
+        "--shared-base", str(shared), "--no-index",
+    ])
+    assert bus.append(args)["status"] == "ok"
+    assert (shared / "synthetic/web/recon/aggregated/wild.txt").read_text().splitlines() == [value]
+
+
 @pytest.mark.parametrize("target", [
     "https://%61pi.example.test/private/x",
     "https://api.example.test\\@other.example.test/private/x",

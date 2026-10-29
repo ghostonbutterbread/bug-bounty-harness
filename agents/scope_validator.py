@@ -433,7 +433,11 @@ class ScopeValidator:
 
     def is_wildcard_scope(self, domain: str) -> bool:
         """
-        Check if *.domain is explicitly in scope (wildcard entry exists).
+        Check whether a valid wildcard root is declared and not wholly excluded.
+
+        This is not authorization for each host or path under the root. Exact
+        host, narrower wildcard, and path exclusions remain separately enforced
+        by is_in_scope; consumers must check every target and redirect.
 
         Example:
             is_wildcard_scope("example.com") → True if *.example.com is in scope
@@ -442,10 +446,25 @@ class ScopeValidator:
             entry.has_invalid_authority() for entry in self._out_of_scope
         ):
             return False
-        domain = domain.lower().strip()
+        domain = _safe_host(domain.strip())
+        if not domain:
+            return False
+        # Only exclusions covering the whole represented wildcard erase the
+        # root. A narrower host, sub-wildcard or path remains a separate deny.
+        for entry in self._out_of_scope:
+            if entry.is_wildcard and entry.matches(domain, exclusion=True):
+                return False
+            if entry.entry_type == "url_pattern":
+                parsed = urlsplit(entry.raw)  # authorities validated above
+                path = parsed.path.rstrip("*")
+                if (parsed.hostname or "").startswith("*.") and (
+                    path in ("", "/") or _ambiguous_path(path)
+                    or any(ord(c) < 32 or ord(c) == 127 for c in entry.raw)
+                ) and entry.matches(domain, exclusion=True):
+                    return False
         for entry in self._entries:
-            if entry.is_wildcard:
-                base = (entry.base_domain or "").lower()
+            if entry.is_wildcard and not entry.has_invalid_authority():
+                base = _safe_host(entry.base_domain or "")
                 if base == domain:
                     return True
         return False

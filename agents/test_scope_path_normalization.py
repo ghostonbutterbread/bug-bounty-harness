@@ -19,6 +19,76 @@ def test_dot_segment_cannot_bypass_exclusion(validator):
     assert not validator.is_in_scope("https://api.example.test/public/../private/x")
 
 
+@pytest.mark.parametrize("target", [
+    "https://%61pi.example.test/private/x",
+    "https://api.example.test\\@other.example.test/private/x",
+    "https://api.example.test\\private/x",
+    "https://api.example.test:invalid/private/x",
+    "https://api.example.test:99999/private/x",
+    "https://api.example.test\t.evil/private/x",
+    "https://user@api.example.test/public",
+    "https://аpi.example.test/public",
+    "https://api.example.test/%5cprivate/x\\",
+    "https://api.example.test./\\private/x",
+])
+def test_ambiguous_authority_never_authorizes(validator, target):
+    assert not validator.is_in_scope(target)
+
+
+@pytest.mark.parametrize("target", ["\thttps://api.example.test/public", "https://api.example.test/public\n"])
+def test_outer_control_characters_never_authorize(validator, target):
+    assert not validator.is_in_scope(target)
+
+
+def test_ambiguous_exclusion_authority_fails_closed(validator):
+    validator._out_of_scope.clear()
+    validator.add_domain("https://%61pi.example.test/private/", is_out_of_scope=True)
+    assert not validator.is_in_scope("https://api.example.test/private/x")
+
+
+@pytest.mark.parametrize("target", [
+    "https://[2001:db8::1]junk/public",
+    "https://api.example.test:/public",
+])
+def test_malformed_authority_rejected_even_by_host_grant(validator, target):
+    validator._out_of_scope.clear()
+    validator.add_domain("2001:db8::1")
+    assert not validator.is_in_scope(target)
+
+
+def test_equivalent_ipv6_exclusion_cannot_be_bypassed(validator):
+    validator._entries.clear()
+    validator._out_of_scope.clear()
+    validator.add_domain("2001:db8::1")
+    validator.add_domain("https://[2001:0db8:0:0:0:0:0:1]/private/", is_out_of_scope=True)
+    assert not validator.is_in_scope("https://[2001:db8::1]/private/x")
+    assert validator.is_in_scope("https://[2001:db8::1]/public/x")
+
+
+def test_wildcard_exclusion_root_label_cannot_bypass(validator):
+    validator._out_of_scope.clear()
+    validator.add_domain("*.example.test.", is_out_of_scope=True)
+    assert not validator.is_in_scope("https://api.example.test/public")
+
+
+def test_malformed_bare_exclusion_is_not_ignored(validator):
+    validator._out_of_scope.clear()
+    validator.add_domain("api.example.test/private", is_out_of_scope=True)
+    assert not validator.is_in_scope("https://api.example.test/private/x")
+
+
+@pytest.mark.parametrize("entry", ["https://api.example.test/", "https://api.example.test:8443/"])
+def test_url_origin_allow_never_grants_bare_host(validator, entry):
+    validator._entries.clear()
+    validator._out_of_scope.clear()
+    validator.add_domain(entry)
+    assert not validator.is_in_scope("api.example.test")
+    assert validator.is_in_scope(entry)
+    assert not validator.is_in_scope("http://api.example.test/")
+    validator.add_domain("api.example.test")
+    assert validator.is_in_scope("api.example.test")
+
+
 @pytest.mark.parametrize("path", [
     "/%70rivate/x", "/public/%2e%2e/private/x", "/public%2f..%2fprivate/x",
     "/%2570rivate/x", "/%25252e%25252e/private", "/public/%2e./private/x",
@@ -124,8 +194,14 @@ def test_recon_consumers_enforce_saved_scope_offline(tmp_path, monkeypatch):
     monkeypatch.setattr(bus, "SHARED_BASE", tmp_path / "shared")
 
     good = "https://api.example.test/public"
-    denied = "https://api.example.test/public/../private/x"
+    denied = [
+        "https://api.example.test/public/../private/x",
+        "https://%61pi.example.test/private/x",
+        "https://api.example.test\\@other.example.test/private/x",
+        "https://api.example.test:/public",
+    ]
     recon_ry.validate_start_scope("synthetic", good)
-    with pytest.raises(SystemExit, match="NOT in scope"):
-        recon_ry.validate_start_scope("synthetic", denied)
-    assert bus.scope_violations("synthetic", "url", [good, denied]) == [denied]
+    for url in denied:
+        with pytest.raises(SystemExit, match="NOT in scope"):
+            recon_ry.validate_start_scope("synthetic", url)
+    assert bus.scope_violations("synthetic", "url", [good, *denied]) == denied

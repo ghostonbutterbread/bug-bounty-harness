@@ -7,6 +7,9 @@ Supports:
   - URL patterns:          https://api.example.com/v1/*
   - CIDR ranges:           10.0.0.0/8, 192.168.1.0/24
 
+Authority spellings with percent escapes, userinfo, malformed ports, non-ASCII
+hosts or backslashes are refused before comparison; an invalid exclusion can
+therefore deny all targets. URL grants require a full URL, even at the root.
 Path-scoped URLs use conservative lexical checks, not a model of application
 routing or HTTP redirects. With a path restriction, ambiguous path spellings
 (including percent escapes at any depth, dot/trailing-dot segments, repeated
@@ -98,17 +101,27 @@ class _ScopeEntry:
         if self._type == "comment":
             return False
 
+        # An unparseable exclusion could name any destination after another
+        # parser normalizes it. Do not silently discard it as a non-match.
+        if self._type != "cidr":
+            if self._type == "url_pattern":
+                entry_host = _extract_host(self.raw.replace("*.", "wildcard.", 1))
+            else:
+                entry_host = _safe_host(self.raw[2:] if self._type == "wildcard" else self.raw)
+            if not entry_host:
+                return exclusion
+
         # Normalise target: extract hostname/IP from URL if needed
         host = _extract_host(target)
         if not host:
-            return False
+            return exclusion
 
         if self._type == "domain":
-            return host.lower() == self.raw.lower()
+            return host == _safe_host(self.raw)
 
         if self._type == "wildcard":
             # *.example.com matches api.example.com, x.y.example.com
-            base = self.raw[2:].lower()  # strip "*."
+            base = _safe_host(self.raw[2:])  # strip "*."
             h = host.lower()
             return h == base or h.endswith("." + base)
 
@@ -132,7 +145,11 @@ class _ScopeEntry:
         """Match URL scope conservatively; a path exclusion wins ambiguity."""
         try:
             pattern_parsed = urlsplit(self.raw)
-            pattern_host = (pattern_parsed.hostname or "").lower().rstrip(".")
+            raw_host = pattern_parsed.hostname or ""
+            pattern_host = (
+                "*." + _safe_host(raw_host[2:])
+                if raw_host.startswith("*.") else _safe_host(raw_host)
+            )
             pattern_path = pattern_parsed.path.rstrip("*")
         except ValueError:
             return False
@@ -152,9 +169,9 @@ class _ScopeEntry:
 
         target = strip_tool_annotation(target)
         if not target.startswith(("http://", "https://")):
-            # A hostname alone cannot prove it is inside a path-only allow.
-            # A path exclusion, however, still excludes that unknown path.
-            return exclusion or pattern_path in ("", "/")
+            # A bare hostname cannot preserve any URL origin restriction.
+            # An exclusion still covers an unknown path and origin.
+            return exclusion
         try:
             target_parsed = urlsplit(target)
             target_path = target_parsed.path or "/"
@@ -355,6 +372,8 @@ class ScopeValidator:
         if not target or not target.strip():
             return False
 
+        if _unsafe_controls(target):
+            return False
         target = target.strip()
 
         # Must match at least one in-scope entry
@@ -370,6 +389,8 @@ class ScopeValidator:
         """Return True if target is explicitly out of scope."""
         if not target or not target.strip():
             return False
+        if _unsafe_controls(target):
+            return bool(self._out_of_scope)
         return any(e.matches(target.strip(), exclusion=True) for e in self._out_of_scope)
 
     def is_wildcard_scope(self, domain: str) -> bool:
@@ -505,6 +526,15 @@ def _ambiguous_path(path: str) -> bool:
 _TOOL_ANNOTATION = re.compile(r"^(\S+)(?:[ \t]+\[[^\]]*\])+$")
 
 
+def _unsafe_controls(value: str) -> bool:
+    controls = [c for c in value if ord(c) < 32 or ord(c) == 127]
+    if not controls:
+        return False
+    # Tabs are permitted only in an exact tool-annotation shape, which is
+    # stripped by the shared normalization contract before use.
+    return not (all(c == "\t" for c in controls) and _TOOL_ANNOTATION.fullmatch(value.strip(" ")))
+
+
 def strip_tool_annotation(value: str) -> str:
     """Drop trailing bracketed tool annotations from a single target line.
 
@@ -534,30 +564,67 @@ def _extract_host(target: str) -> str:
     """
     if not target:
         return ""
+    if _unsafe_controls(target):
+        return ""
     target = strip_tool_annotation(target)
     if not target:
         return ""
 
+    # Python and HTTP clients disagree on backslashes, encoded hosts,
+    # userinfo, control characters and malformed ports. Refuse these before
+    # comparing either side, rather than guessing a destination.
+    if any(ord(c) < 32 or ord(c) == 127 for c in target):
+        return ""
+    if "\\" in target.split("?", 1)[0].split("#", 1)[0]:
+        return ""
     if target.startswith("http://") or target.startswith("https://"):
         try:
             parsed = urlparse(target)
+            authority = parsed.netloc
+            if not re.fullmatch(r"(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]+)?", authority):
+                return ""
+            # Access validates both numeric form and range of the port.
+            parsed.port
+            host = parsed.hostname or ""
         except ValueError:
             # Unparseable authority: report no host so callers fail closed and
             # quarantine the value instead of aborting the whole run.
             return ""
         # Drop the DNS root label: "fab.com." is the same host as "fab.com",
         # and leaving it on matches neither the allow nor the exclusion list.
-        return (parsed.hostname or "").lower().rstrip(".")
+        return _safe_host(host)
 
     # Strip port
     if re.match(r"^\d{1,3}(\.\d{1,3}){3}:\d+$", target):
-        return target.rsplit(":", 1)[0]
+        if int(target.rsplit(":", 1)[1]) > 65535:
+            return ""
+        target = target.rsplit(":", 1)[0]
 
     # Strip path/query that may have been passed without scheme
     if "/" in target:
         target = target.split("/")[0]
 
-    return target.lower().rstrip(".")
+    return _safe_host(target)
+
+
+def _safe_host(host: str) -> str:
+    """Accept unambiguous ASCII DNS names and canonical IP literals only."""
+    host = host.lower()
+    if host.endswith("."):
+        host = host[:-1]
+    if not host or not host.isascii() or "%" in host:
+        return ""
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels):
+        return ""
+    # WHATWG clients can interpret numeric-ending names as alternate IPv4.
+    if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]+", labels[-1]):
+        return ""
+    return host
 
 
 def scope_from_campaign(campaign_state: dict, strict: bool = True) -> ScopeValidator:

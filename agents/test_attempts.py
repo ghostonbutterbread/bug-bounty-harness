@@ -1,7 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+
+def test_attempts_module_cli_fails_with_actionable_library_guidance(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    for command in (
+        [sys.executable, "-m", "agents.attempts", "add", "--help"],
+        [sys.executable, str(root / "agents/attempts.py"), "add", "--help"],
+    ):
+        result = subprocess.run(
+            command, cwd=root, capture_output=True, text=True, check=False,
+            env={**os.environ, "HOME": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        assert result.returncode != 0
+        assert "library" in result.stderr.lower()
+        assert "agents.attempts" in result.stderr
+        assert "docs/attempt-recording-contract.md" in result.stderr
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_append_attempt_writes_required_fields_and_redacts_secrets(tmp_path: Path) -> None:

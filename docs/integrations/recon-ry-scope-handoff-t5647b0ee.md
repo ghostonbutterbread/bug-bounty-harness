@@ -7,6 +7,7 @@
 - **Fetched base:** `52252b96c6d6eb9ebd44f81b9646e6be3ab4214b` (original task fetch; no new network access authorized)
 - **Intended integration target:** `origin/beta`; parent controls reconciliation and integration
 - **Red checkpoint:** `620e321526b2fb2dcf63ef81e55198f3e7ae4493` (plus subsequent dossier-only checkpoint `0ec9f12`)
+- **Implementation / green checkpoint:** `72241f1f996a2d1ce4ad927d6d82a9a78aed7b2e`; verify subsequent dossier-only commits and the current tip separately.
 - **References:** BBH `AGENTS.md`; local Recon-Ry `6777eea`, `docs/defensive-maintenance.md` lines 18–42; separate validator fix `fix/scope-path-normalization` remains distinct and is not modified or merged here.
 
 ## Implemented contract

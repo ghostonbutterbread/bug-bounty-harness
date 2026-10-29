@@ -13,11 +13,11 @@ class AuthContractProjectionTest(unittest.TestCase):
         recovery = (
             ROOT / "skills/account-registry/references/program-auth-recovery.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("## First-contact Auth Contract projection", skill)
+        self.assertIn("auth-contract.md", skill)
         self.assertIn("Do not invent a second write-up", skill)
         self.assertIn("Children inherit", skill)
         self.assertIn("not a second narrative", playbook)
-        self.assertIn("**Auth Contract** section", recovery)
+        self.assertIn("auth-contract.md", recovery)
 
 
 if __name__ == "__main__":

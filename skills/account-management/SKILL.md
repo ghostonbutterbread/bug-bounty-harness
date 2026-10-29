@@ -42,9 +42,10 @@ secret material.
 
 ## First-contact Auth Contract projection
 
-The program **Auth Contract** in `testing-policy.md` is the one document agents
-read for refresh, keep-alive, burn rules, and Ryushe handoff. Load
-`program-testing-policy` on first platform contact or first given auth.
+When this run needs to log in, load `program-testing-policy` and read
+`auth-contract.md` in that program's scope directory. Write it if missing;
+update it when a login path or burn/expiry fact is new. Outline each path.
+It is the one document for refresh, keep-alive, burn rules, and Ryushe handoff.
 
 In the same pass, set inventory `auth_session_mode`, `auth_refresh_source`,
 `auth_refresh_hint`, `auth_check_url`, and `auth_host_filter` from that

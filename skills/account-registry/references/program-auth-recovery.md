@@ -3,8 +3,8 @@
 ## Separation of authority
 
 - Scope/testing policy: what is authorized to test. The one operational
-  session document is the **Auth Contract** section in that program's
-  `testing-policy.md` (`program-testing-policy`).
+  login document is `auth-contract.md` in that program's scope directory
+  (`program-testing-policy`); load it when login is needed.
 - Account-management and browser owner: current non-secret login/handoff
   instructions and inventory projection of that contract; an `auth-policy.json`
   loader is not implemented by the resolver.

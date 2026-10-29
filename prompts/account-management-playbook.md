@@ -135,10 +135,10 @@ spellings unless live traffic proves a second header exists.
 - `source`: where the value came from
 
 The `auth_session_mode`, `auth_refresh_source`, `auth_refresh_hint`,
-`auth_check_url`, and `auth_host_filter` fields are a projection of the program
-**Auth Contract** in `testing-policy.md`, not a second narrative. On first
-platform contact or first given auth, write the contract and set these fields
-in the same pass.
+`auth_check_url`, and `auth_host_filter` fields are a projection of
+`auth-contract.md` in that program's scope directory, not a second narrative.
+When login is needed, write the file if missing, update it if a path is new,
+and set these fields in the same pass.
 
 ## Minimum Resource Fields
 

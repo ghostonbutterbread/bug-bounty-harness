@@ -13,8 +13,9 @@
 
 ## Intent
 
-account-management projects existing resolver fields from the one program Auth
-Contract. Children inherit. Inventory is not a second narrative.
+account-management projects existing resolver fields from
+`scopes/<program>/auth-contract.md` when login is needed. Children inherit.
+Inventory is not a second narrative.
 
 ## Implemented contract
 

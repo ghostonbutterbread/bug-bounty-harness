@@ -8,6 +8,13 @@ or at the top level during the compatibility migration.
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    raise SystemExit(
+        "agents.attempts is a Python library, not a CLI. Import append_attempt; "
+        "see docs/attempt-recording-contract.md in the selected BBH checkout "
+        "(locate it with bbh --print-command docs/attempt-recording-contract.md)."
+    )
+
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping

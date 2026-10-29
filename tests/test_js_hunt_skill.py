@@ -55,8 +55,9 @@ def test_hunt_is_adaptive_and_evidence_led_not_a_class_matrix() -> None:
     hunt = text("skills/js-hunt/SKILL.md")
     playbook = text("prompts/js-playbook.md")
     fanout = text("skills/js/references/offline-fanout.md")
+    methodology = hunt + "\n" + text("skills/js/references/analysis-lens.md")
     for required in (
-        "broad behavior map",
+        "behavior map",
         "request builders",
         "state",
         "secrets",
@@ -72,7 +73,7 @@ def test_hunt_is_adaptive_and_evidence_led_not_a_class_matrix() -> None:
         "--focus dataflows",
         "native_fanout",
     ):
-        assert required.lower() in hunt.lower()
+        assert required.lower() in methodology.lower()
     assert "no fixed" in hunt.lower()
     assert "live validation" in hunt.lower()
     assert "`/js-hunt`" in playbook

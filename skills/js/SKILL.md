@@ -20,9 +20,14 @@ collection-only requests stop after `/js-pull` has produced a usable corpus.
 - **Pull / collect / inventory** -> load `/js-pull`. Keep the existing
   `bbh agents/js_analyzer.py inventory` acquisition, hashing, source-map, chunk,
   provenance, and packet workflow. Collection is not a vulnerability review.
-- **Hunt / analyze / review / dig deep** -> load `/js-hunt`. Its default broad
-  behavior map, evidence-selected deep trace, and synthesis produce supported
+- **Standalone JS hunt** -> load `/js-hunt`. Its default broad behavior map,
+  evidence-selected deep trace, acquisition and synthesis produce supported
   leads and specialist handoffs, not just extracted strings.
+- **JS in an existing investigation** -> read this skill's
+  [`references/analysis-lens.md`](references/analysis-lens.md) for the current
+  feature, artifact or question. Do not start a broad campaign or fanout merely
+  because JavaScript is relevant; acquire missing relevant code via `/js-pull`
+  when needed and permitted.
 - **Focused hunt** -> load `/js-hunt` with `--focus endpoints`, `--focus params`,
   `--focus secrets`, `--focus application-logic`, or `--focus dataflows` (or the
   equivalent natural-language request). Focus biases review, not scope or proof

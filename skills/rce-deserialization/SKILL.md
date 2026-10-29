@@ -90,8 +90,10 @@ probe sequence. Select topical depth by the current question:
 
 ## JavaScript Lens
 
-Use `js` → `js-pull` for the existing scoped corpus and `js-hunt` for function-
-level tracing. Look in request builders for import/restore/resume operations,
+Use `js` and its analysis lens at `skills/js/references/analysis-lens.md` in
+function-level tracing of the current investigation; use `js-pull` for missing
+scoped code when permitted.
+Look in request builders for import/restore/resume operations,
 serialized job arguments, round-tripped bootstrap state, and fields carrying
 encoded blobs or type metadata. Follow the actual named field through encoders,
 request submission, response, and later action; `state`, `data`, `payload`,

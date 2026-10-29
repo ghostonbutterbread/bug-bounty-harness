@@ -43,7 +43,10 @@ is selected, the normal published scope and AI Policies gates below still apply.
    hunt, consult `/live-map` for class-neutral browser/proxy and source/stack
    understanding of the relevant flow; use each view to inform the next. Do not
    wait for a complete map before following a strong lead, and keep explicitly
-   offline work offline. Its runtime route map is distinct from MapStore's named, factual
+   offline work offline. When a current hunt needs to understand relevant JS,
+   load `/js` and its `references/analysis-lens.md`; this analyzes the current
+   question without starting a standalone JS campaign. The live-map runtime
+   route map is distinct from MapStore's named, factual
    Application Behaviors; create/update a Behavior only from concrete URL
    observations through `/map-store`. Keep class-specific testing and lineage
    with the specialist lane.

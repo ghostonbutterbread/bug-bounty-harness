@@ -7,8 +7,8 @@
 - **Base commit:** `33ba01fa32613804697272ac5a502aecb7abee0b` (fetched `origin/beta`)
 - **Intended integration target:** `beta` (parent owns release and integration)
 - **Last updated:** 2026-10-28
-- **Latest immutable recovery checkpoint:** pending implementation commit; follow-up dossier-only commit will record it
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `307d52b27d3c4595681525748ad51c9196ec08b8`
+- **Feature implementation commit(s):** `307d52b27d3c4595681525748ad51c9196ec08b8`
 - **Inspiration / canonical references:** `PC-20260825-225142-bf0e203f`; `agents/manual_hunter.py`, `agents/web_finding_identity.py`, `agents/test_manual_hunter.py`
 
 ## Intent and implemented contract
@@ -50,7 +50,7 @@ Results: **5 passed, 43 deselected**; **48 passed, 13 subtests passed**. The web
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/manual-hunter-markdown-metadata`
-- **Latest immutable recovery checkpoint / implementation commit:** pending follow-up record
+- **Latest immutable recovery checkpoint / implementation commit:** `307d52b27d3c4595681525748ad51c9196ec08b8` (current branch tip also includes this dossier-only handoff update)
 - **Exact resume point:** review the committed parser and tests, rerun both commands above, verify `origin/beta`, then hand integration to the parent.
 - **Working-tree state at handoff:** intended clean after scoped commits.
 

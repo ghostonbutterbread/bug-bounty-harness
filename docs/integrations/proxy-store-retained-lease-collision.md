@@ -7,7 +7,7 @@
 - **Intended integration target:** `beta`.
 - **Last updated:** 2026-10-28.
 - **Owning feature branch/ref:** `fix/proxy-store-retained-lease-collision`.
-- **Latest immutable recovery checkpoint:** `b878d832222c8cd44fd309f709aa0e584518389b` on the owning branch.
+- **Latest immutable recovery checkpoint:** `928ce68f878d94ab294c7428d3f37e4a17216c54` on the owning branch, after merging beta `3fa84b824c9cbefbba2dcb0d09e3bb11b331c335`.
 - **Feature implementation commit(s):** `b878d832222c8cd44fd309f709aa0e584518389b`.
 - **Inspiration / canonical references:** retained rows conflict with `proxy_leases` unconditional unique port/lane and primary-key lease ID; `skills/chromium-test/scripts/proxy_store.py` owns standalone acquisition.
 
@@ -21,6 +21,7 @@ Extend the existing indexed Proxy Store script and associated tests, not a new a
 - Same focused command with `--basetemp "$TMPDIR/proxy-store-green"` after implementation: 9 passed, 25 deselected.
 - Full Proxy Store suite, synthetic HOME and databases: `mkdir -p "$TMPDIR/proxy-store-synthetic-home"; chmod 700 "$TMPDIR/proxy-store-synthetic-home"; HOME="$TMPDIR/proxy-store-synthetic-home" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -c 'import site,sys; site.addsitedir("/home/ryushe/.local/lib/python3.12/site-packages"); import pytest; sys.exit(pytest.main(sys.argv[1:]))' agents/test_proxy_store.py agents/test_proxy_store_default_path.py -q --basetemp "$TMPDIR/proxy-store-full" -o cache_dir="$TMPDIR/proxy-store-pytest-cache"` — 39 passed. The explicit site directory was necessary on this machine because the synthetic HOME hides user-installed pytest; use an equivalent installed pytest environment elsewhere.
 - Explicit `importlib` source-path check loaded this worktree's `skills/chromium-test/scripts/proxy_store.py`; tests load the same checkout via `Path(__file__).resolve()` and CLI tests use its script directly.
+- After beta reconciliation, parent ran `HOME="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q agents/test_proxy_store.py agents/test_proxy_store_default_path.py` — 39 passed. Earlier run of only `agents/test_proxy_store.py` returned 34 passed; the difference is the five default-path tests.
 - `git diff --check` passed. No real database, listener, service, or target was used.
 - Independent release review and integration: not yet performed; parent owns those decisions.
 
@@ -32,6 +33,6 @@ Extend the existing indexed Proxy Store script and associated tests, not a new a
 
 ## Interruption / resume handoff
 
-- **Exact resume point:** review committed diff and tests, reconcile `origin/beta`, and decide on this partial fix without closing the underlying task.
+- **Exact resume point:** independent release review of reconciled checkpoint and tests, fetch current beta, and decide on this partial fix without closing the underlying task.
 - **Activation / promotion gate:** no activation or stable promotion authorized; outstanding cross-store work is not covered by this repair.
 - **Decision record:** 2026-10-28 — scoped partial repair; broader allocator coordination and safe legacy recovery intentionally deferred.

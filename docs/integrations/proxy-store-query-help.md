@@ -6,7 +6,7 @@
 - **Base:** `6f34e62bcda278cba7d29d50916271f0b0c30171` (`origin/beta`).
 - **Intended target:** `beta`; stable promotion and activation are separate.
 - **Last updated:** 2026-10-28.
-- **Recovery checkpoint / implementation:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint / implementation:** `ca460aad3c1649dd16c37665f21ddc05e152bb5d`.
 - **Inspiration:** `PC-20261019-192049-a342d36f`.
 
 ## Intent and implemented contract
@@ -26,7 +26,7 @@ Fresh independent review and integrated-tree tests are required before beta inte
 ## Interruption / resume handoff
 
 - **Feature branch:** `fix/proxy-store-query-help`.
-- **Recovery checkpoint:** pending initial commit; use feature tip after commit.
+- **Recovery checkpoint:** `ca460aad3c1649dd16c37665f21ddc05e152bb5d`.
 - **Exact resume:** independent review and rerun; fetch current beta, integrate and verify; check affected runtime before closing papercut.
 - **Working tree:** intended clean after initial commit.
 

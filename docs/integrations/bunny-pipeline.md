@@ -1,6 +1,6 @@
 # Bunny role-native pipeline
 
-Status: harness-neutral team communication is implemented. Feature checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2` reconciles beta; independent re-review found no code/security blocker but identified a skill-reference repair and metadata corrections. A preliminary Juice Shop trial exercised relay and investigative use with host agents. A later sandboxed-agent trial completed but lacked a browser and BBH writers. Ryu clarified that the desired arrangement is sandboxed Juice Shop with agents able to use their normal tools; that fuller trial and any release remain pending.
+Status: harness-neutral team communication is implemented. Feature checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2` reconciles beta; independent re-review found no code/security blocker but identified a skill-reference repair and metadata corrections. A preliminary Juice Shop trial exercised relay with host agents; a sandboxed-agent trial lacked browser and BBH writers. After Ryu clarified that the agents should use normal tools against sandboxed Juice Shop, a third trial stopped on a safety incident. Live testing, acceptance and release remain blocked.
 Owner: Hermes / Kanban bug-bounty-harness t_8db7e67e.
 Source: Discord thread 1564434386651193377; implementation authorization 1564454258743582820; fresh Hoster trial approval 1564460993071816745.
 Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evidence store.
@@ -11,7 +11,7 @@ Inspiration: user's MAPTA diagram; adapt operational coordination, not a new evi
 - Original base: `9e0702536791c49d38e9b5cc48442dea91e613ee`; reconciled `origin/beta` at `dc0661b3cab1db8d5df08b57411c63537975642b` in checkpoint `02712a630519c0a931bb0ce8240c7d001c4d75a2`.
 - Intended integration target: `beta`, not main.
 - Owners: `agents/bunny-*.md` canonical role definitions and `bunny-collaborative` behavior.
-- No external target traffic, real account creation, external submission, global provider changes, or unattended scheduler in these trials. Local Juice Shop traffic, fixtures and isolated store records are explicitly synthetic.
+- No external target traffic, real account creation, external submission, global provider changes, or unattended scheduler was authorized in these trials. The normal-tooling trial below nevertheless generated out-of-scope external traffic. Local Juice Shop traffic, fixtures and isolated store records are synthetic.
 - Hoster raw run: `/home/ryushe/.hermes/cache/scratch/bunny-stage1-20261027T015526Z-dd31e4/`.
 - Durable local evidence: `/home/ryushe/.hermes/state/validation/bunny-pipeline/`.
 
@@ -81,7 +81,15 @@ Stage5 passed at `7ea9f4e4560e3c1c925414f3c686f475767e4b3b`; receipt `/home/ryus
 - Browser provisioning failed honestly: the BBH venv was absent, no browser binary was installed, and `agent-browser` could not be downloaded because external name resolution was blocked. No UI result was invented.
 - Existing production Attempts/MapStore/Coverage writers were unavailable in the isolated home. The team used disposable scratch evidence and invented no store IDs. Sanitized notes: `/home/ryushe/.hermes/state/validation/bunny-pipeline/juice-shop-20261029-sandbox/`.
 - This proves one sandboxed Hermes team followed a recon evidence handoff. However, recon's message specified the discriminator and Bunny's successor packet specified the exact canary request: it does not prove the hunter independently chose that investigation. It also does not prove browser provisioning, canonical store integration, independent verification, or support on every harness.
-- Next: run a new disposable Juice Shop container reachable from normally equipped agents, with a real task-owned browser/proxy and isolated BBH evidence root. Measure actual handoffs and investigative use without dictating a specific probe. Record any unavailable prerequisite rather than silently replacing it.
+- The planned normal-tooling trial was run next; its safety stop and incomplete result are recorded below.
+
+## Normal-tooling trial and safety stop (2026-10-29)
+
+- Ryu clarified that the app, not necessarily the agents, should be sandboxed. Juice Shop ran in a task-owned internal Docker bridge; coordinator and child terminal preflights confirmed the feature checkout and task-local home/storage. A dedicated loopback MITM captured a successful baseline. The feature provisioner launched a task-owned browser with a trusted CA receipt and working CDP; browser traffic and a recon MapStore record and Coverage discovery were observed. No hunter, handoff or independent verification occurred.
+- **Safety incident `SI-3a536bf9d55f46409b559f8e77f8c1bb` (medium):** the browser burst reached 14 fixture requests in one clock second despite a requested ceiling below 2/second. The captured flow included requests to external Google service hosts with successful responses, and the coordinator separately attempted an out-of-scope direct public-host check. External impact and attribution among processes remain unresolved. The incident was recorded in the isolated lab lane without a webhook; the operator was alerted in the current thread.
+- Stopped the coordinator, fixture and task MITM. Read-back: browser manager state stopped, service inactive, root PID absent, CDP port closed and disposable profile absent; no browser-helper process was found by a bounded process-name check, though its exact lifecycle remains unverified. No additional traffic or cleanup against unrelated processes was attempted.
+- Bunny gave recon a coordinator-owned browser rather than one provisioned under that worker's identity; the worker did not read the requested feature collaboration file and used a different model route. These are observed contract gaps, not a successful end-to-end test. No vulnerability or completed coverage is claimed.
+- Restricted evidence and the incident event were copied with matching hashes to `/home/ryushe/.hermes/state/validation/bunny-pipeline/juice-shop-20261029-normal-tooling/`; the directory and raw capture are owner-only. Resume live testing only after operator review and independently verified exact-origin egress restriction and aggregate pacing that cover browser subrequests and all clients. No runtime activation or beta integration occurred.
 
 ## Alignment and release boundary
 

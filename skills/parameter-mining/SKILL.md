@@ -14,10 +14,11 @@ This skill is a router and evidence combiner. It does not replace `/js`,
 
 ## Load Order
 
-1. Resolve and read the playbook from the selected BBH lane with
-   `bbh --print-command prompts/parameter-mining-playbook.md`. When this skill
-   is projected from a checkout, verify it and the `bbh` launcher select the
-   same checkout; resolve any lane mismatch before using the playbook.
+1. Compare `bbh --root` with the physical source checkout of this projected
+   skill, resolved through the active runtime's skill source or symlink. Stop
+   if they differ or skill provenance cannot be established; do not substitute a
+   different checkout. Once aligned, resolve and read the playbook with
+   `bbh --print-command prompts/parameter-mining-playbook.md`.
 2. Load `/bounty-storage` and resolve the active Bounty Core family/lane before
    writing. Do not hard-code legacy `bounty_recon` roots when a
    `context/target_profile.json` or resolver output exists.

@@ -48,7 +48,9 @@ before retrying `notify`, which can duplicate an ambiguous delivery.
 See [`scripts/README.md`](../scripts/README.md) for its mutation boundary.
 
 `bbh --root` prints the selected checkout. `bbh --print-command <path>` prints
-the resolved executable without running it.
+the resolved path of an existing repository-owned file without running it; this
+diagnostic may resolve non-executable files such as a playbook. It does not
+assert that the path is executable.
 
 ## Adding a runnable BBH skill
 
@@ -56,8 +58,9 @@ the resolved executable without running it.
    `bbh <repository-relative-script-path> ...`.
 2. Do not add a launcher registry entry, absolute checkout path, or
    `the active BBH checkout` fallback.
-3. Use normal relative links for skill-local reference files; `bbh` is only for
-   executable files owned by this repository.
+3. Use normal relative links for skill-local reference files. Normal `bbh`
+   dispatch runs only supported repository-owned executables; use the read-only
+   `--print-command` diagnostic to locate another repository-owned file.
 
 Reference-only skills need no command entry.
 

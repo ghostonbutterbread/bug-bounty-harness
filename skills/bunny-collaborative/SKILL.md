@@ -17,12 +17,12 @@ When Bunny is invoked with the explicit `multi` parameter (with or without `/goa
 
 ## Coordinator and worker contract
 
-Use the harness's native subagent facility when it can enforce the selected worker model/provider. Hermes's current model-facing `delegate_task` has no per-worker model/provider argument; for a requested different model, use the interactive worker route in `bunny` rather than putting the model in the goal or changing global delegation settings. Confirm the worker's actual route and that it is running before admitting target actions. An interactive worker keeps the checkpoint/steering contract; if a worker transport only returns at completion, use successive bounded segments as described below, but do not use approval-bypassing one-shot for live work. Use `bunny`'s [role dispatch contract](../bunny/references/dispatch.md) to launch recon, hunter/steward, verifier, and reporter as `bunny-recon`, `bunny-hunter`, `bunny-verifier`, and `bunny-reporter`. Select the real named role where supported; otherwise require a general child to read the resolved canonical role file, not merely display its name. Do not substitute a generic implementation worker. The bundled [`../bunny/agents/`](../bunny/agents/) files are the single portable role definitions; verify their loading and the selected skills before admitting work.
+Use the current harness's ordinary subagent tools. Follow [team dispatch](../bunny/references/dispatch.md): spawn `bunny-recon`, `bunny-hunter`, `bunny-verifier`, and `bunny-reporter` with their role instructions and scoped packets. Use the interactive worker route in `bunny` when the selected worker model requires it. Do not substitute a generic implementation worker, and do not use approval-bypassing one-shot for live work.
 
 For an interactive CLI worker, send one bounded turn at a time through the same owned PTY, read its checkpoint and run status, choose the next decision, then send the next steer there—not `delegate_task` steer/stop, which cannot control that process. A pending approval is a pause for the operator through that worker's approval channel; do not auto-approve, bypass it, or count silence as a checkpoint. Track each process ID and confirmed exit alongside native subagent IDs in the campaign record; if the PTY is lost, account for the still-running worker before admitting another or re-leasing its surface.
 
-- **Hunter/steward:** own one surface and nearby mechanism-distinct lenses while warm/hot. Drive the application, record deliberate attempts in the canonical Attempts path, and checkpoint observations, interpretation, evidence pointers, next discriminator, and deferred hypotheses before declaring coverage exhausted. Do not allocate peers.
-- **Recon:** map a distinct current coverage gap without duplicating the hunter's tests or exceeding the aggregate budget; return observed routes, consumers, roles, and evidence.
+- **Hunter/steward:** own one surface and nearby mechanism-distinct lenses while warm/hot. Drive the application, record deliberate attempts in the canonical Attempts path, and checkpoint observations, interpretation, evidence pointers, next discriminator, and deferred hypotheses before declaring coverage exhausted. Ask Bunny for direction or operational help, and exchange relevant observations and questions with recon. Do not allocate peers.
+- **Recon:** map a distinct current coverage gap without duplicating the hunter's tests or exceeding the aggregate budget. Ask Bunny where else to look, send the hunter relevant discoveries, and answer the hunter's mapping questions. Return observed routes, consumers, roles, and evidence.
 - **Verifier:** independently reconstruct a credible candidate from a clean owned context and return reproduced, not reproduced, inconclusive, or blocked with concrete evidence. The motivational nudge is not proof.
 - **Reporter:** load the standalone `bunny-report-and-triage` skill directly after the finding owner has populated FID `EVIDENCE.md` with cited proof; create only its FID-named final report and applicable PoC. Request missing proof rather than inventing it, and return the file for independent review and path registration. External submission is separate.
 
@@ -104,8 +104,8 @@ why it matters, prerequisite, and current owner. The recipient acknowledges only
 after opening that exact reference and checking relevance and access; an ACK
 names the pointer and the next discriminator, not the full evidence. A missing,
 stale, inaccessible, or mismatched reference is a blocker, not a picked-up task.
-Use native peer messaging when supported; otherwise the coordinator forwards
-this small envelope unchanged through the native supervisor channel. A send is
+Recon and hunter send these messages directly. If direct messaging is unavailable,
+Bunny relays the unchanged message; a relay is not direct communication. A send is
 not a delivery receipt. Evidence authorship stays with the producer after
 pickup; receiving facts is not an implicit surface-lease transfer. The hunter
 keeps investigative ownership unless the coordinator explicitly reassigns it.

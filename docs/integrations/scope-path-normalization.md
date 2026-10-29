@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/scope-path-normalization`
-- **Latest prior immutable recovery checkpoint:** `d58ada77058f0044cfba44c88817ec3e1c27eed9` (initial candidate and dossier)
-- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`
+- **Latest immutable recovery checkpoint:** `db9f27dcb564843dfeec9dee0b1b313e99474252` (follow-up implementation, tests and dossier; review the later dossier-only branch tip too)
+- **Feature implementation commit(s):** `f601c942fb6280f5b592b6f10eb140eb1d366231`, `db9f27dcb564843dfeec9dee0b1b313e99474252`
 - **References:** PC-20261029-173518-a6033739; user-specified offline synthetic reproduction
 
 ## Intent and implemented candidate
@@ -31,6 +31,13 @@ This is a lexical candidate, not proof of arbitrary server, proxy, redirect, rew
 - Stable topology: `origin/master` is an ancestor of beta and contains the same raw `target_path.startswith(pattern_path)` matching; stable impact/lowest-ancestor ownership requires parent decision. No stable or descendant propagation performed; explicit task requires feature from beta and no integration.
 - **Independent review:** earlier candidate BLOCKED on the authority and root-origin cases above. Fresh independent re-review of the *new branch tip* is mandatory; passing tests do not approve it. Review must inspect the full diff and dossier, reproduce the encoded-host and backslash cases against clients without network, challenge malformed allow/deny handling and IPv6 equivalence, rerun the offline suites, and examine compatibility and remaining parser mismatches. Parent owns dispatch and release decision.
 - Follow-up RED: targeted new tests produced 5 expected failures for encoded authority, authority backslash, ambiguous exclusion, and two root origin allows; further RED cycles produced 2 failures for empty port/IPv6 exclusion, 2 for root-label wildcard/malformed bare exclusion, and 2 for outer controls. Follow-up GREEN with sockets and DNS blocked in-process: `agents/test_scope_path_normalization.py agents/test_scope_validator.py tests/test_scope_host_normalization.py` **171 passed, 10 subtests passed**; `agents/test_recon_ry.py -k 'not remote and not queue and not auth'` **21 passed, 42 deselected**. The real synthetic start-guard/bus fixture now covers normal, dot-segment, encoded-host, authority-backslash, and empty-port URLs. The review transcript truncates/redacts the original backslash fixture, so the regression uses an equivalent synthetic backslash-before-@ case, not a claim to reproduce every byte of that fixture. Source imports resolved to this worktree; installed bounty-core pin still matched the manifest. No target requests, external network, push, integration, or deployment. Fetch deliberately deferred because this task prohibits network; re-fetch/reconcile before any later integration.
+
+To reproduce the follow-up offline checks from this worktree with the verified environment:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -c 'import socket,pytest,sys; blocked=lambda *a,**k: (_ for _ in ()).throw(RuntimeError("network blocked")); socket.socket.connect=blocked; socket.socket.connect_ex=blocked; socket.create_connection=blocked; socket.getaddrinfo=blocked; sys.exit(pytest.main(sys.argv[1:]))' -q agents/test_scope_path_normalization.py agents/test_scope_validator.py tests/test_scope_host_normalization.py
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -c 'import socket,pytest,sys; blocked=lambda *a,**k: (_ for _ in ()).throw(RuntimeError("network blocked")); socket.socket.connect=blocked; socket.socket.connect_ex=blocked; socket.create_connection=blocked; socket.getaddrinfo=blocked; sys.exit(pytest.main(sys.argv[1:]))' -q agents/test_recon_ry.py -k 'not remote and not queue and not auth'
+```
 
 ### Residual parser/transport limits
 

@@ -5,7 +5,7 @@
 - **Branch/worktree:** `fix/bbh-dependency-drift-guidance`, `/home/ryushe/worktrees/bbh-dependency-drift-guidance`.
 - **Base:** `6f34e62bcda278cba7d29d50916271f0b0c30171` (`origin/beta`); target `beta`.
 - **Last updated:** 2026-10-29.
-- **Recovery checkpoint:** `fa475713e5212f5214c594fbdc596f022aa622f6` (merge; this dossier update is a successor); implementation `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`, review corrections `80967d8561d17afd05ceda08666ce9f6ce82d843`.
+- **Recovery checkpoint:** `fd4b5f0bc87e053cb3cd7f8ae67306ca5f0999d3` (merge; this dossier update is a successor); implementation `cf0e3c03b91ab711faedbf93ac50daa1f08005d6`, review corrections `80967d8561d17afd05ceda08666ce9f6ce82d843`.
 - **Inspiration:** `PC-20261023-225539-746d33d4`; shared `coding-policy` dependency drift screen.
 
 ## Intent and implemented contract
@@ -23,6 +23,7 @@ The launcher warns on manifest versus site-packages mtime, which is a heuristic 
 - Independent re-review blocked `0690b30`: source changes and 16 tests looked correct, but the reviewer could not execute the documented read-only revision command because tool approval timed out. Parent's earlier successful command is not an independent execution receipt. No bypass or retry of the blocked operation was attempted.
 - Subsequent independent review of `1419b80c99a8cc6d2cf12797e8c661a326537f10`, as reported by the parent, executed the guide's exact read-only pin comparison and independently verified 16 focused tests. The comparison matched; integration was blocked pending reconciliation with advanced beta. This supersedes the earlier missing-command blocker, not the requirement to review the reconciled tip.
 - Fetched `origin/beta` at `70edc5a8b9494df6b4b18a927d8cbb87e7d1fe94` and merged it into the feature as `fa475713e5212f5214c594fbdc596f022aa622f6` without conflict. The launcher dependency diagnostics and beta's parameter-mining documentation are both retained. `env PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q tests/test_bbh_launcher.py tests/test_skill_command_lane_safety.py` returned **16 passed**; `git diff --check origin/beta...HEAD` and `git diff --check` passed. The test environment's manifest matched this checkout; no installation was performed.
+- Fetched `origin/beta` at `09172c72933b1c60cecf8980a41e16b39608ee96` and merged it without conflict as `fd4b5f0bc87e053cb3cd7f8ae67306ca5f0999d3`, preserving both dependency-warning work and beta's auth-contract changes. From this feature checkout, `env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q tests/test_bbh_launcher.py tests/test_skill_command_lane_safety.py` returned **16 passed in 0.53s**; `git diff --check` and `git diff --check 09172c72933b1c60cecf8980a41e16b39608ee96...HEAD` passed. The test and launcher resolved to this feature checkout; pytest came from the selected integration venv. The environment checkout and feature manifest Git blobs matched; the manifest was newer than site-packages, and the installed bounty-core VCS revision matched the manifest pin. That does not prove all dependencies are current. No install was performed.
 
 ## Blockers and deferred work
 
@@ -31,7 +32,7 @@ Fresh independent review of the reconciled feature tip blocks integration; the p
 ## Interruption / resume handoff
 
 - **Branch:** `fix/bbh-dependency-drift-guidance`.
-- **Recovery checkpoint:** `fa475713e5212f5214c594fbdc596f022aa622f6` (reconciled merge; dossier-only successor must also be reviewed).
+- **Recovery checkpoint:** `fd4b5f0bc87e053cb3cd7f8ae67306ca5f0999d3` (reconciled merge; dossier-only successor must also be reviewed).
 - **Exact resume:** obtain fresh independent review of the exact successor feature tip and its merged beta context; refetch the named beta before any owner-controlled integration, integrate only if approved, and verify the selected launcher. Keep the noisy-warning papercut open until its full issue is actually resolved.
 - **Working tree:** intended clean after the dossier checkpoint commit.
 
@@ -47,3 +48,4 @@ Fresh independent review of the reconciled feature tip blocks integration; the p
 - 2026-10-28 — independent review blocked; added actionable selected-root diagnostics and persistent-warning disclosure, awaiting re-review.
 - 2026-10-28 — independent re-review blocked because required read-only command approval timed out; no integration.
 - 2026-10-29 — subsequent independent command and focused tests verified on the previous feature tip; merged fetched beta, reran focused tests, and deferred fresh independent review of the reconciled tip. No integration or activation.
+- 2026-10-29 — reconciled freshly fetched beta `09172c72933b1c60cecf8980a41e16b39608ee96`, preserving auth-contract changes; focused tests passed. Fresh independent review and owner-controlled integration remain deferred.

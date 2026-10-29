@@ -55,6 +55,14 @@ def test_ordinary_hunt_routes_relevant_code_to_lens_not_broad_campaign():
     assert "do not claim a complete hunt" in hunt
 
 
+def test_xss_embedded_tracing_uses_shared_lens_not_standalone_hunt():
+    for path in ("skills/xss/SKILL.md", "skills/xss/references/source-acquisition.md"):
+        body = text(path)
+        assert "skills/js/references/analysis-lens.md" in body
+        assert "use `js-hunt` when" not in body
+        assert "js-pull" in body
+
+
 def test_pull_handoff_respects_the_calling_objective():
     pull = text("skills/js-pull/SKILL.md")
     assert "standalone" in pull and "`/js-hunt`" in pull

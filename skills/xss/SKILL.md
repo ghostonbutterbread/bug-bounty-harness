@@ -163,8 +163,9 @@ Network/Sources/DOM (or equivalent observations) for lazy-loaded JS, actual
 request fields, forms, hidden inputs, bootstrap state, and render consumers.
 Keep each script and input tied to the page/flow that exposed it. If new JS is
 needed, load `js` → `js-pull` to reuse or inventory scoped browser-observed
-scripts and source maps; use `js-hunt` when function-level tracing answers the
-question. The static `--page` fetch alone does not execute client navigation
+scripts and source maps; for function-level tracing, use the `/js` analysis lens
+at `skills/js/references/analysis-lens.md` (BBH repository root) and return to
+the XSS question. The static `--page` fetch alone does not execute client navigation
 or capture lazy chunks. Match observed stack-specific request builders and
 rendering APIs through `dom-xss` or `references/source-acquisition.md` as needed.
 

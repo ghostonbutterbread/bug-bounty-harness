@@ -56,7 +56,12 @@ def test_file_entries_preserve_matching_with_optional_annotations(
     validator.load_from_file(str(path), is_out_of_scope=excluded)
 
     assert validator.is_out_of_scope(target) is excluded
-    assert validator.is_in_scope(target) is not excluded
+    # Bare hosts and other schemes cannot establish a path-restricted allow;
+    # both are still conservatively covered by a path exclusion.
+    incompatible_allow = entry == "http://excluded.example/contact-us/" and target in {
+        "excluded.example", "https://excluded.example/contact-us/form"
+    }
+    assert validator.is_in_scope(target) is (not excluded and not incompatible_allow)
     assert validator.is_in_scope("unrelated.invalid") is False
 
 

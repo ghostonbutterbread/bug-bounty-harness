@@ -7,6 +7,15 @@ Supports:
   - URL patterns:          https://api.example.com/v1/*
   - CIDR ranges:           10.0.0.0/8, 192.168.1.0/24
 
+Path-scoped URLs use conservative lexical checks, not a model of application
+routing or HTTP redirects. With a path restriction, ambiguous path spellings
+(including percent escapes at any depth, dot/trailing-dot segments, repeated
+separators, backslashes, matrix parameters, whitespace or non-ASCII) are
+refused; a path exclusion also refuses colon-bearing paths. Verify the actual
+consumer enforces scope for every request and redirect. Do not decode or
+rewrite an ambiguous target into a purportedly authorized one without checking
+the program's scope and downstream behavior.
+
 Scope files are loaded from standard locations:
   ~/Shared/scopes/{program}/in-scope.txt
   ~/Shared/scopes/{program}/rules-of-engagement.json
@@ -29,7 +38,7 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 try:
     from agents.scope_seed_files import optional_host_variants
@@ -80,7 +89,7 @@ class _ScopeEntry:
             return "ip"
         return "domain"
 
-    def matches(self, target: str) -> bool:
+    def matches(self, target: str, *, exclusion: bool = False) -> bool:
         """
         Check if target matches this scope entry.
 
@@ -115,37 +124,67 @@ class _ScopeEntry:
                 return False
 
         if self._type == "url_pattern":
-            return self._match_url_pattern(target, host)
+            return self._match_url_pattern(target, host, exclusion=exclusion)
 
         return False
 
-    def _match_url_pattern(self, target: str, host: str) -> bool:
-        """
-        Match a URL pattern like https://api.example.com/v1/*.
-        Supports * glob at end of path.
-        """
-        pattern_parsed = urlparse(self.raw)
-        pattern_host = pattern_parsed.hostname or ""
-        pattern_path = pattern_parsed.path.rstrip("*")
+    def _match_url_pattern(self, target: str, host: str, *, exclusion: bool) -> bool:
+        """Match URL scope conservatively; a path exclusion wins ambiguity."""
+        try:
+            pattern_parsed = urlsplit(self.raw)
+            pattern_host = (pattern_parsed.hostname or "").lower().rstrip(".")
+            pattern_path = pattern_parsed.path.rstrip("*")
+        except ValueError:
+            return False
 
-        # Host must match exactly or via wildcard prefix
-        if host.lower() != pattern_host.lower():
-            if not (pattern_host.startswith("*.") and
-                    host.lower().endswith(pattern_host[1:].lower())):
+        # Exclusions cover either HTTP scheme and every port; allows must not
+        # infer permission for another origin.
+        if host.lower() != pattern_host:
+            wildcard_match = pattern_host.startswith("*.") and (
+                host.lower().endswith(pattern_host[1:])
+                or (exclusion and host.lower() == pattern_host[2:])
+            )
+            if not wildcard_match:
                 return False
 
-        # Path check: only applies if target is a full URL
-        if target.startswith("http://") or target.startswith("https://"):
-            try:
-                target_path = urlparse(strip_tool_annotation(target)).path
-            except ValueError:
-                # Unparseable authority: no path to compare, so no pattern
-                # match. Refuse rather than raising through the caller.
-                return False
-            if pattern_path and not target_path.startswith(pattern_path):
-                return False
+        if _ambiguous_path(pattern_path) or any(ord(c) < 32 or ord(c) == 127 for c in self.raw):
+            return exclusion
 
-        return True
+        target = strip_tool_annotation(target)
+        if not target.startswith(("http://", "https://")):
+            # A hostname alone cannot prove it is inside a path-only allow.
+            # A path exclusion, however, still excludes that unknown path.
+            return exclusion or pattern_path in ("", "/")
+        try:
+            target_parsed = urlsplit(target)
+            target_path = target_parsed.path or "/"
+            pattern_port = pattern_parsed.port
+            target_port = target_parsed.port
+            if pattern_port is None:
+                pattern_port = {"http": 80, "https": 443}.get(pattern_parsed.scheme)
+            if target_port is None:
+                target_port = {"http": 80, "https": 443}.get(target_parsed.scheme)
+        except ValueError:
+            return exclusion
+        if not exclusion and (target_parsed.scheme != pattern_parsed.scheme or target_port != pattern_port):
+            return False
+        if pattern_path not in ("", "/") and (
+            _ambiguous_path(target_path)
+            or (exclusion and ":" in target_path)
+            or any(ord(c) < 32 or ord(c) == 127 for c in target)
+        ):
+            return exclusion
+        if exclusion:
+            # Deny case-insensitively and include the directory itself; some
+            # servers redirect /private to /private/ or fold path case.
+            path = target_path.lower()
+            prefix = pattern_path.lower()
+            return path.startswith(prefix) or (prefix.endswith("/") and path == prefix[:-1])
+        if not pattern_path or pattern_path == "/":
+            return True
+        if pattern_parsed.path.endswith("*") or pattern_path.endswith("/"):
+            return target_path.startswith(pattern_path)
+        return target_path == pattern_path or target_path.startswith(pattern_path + "/")
 
     @property
     def entry_type(self) -> str:
@@ -324,14 +363,14 @@ class ScopeValidator:
             return False
 
         # Must not match any exclusion
-        excluded = any(e.matches(target) for e in self._out_of_scope)
+        excluded = any(e.matches(target, exclusion=True) for e in self._out_of_scope)
         return not excluded
 
     def is_out_of_scope(self, target: str) -> bool:
         """Return True if target is explicitly out of scope."""
         if not target or not target.strip():
             return False
-        return any(e.matches(target.strip()) for e in self._out_of_scope)
+        return any(e.matches(target.strip(), exclusion=True) for e in self._out_of_scope)
 
     def is_wildcard_scope(self, domain: str) -> bool:
         """
@@ -396,6 +435,8 @@ class ScopeValidator:
         if not self.is_in_scope(target):
             msg = (
                 f"[scope] {target!r} is NOT in scope for program {self.program!r}. "
+                f"Check the saved allow/exclusion entries and use an unambiguous full URL; "
+                f"do not normalize an unknown path without verifying program scope. "
                 f"In-scope entries: {self.scope_summary()}"
             )
             if self.strict:
@@ -444,6 +485,20 @@ class ScopeValidator:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _ambiguous_path(path: str) -> bool:
+    """Refuse path spellings whose interpretation can differ downstream.
+
+    Never decode a finite number of layers: another intermediary may decode
+    again. Matrix parameters and repeated separators can also be normalized.
+    """
+    return (
+        any(char in path for char in "%\\;")
+        or "//" in path
+        or any(segment.endswith(".") for segment in path.split("/"))
+        or any(ord(char) <= 32 or ord(char) >= 127 for char in path)
+    )
+
 
 # httpx-style output: a target followed only by bracketed annotations, e.g.
 # "https://api.example.com [192.168.1.1]" or "... [200] [nginx]".

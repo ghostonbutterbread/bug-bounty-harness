@@ -1,6 +1,6 @@
 # Parameter mining playbook path integration dossier
 
-- **Status:** feature; independent review approved before beta reconciliation, re-review pending
+- **Status:** final independent review approved; integrated-tree checks and publication pending
 - **Owner:** Hermes bugfix, Kanban `t_5a10c0a6`.
 - **Branch / owning ref:** `fix/parameter-mining-playbook-path`.
 - **Worktree:** `/home/ryushe/worktrees/bbh-parameter-mining-playbook-path`.
@@ -25,16 +25,17 @@ Projected parameter-mining skill names a repo-relative playbook but does not ide
 - Independent reviewer approved reconciled `1d665d36c61c0924b70b9b8c352b86f322d1471f` and passed 43 tests. Beta subsequently advanced to `379e8fcc1dfc89b967a4cc2b260a09b5c842efbb`; merged into `04eba39c4c6d6483250a5c4a8e758a44ca757a9b` without conflicts and reran 43 tests. Final reconciliation review remains.
 - Independent reviewer approved `77a6a63c7ccce060d3aaf09b72f1f5cbe0f94655`, rerunning 43 tests. Beta then advanced to `f8b3253fb4abebc4e1016728b6d82106be74deb3`; merged into `4b5dfc48ad8bae0fac579f7c2739d49c0bd07f48` without conflicts and reran 43 tests. Fresh reconciliation review remains.
 - Release gate reviewed `8c9079c`, passed 43 tests and found no code blocker, but stopped because `.venv/bin/python -m pip freeze` failed with `No module named pip`. Parent then used stdlib `importlib.metadata` `direct_url.json` and verified installed Bounty Core revision exactly equals the manifest's immutable pin `6c36ee88a60073e1b687ec32deeade24ffafdd4f`; no reinstall or environment modification. Independent final release gate must reproduce this pin comparison and verify the exact current feature tip.
+- Final independent gate reviewed feature tip `9aa35e83de92a4ce816befb1c2cebb7171d183dc`, verified `f8b3253fb4abebc4e1016728b6d82106be74deb3` is its beta ancestor, inspected the task diff, launcher resolver and playbook references, and approved without findings. The beta checkout's installed `bounty_core-0.2.0.dist-info/direct_url.json` commit and its `requirements.txt` pin both equal `6c36ee88a60073e1b687ec32deeade24ffafdd4f` (read-only, no pip or install). `PYTHONDONTWRITEBYTECODE=1 /home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python -m pytest -p no:cacheprovider -q tests/test_parameter_mining_playbook_route.py tests/test_skill_command_lane_safety.py tests/test_script_policy.py tests/test_bbh_launcher.py` passed: 43 tests in 0.68s. `git diff --check` passed.
 
 ## Blockers and deferred work
 
-Independent re-review and integrated-tree checks are pending. Runtime projection/activation must be verified separately before closing the papercut. If selected skill and launcher lanes differ, resolve the mismatch rather than silently reading the wrong playbook. No deployment, target interaction or stable promotion is authorized by this branch.
+Integrated-tree checks and publication are pending. Runtime projection/activation must be verified separately before closing the papercut: inspect the selected runtime's loaded skill source and `bbh --root` and confirm both select the intended checkout before resolving the playbook; trigger this check only with separately authorized activation. If selected skill and launcher lanes differ, resolve the mismatch rather than silently reading the wrong playbook. No deployment, target interaction or stable promotion is authorized by this branch.
 
 ## Interruption / resume handoff
 
 - **Owning branch:** `fix/parameter-mining-playbook-path`.
-- **Checkpoint:** `4b5dfc48ad8bae0fac579f7c2739d49c0bd07f48`; review feature tip including this handoff update.
-- **Exact resume point:** independent release gate should use stdlib `importlib.metadata` to compare installed Bounty Core `direct_url.json` commit to the manifest pin (no pip is installed), then inspect current beta ancestry, rerun focused tests and integrate if all gates pass; verify active projection.
+- **Checkpoint:** reviewed feature tip `9aa35e83de92a4ce816befb1c2cebb7171d183dc` plus the following dossier-only decision commit.
+- **Exact resume point:** recheck clean trees and exact fetched beta, merge approved feature into the named beta worktree while removing this temporary dossier in the merge, rerun the recorded 43-test command there, and publish/read back beta if all checks pass. Runtime projection verification remains a separate authorized operation.
 - **Working tree:** intended clean after initial commit.
 
 ## Decision gates
@@ -51,3 +52,4 @@ Independent re-review and integrated-tree checks are pending. Runtime projection
 - 2026-10-28 — reconciliation review approved, merged further advanced beta and reran 43 tests; final review pending.
 - 2026-10-28 — latest reconciliation review approved; merged advanced beta and reran 43 tests; fresh reconciliation review pending.
 - 2026-10-28 — release gate stopped on missing pip; parent verified installed VCS pin with standard-library metadata without changing the environment; independent final gate pending.
+- 2026-10-28 — final independent gate approved `9aa35e83de92a4ce816befb1c2cebb7171d183dc`; pin comparison and 43 focused tests passed. Approved for beta integration subject to clean, unchanged beta and integrated-tree verification; activation and stable promotion remain separate.

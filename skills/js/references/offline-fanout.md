@@ -68,18 +68,21 @@ tasks through its native delegation capability.
    not a replacement input for `--resume`. A map comment scan covers the whole
    bundle by default (large ASTs use a per-parse resource-fenced worker);
    `--source-map-parse-max-bytes` is an explicit optional coverage limit.
-2. After completion, read the run's `manifest.json`, `metadata.jsonl`,
-   `packets.jsonl`, and any `source_map_modules.jsonl`. Group related packet
-   paths by page, bundle family, route cluster, or source-map boundary. Keep each
+2. Read available run metadata and indexes (`manifest.json`, `metadata.jsonl`,
+   `packets.jsonl`, and `source_map_modules.jsonl`), if present. Complete atomic
+   packets from an interrupted inventory can be reviewed without final indexes;
+   mark missing metadata and coverage as gaps, and do not resume acquisition
+   during explicitly offline work. Group available complete packet paths by
+   known page, bundle family, route cluster, or source-map boundary. Keep each
    worker's input bounded and independent; do not paste full bundles into
-   prompts.
+   prompts or invent missing provenance.
 3. If independent packets justify delegation, dispatch a first wave with at
    most two complementary roles: surface/behavior mapper and classless anomaly
    reviewer. Divide packets between them; the parent reviews uncovered packets
    or gives a role another bounded packet after it returns. Each task includes
-   exact local paths, provenance, the offline-only boundary, and a structured
-   output contract requiring cited evidence, confidence, missing proof, and
-   suggested follow-up.
+   exact local paths, available provenance (or its absence), the offline-only
+   boundary, and a structured output contract requiring cited evidence,
+   confidence, missing proof, and suggested follow-up.
 4. Let the active CLI apply its native model routing. Ask its model selector or
    advertised model list for the current fast sibling of the parent model's
    family/generation. Never guess or hardcode the name; when selection is not

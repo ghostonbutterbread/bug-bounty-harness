@@ -65,6 +65,15 @@ def test_offline_fanout_uses_existing_packets_not_acquisition():
     assert "explicitly offline" in pull and "no network" in pull
 
 
+def test_partial_offline_fanout_does_not_require_final_inventory():
+    fanout = text("skills/js/references/offline-fanout.md")
+    assert "interrupted inventory" in fanout
+    assert "without final indexes" in fanout
+    assert "available provenance" in fanout
+    assert "do not resume acquisition" in fanout
+    assert "mark missing metadata" in fanout
+
+
 def test_local_file_handoff_is_not_inventory_dependent():
     hunt = text("skills/js-hunt/SKILL.md")
     assert "standalone local" in hunt

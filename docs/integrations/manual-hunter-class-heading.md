@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta` (integration not authorized here)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/manual-hunter-class-heading`
-- **Latest immutable recovery checkpoint:** none yet; commit containing this dossier is the checkpoint
-- **Implementation commit(s):** pending checkpoint commit
+- **Latest immutable recovery checkpoint:** `204db4c25c4f2cd9cd463305f2e3f03291807e24`
+- **Implementation commit(s):** `204db4c25c4f2cd9cd463305f2e3f03291807e24`
 - **Canonical references:** `agents/manual_hunter.py`, `agents/sync_reports.py`, `agents/test_manual_hunter.py`, `agents/test_sync_reports.py`; prior metadata fix `3fa84b8` is an ancestor of base.
 
 ## Intent and boundaries
@@ -36,7 +36,7 @@ A Markdown Class heading consumes the first nonblank value line only, without ab
 ## Interruption / resume handoff
 
 - **Ref:** `fix/manual-hunter-class-heading`
-- **Recovery checkpoint:** this commit, to be recorded by a follow-up dossier-only commit.
+- **Recovery checkpoint:** `204db4c25c4f2cd9cd463305f2e3f03291807e24`; the later dossier-only commit is the current handoff tip.
 - **Exact resume point:** independent review and reproducible rerun, not merge/push/activation.
 - **Working-tree state at handoff:** intended clean after checkpoint.
 

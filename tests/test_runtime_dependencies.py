@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,7 @@ class RuntimeDependencyTests(unittest.TestCase):
             "bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@"
             + REVIEWED_CORE_SHA,
             "httpx>=0.28,<1",
+            "idna>=3,<4",
             "pytest>=9,<10",
             "requests>=2.34,<3",
             "PyYAML>=6,<7",
@@ -37,6 +39,31 @@ class RuntimeDependencyTests(unittest.TestCase):
         self.assertNotIn(SUPERSEDED_CORE_SHA, manifest.read_text(encoding="utf-8"))
         self.assertEqual(sorted(p.name for p in ROOT.glob("requirements*.txt")),
                          ["requirements.txt"])
+
+    def test_manifest_contract_rejects_idna_drift(self) -> None:
+        current = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("idna>=3,<4\n", current)
+        variants = (
+            ("current", current, True),
+            ("missing", current.replace("idna>=3,<4\n", ""), False),
+            ("wrong range", current.replace("idna>=3,<4\n", "idna>=2,<4\n"), False),
+            ("duplicate", current.replace("idna>=3,<4\n", "idna>=3,<4\nidna>=3,<4\n"), False),
+            ("other dependency changed", current.replace("httpx>=0.28,<1\n", "httpx>=0.27,<1\n"), False),
+        )
+        with tempfile.TemporaryDirectory(prefix="bbh manifest ") as directory:
+            root = Path(directory)
+            for name, text, valid in variants:
+                with self.subTest(name=name):
+                    (root / "requirements.txt").write_text(text, encoding="utf-8")
+                    with patch(f"{__name__}.ROOT", root):
+                        contract = RuntimeDependencyTests(
+                            "test_single_manifest_preserves_runtime_and_test_dependencies"
+                        )
+                        if valid:
+                            contract.test_single_manifest_preserves_runtime_and_test_dependencies()
+                        else:
+                            with self.assertRaises(AssertionError):
+                                contract.test_single_manifest_preserves_runtime_and_test_dependencies()
 
     def test_setup_installs_canonical_manifest_from_another_directory(self) -> None:
         # Exercise the actual setup entry point without network/package side effects.

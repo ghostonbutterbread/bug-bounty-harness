@@ -161,9 +161,8 @@ class CORSBypass:
             success = True
             note = "EXPLOITABLE: reflected origin + credentials=true → CSRF/data theft possible"
         elif wildcard and creds:
-            # Per spec this is invalid but some servers do it
-            success = True
-            note = "EXPLOITABLE: wildcard ACAO + credentials=true (misconfigured)"
+            success = False
+            note = "wildcard ACAO with credentials=true: browsers reject credentialed access"
         elif reflected:
             success = True
             note = f"origin reflected in ACAO (no credentials header) — info-disclosure"

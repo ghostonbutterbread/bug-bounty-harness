@@ -791,7 +791,7 @@ class BypassOrchestrator:
         segment = path.split("/")[-1]
 
         baseline_resp = await self._get(client, target, semaphore=sem)
-        baseline = baseline_resp.status_code if baseline_resp else 0
+        baseline = baseline_resp.status_code if baseline_resp is not None else 0
         self._log(f"403 baseline: {safe_text(target)} → {baseline}")
 
         tasks = []
@@ -843,6 +843,8 @@ class BypassOrchestrator:
             yield BypassResult(
                 success=success, vuln_type="403", technique=tech, category="403_bypass",
                 payload=payload, url=url, status_code=resp.status_code, evidence=resp.text[:200],
+                note="baseline unavailable" if baseline_resp is None else "",
+                incomplete=baseline_resp is None,
             )
 
     # ── LFI bypass ───────────────────────────────────────────────────────────

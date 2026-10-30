@@ -307,7 +307,11 @@ Race notes distinguish observed, no-response, cancelled, and unobserved counts;
 the no-response count includes cancellations. The additive JSON
 `incomplete_results` array includes incomplete hits and non-hits (and can
 overlap `hits`); legacy readers using only `hits` cannot see incomplete
-non-hits. The Python `run_and_report` tuple retains incomplete non-hits in its
+non-hits. If the 403 or IDOR baseline is unavailable, successful HTTP probe
+responses are retained but comparison results are incomplete/unknown rather
+than a miss or hit. A wildcard ACAO plus `credentials=true` is recorded as a
+non-hit with derived headers because browsers reject credentialed wildcard CORS;
+other public-data exposure requires separate investigation. The Python `run_and_report` tuple retains incomplete non-hits in its
 second, historically named failures list; `success=False` alone is not proof
 of a complete negative. Parent cancellation still propagates without a result.
 

@@ -204,7 +204,7 @@ class IDORBypass:
                 ))
                 continue
 
-            status_change  = resp["status"] == 200 and baseline_status != 200
+            status_change  = baseline_resp is not None and resp["status"] == 200 and baseline_status != 200
             len_diff       = abs(resp["len"] - baseline_len)
             content_diff   = resp["status"] == 200 and len_diff > 50 and baseline_status == 200
             success        = status_change or content_diff
@@ -219,9 +219,10 @@ class IDORBypass:
                 status_code=resp["status"],
                 evidence=resp["text"][:200],
                 note=(
-                    f"baseline={baseline_status}/{baseline_len}b "
-                    f"new={resp['status']}/{resp['len']}b"
+                    (f"baseline={baseline_status}/{baseline_len}b " if baseline_resp is not None
+                     else "baseline unavailable ") + f"new={resp['status']}/{resp['len']}b"
                 ),
+                incomplete=baseline_resp is None,
             ))
         return results
 

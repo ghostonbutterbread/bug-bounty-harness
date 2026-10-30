@@ -20,6 +20,12 @@ Available modules:
 """
 
 from dataclasses import dataclass, field
+
+# Preserve the historical top-level import from the agents directory.
+if __package__ == 'bypass_types':
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from agents.bypass_redaction import safe_evidence, safe_payload, safe_text
 
 # ---------------------------------------------------------------------------

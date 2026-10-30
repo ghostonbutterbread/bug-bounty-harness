@@ -7,8 +7,8 @@
 - **Intended integration target:** beta
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** feat/submission-package-handoff
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
+- **Feature implementation commit(s):** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
 - **Inspiration / canonical references:** ordinary hunt loaded `manual-hunter` and still wrote `SUBMISSION.md` instead of the report writer
 
 ## Intent
@@ -39,10 +39,10 @@ Point the finding-capture route at `bunny-report-and-triage` as the submission w
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/submission-package-handoff
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit, run the focused tests, review, then merge to beta
-- **Working-tree state at handoff:** intentionally uncommitted until the implementation commit
+- **Latest immutable recovery checkpoint:** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
+- **Feature implementation commit(s):** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
+- **Exact resume point:** independent review of f736f2e, then merge to beta and update the projected OMP manual-hunter checkout
+- **Working-tree state at handoff:** clean after this checkpoint commit
 
 ## Decision gates
 

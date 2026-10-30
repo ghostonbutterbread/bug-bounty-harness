@@ -619,12 +619,22 @@ class ClassConflictError(ValueError):
 
 
 def _fenced_lines(text: str) -> set[int]:
-    """Identify fenced and indented code lines, including list fences."""
+    """Identify fenced and indented code, including list and quote fences."""
     result: set[int] = set()
-    fence: tuple[str, int, int] | None = None
+    fence: tuple[str, int, int, int] | None = None
     list_indent: int | None = None
+    list_quote_depth = 0
     for index, line in enumerate(text.splitlines()):
         expanded = line.expandtabs(4)
+        quote_depth = 0
+        while match := re.match(r"^ {0,3}> ?", expanded):
+            quote_depth += 1
+            expanded = expanded[match.end():]
+        if fence and quote_depth < fence[3]:
+            fence = None  # An unclosed fence ends with its quote container.
+        if not fence and quote_depth != list_quote_depth:
+            list_indent = None
+            list_quote_depth = quote_depth
         indent = len(expanded) - len(expanded.lstrip(" "))
         list_item = re.match(r"^( {0,3})(?:[-+*]|\d{1,9}[.)]) +", expanded)
         if fence and fence[2] and expanded.strip() and indent < fence[2]:
@@ -640,7 +650,7 @@ def _fenced_lines(text: str) -> set[int]:
         if fence:
             result.add(index)
             if (
-                marker and fence[2] <= indent <= fence[2] + 3
+                marker and quote_depth == fence[3] and fence[2] <= indent <= fence[2] + 3
                 and marker.group(1)[0] == fence[0]
                 and len(marker.group(1)) >= fence[1]
                 and not expanded[indent + marker.end():].strip()
@@ -648,13 +658,13 @@ def _fenced_lines(text: str) -> set[int]:
                 fence = None
         elif marker and valid_indent and (marker.group(1)[0] != "`" or "`" not in expanded[indent + marker.end():]):
             result.add(index)
-            fence = (marker.group(1)[0], len(marker.group(1)), content_indent)
+            fence = (marker.group(1)[0], len(marker.group(1)), content_indent, quote_depth)
         elif indent >= 4:
             result.add(index)
     return result
 
 
-def _explicit_class(text: str) -> tuple[str | None, set[int]]:
+def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, set[int]]:
     """Extract class declarations outside fences; return consumed line indexes."""
     found: str | None = None
     consumed: set[int] = set()
@@ -681,6 +691,8 @@ def _explicit_class(text: str) -> tuple[str | None, set[int]]:
         found = candidate
 
     for index, line in enumerate(text.splitlines()):
+        if index == decision_start:
+            awaiting = False
         if index in fenced:
             awaiting = False
             continue
@@ -689,7 +701,7 @@ def _explicit_class(text: str) -> tuple[str | None, set[int]]:
             consumed.add(index)
             value = heading.group(1)
             awaiting = not value
-            if value:
+            if value and index >= decision_start:
                 add(value, heading_value=True)
             continue
         field = FIELD_RE.match(line)
@@ -700,7 +712,8 @@ def _explicit_class(text: str) -> tuple[str | None, set[int]]:
             awaiting = False
             if not field and not re.match(r"^\s*#{1,6}\s", line):
                 consumed.add(index)
-                add(line, heading_value=True)
+                if index >= decision_start:
+                    add(line, heading_value=True)
                 continue
         if field:
             label = field.group("label").strip().lower().replace("-", " ")
@@ -710,7 +723,8 @@ def _explicit_class(text: str) -> tuple[str | None, set[int]]:
                     value = value[2:].lstrip()
                 elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", line):
                     value = value[:-2].rstrip()
-                add(value)
+                if index >= decision_start:
+                    add(value)
                 consumed.add(index)
     return found, consumed
 
@@ -881,14 +895,14 @@ class DuplicateCommentStore:
 
 def parse_finding_text(
     raw_text: str, *, source_label: str, family: str, lane: str,
-    source_path: Path | None = None,
+    source_path: Path | None = None, class_decision_start: int = 0,
 ) -> ParsedFinding:
     """Parse and validate a note without initializing storage or a ledger."""
     text = raw_text.replace("\r\n", "\n").strip("\n")
     if not text.strip():
         raise ValueError("finding note is empty")
 
-    explicit_class, consumed = _explicit_class(text)
+    explicit_class, consumed = _explicit_class(text, decision_start=class_decision_start)
     parsed: dict[str, str] = {"class_name": explicit_class} if explicit_class is not None else {}
     narrative_lines: list[str] = []
     current_key: str | None = None
@@ -1173,10 +1187,11 @@ class ManualHunter:
 
     def parse_text(
         self, raw_text: str, *, source_label: str, source_path: Path | None = None,
+        class_decision_start: int = 0,
     ) -> ParsedFinding:
         return parse_finding_text(
             raw_text, source_label=source_label, source_path=source_path,
-            family=self.family, lane=self.lane,
+            family=self.family, lane=self.lane, class_decision_start=class_decision_start,
         )
 
     def ingest(self, parsed: ParsedFinding, *, link_duplicate_comment: bool = False) -> int:

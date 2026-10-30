@@ -31,6 +31,39 @@ from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
+    def test_blockquote_fenced_code_does_not_affect_class(self) -> None:
+        base = "Title: Fixture\nFile: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n"
+        for code in (
+            "> ```\n> SSRF example\n> ```\n",
+            "> > ~~~\n> > Class: ssrf\n> > ~~~\n",
+            "> ```\n> Class: ssrf\n> ```\n",
+        ):
+            with self.subTest(code=code), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(base + code, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                finding = parse_finding_text(base + code + "Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+
+    def test_unclosed_and_mismatched_quote_fences_end_at_container_boundary(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n"
+        examples = (
+            "> ````\n> Class: ssrf\n> ```\n> ssrf\n",
+            "> > ~~~\n> > Class: ssrf\n> > ```\n> > ssrf\n",
+            "> - Example:\n>     ```\n>     Class: ssrf\n>     ssrf\n",
+        )
+        for example in examples:
+            with self.subTest(example=example), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(base + example, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                finding = parse_finding_text(base + example + "Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+
+    def test_blockquoted_prose_remains_available_for_class_inference(self) -> None:
+        note = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n> SSRF example in prose.\n"
+        with patch("sys.stderr", new_callable=io.StringIO):
+            finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "ssrf")
+
     def test_class_heading_accepts_single_inline_code_token(self) -> None:
         self.assertEqual(_explicit_class("## Class\n`idor`\n")[0], "idor")
         self.assertEqual(_explicit_class("## Class: `custom/v1`\n")[0], "custom/v1")

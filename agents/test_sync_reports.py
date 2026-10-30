@@ -32,6 +32,31 @@ def _brain_file(sha1: str) -> dict[str, object]:
 
 
 class TestSyncReports(unittest.TestCase):
+    def test_single_finding_class_ignores_report_prelude(self):
+        self.report_path.write_text(
+            "Class: prelude-class\nClass: another-prelude-class\nSource: prelude source\n\n"
+            "## [CONFIRMED] Finding\nFile: src/a.py\nClass: finding-class\n"
+            "### Description\nFixture.\n"
+        )
+        errors = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        row = json.loads(ledger.read_text())["findings"][0]
+        self.assertEqual((row["file"], row["class_name"], row["source"]), ("src/a.py", "finding-class", "prelude source"))
+
+    def test_single_finding_does_not_infer_class_from_prelude_or_quoted_code(self):
+        self.report_path.write_text(
+            "Class: ssrf\n\n## [CONFIRMED] Finding\nFile: src/a.py\n"
+            "### Description\nFixture.\n> > ```\n> > Class: ssrf\n> > ```\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        self.assertEqual(json.loads(ledger.read_text())["findings"][0]["class_name"], "unknown")
+
     def test_structured_multi_finding_persists_beta_metadata_without_guesses(self):
         self.report_path.write_text(
             "## [CONFIRMED] One\nFile: src/a.py\nClass: idor\nSeverity: HIGH\nScoring Authority: synthetic owner\nSeverity Rationale: owned rationale\nSource: owned source\nSink: owned sink\n### Description\nActual one description.\n"
@@ -134,6 +159,7 @@ class TestSyncReports(unittest.TestCase):
         ledgers = list((self.tmp / "storage-root").rglob("ledger.json"))
         for ledger in ledgers:
             self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+        self.assertFalse(list((self.tmp / "storage-root").rglob("EVIDENCE.md")))
 
     def test_separate_report_failure_does_not_roll_back_earlier_report(self):
         self.report_path.rename(self.source_dir / "a.md")

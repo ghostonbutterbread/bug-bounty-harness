@@ -176,10 +176,10 @@ def _loose_markdown_fallback(text: str, source_path: Path) -> dict[str, Any] | N
     }
 
 
-def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str) -> list[FindingRecord]:
+def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str, *, class_decision_start: int = 0) -> list[FindingRecord]:
     findings: list[FindingRecord] = []
     try:
-        parsed = hunter.parse_text(text, source_label=str(path), source_path=path)
+        parsed = hunter.parse_text(text, source_label=str(path), source_path=path, class_decision_start=class_decision_start)
     except (ReviewTierDecisionRequired, ClassConflictError):
         raise  # Never downgrade an explicit decision conflict via the loose importer.
     except ValueError:
@@ -379,7 +379,10 @@ def _candidates_for_file(
         merged = structured
         if len(structured) == 1:
             try:
-                flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+                prelude = re.split(r"(?m)^##\s+\[", safe_text, maxsplit=1)[0]
+                # parse_finding_text strips leading newlines before indexing.
+                class_start = len(prelude.lstrip("\n").splitlines())
+                flexible = _flexible_findings_for_file(hunter, source_path, raw_text, class_decision_start=class_start)
             except InvalidReviewTierError:
                 raise
             except ReviewTierDecisionRequired:

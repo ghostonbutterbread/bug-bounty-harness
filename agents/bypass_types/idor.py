@@ -196,11 +196,11 @@ class IDORBypass:
 
         results: list[BypassResult] = []
         for (category, payload, url, _), resp in zip(tasks, raw):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 results.append(BypassResult(
                     success=False, vuln_type="idor", technique="id_swap",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 ))
                 continue
 

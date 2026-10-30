@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import random
 import re
 import string
@@ -50,9 +51,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urljoin, urlparse, urlsplit, parse_qs, urlencode, urlunparse
 
 import httpx
+from agents.bypass_redaction import safe_payload, safe_text
 
 try:
     import requests as _requests
@@ -273,13 +275,21 @@ def _random_case(s: str) -> str:
 
 
 def _apply_path_case(path: str, mode: str) -> str:
-    if mode == "lower":
-        return path.lower()
-    if mode == "upper":
-        return path.upper()
-    if mode == "random":
-        return _random_case(path)
-    return path
+    # Mutate only literal path characters: encoded bytes and the query are not
+    # part of a case experiment. Handle full URLs supplied in payload mode too.
+    match = re.match(r'^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*', path)
+    if match:
+        prefix = match.group()
+        remainder = path[len(prefix):]
+    else:
+        prefix, remainder = '', path
+    raw_path = re.split(r'[?#]', remainder, maxsplit=1)[0]
+    transform = {'lower': str.lower, 'upper': str.upper, 'random': _random_case}.get(mode)
+    if transform is None:
+        return path
+    mutated = ''.join(part if re.fullmatch(r'%[0-9a-fA-F]{2}', part) else transform(part)
+                      for part in re.split(r'(%[0-9a-fA-F]{2})', raw_path))
+    return prefix + mutated + remainder[len(raw_path):]
 
 
 def _merge_headers(base: dict, extra: dict) -> dict:
@@ -338,6 +348,8 @@ class WAFInterceptor:
         self.verbose      = verbose
         self.timeout      = timeout
         self.payload_mode = False  # enable via get_payload() / aget_payload()
+        self.summary_write_failures = 0
+        self.summary_last_errno: Optional[int] = None
 
         # Stats
         self._stats: dict[str, int] = {
@@ -345,6 +357,9 @@ class WAFInterceptor:
             "waf_blocks":     0,
             "bypass_success": 0,
             "bypass_fail":    0,
+            "observed_responses": 0,
+            "client_call_failures": 0,
+            "client_call_cancellations": 0,
         }
 
         # Output directory
@@ -363,28 +378,43 @@ class WAFInterceptor:
 
         # Sync session (lazy init)
         self._session: Any = None
+        self._flush_summary()
 
     # ── Logging ──────────────────────────────────────────────────────────────
 
     def _log(self, msg: str) -> None:
         if self.verbose:
-            print(f"[waf] {msg}", flush=True)
+            print(f"[waf] {safe_text(msg)}", flush=True)
 
     def _write_log(self, filename: str, line: str) -> None:
         if self._out_dir:
             with open(self._out_dir / filename, "a") as f:
                 ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                f.write(f"[{ts}] {line}\n")
+                f.write(f"[{ts}] {safe_text(line)}\n")
 
     def _flush_summary(self) -> None:
         if self._out_dir:
             summary_path = self._out_dir / "summary.json"
-            with open(summary_path, "w") as f:
-                json.dump(
-                    {**self._stats, "updated_at": datetime.now(timezone.utc).isoformat()},
-                    f,
-                    indent=2,
-                )
+            try:
+                with open(summary_path, "w") as f:
+                    json.dump(
+                        {**self._stats, "updated_at": datetime.now(timezone.utc).isoformat()},
+                        f,
+                        indent=2,
+                    )
+            except OSError as exc:
+                # Persistence is secondary to the request outcome, including
+                # cancellation. Do not include exception text or private paths.
+                self.summary_write_failures += 1
+                self.summary_last_errno = exc.errno if type(exc.errno) is int else None
+                try:
+                    logging.getLogger(__name__).warning(
+                        "WAF summary.json write failed (errno=%s); snapshot may be stale or partial; check storage and permissions",
+                        self.summary_last_errno,
+                    )
+                except Exception:
+                    # Diagnostics must not replace the request outcome either.
+                    pass
 
     # ── WAF Detection ────────────────────────────────────────────────────────
 
@@ -553,7 +583,35 @@ class WAFInterceptor:
         import requests
         session = self._get_session()
         kwargs.setdefault("timeout", self.timeout)
-        return session.request(method, url, **kwargs)
+        self._stats["total_requests"] += 1
+        self._flush_summary()
+        try:
+            response = session.request(method, url, **kwargs)
+        except Exception:
+            self._stats["client_call_failures"] += 1
+            raise
+        else:
+            self._stats["observed_responses"] += 1
+            return response
+        finally:
+            self._flush_summary()
+
+    async def _async_request(self, client, method, url, **kwargs):
+        self._stats["total_requests"] += 1
+        self._flush_summary()
+        try:
+            response = await client.request(method, url, **kwargs)
+        except asyncio.CancelledError:
+            self._stats["client_call_cancellations"] += 1
+            raise
+        except Exception:
+            self._stats["client_call_failures"] += 1
+            raise
+        else:
+            self._stats["observed_responses"] += 1
+            return response
+        finally:
+            self._flush_summary()
 
     def get(self, path: str, **kwargs) -> Any:
         """Sync GET — Tier 1 (WAF bypass only, no payload obfuscation)."""
@@ -573,7 +631,6 @@ class WAFInterceptor:
 
     def _sync_call(self, method: str, path: str, **kwargs) -> Any:
         url = self.target + path if path.startswith("/") else urljoin(self.target + "/", path)
-        self._stats["total_requests"] += 1
 
         # Initial request
         resp = self._sync_request(method, url, **kwargs)
@@ -584,10 +641,11 @@ class WAFInterceptor:
 
         # WAF detected
         self._stats["waf_blocks"] += 1
-        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {path}")
+        self._flush_summary()
+        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {safe_text(path)}")
         self._write_log(
             "blocks_log.txt",
-            f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={path} status={resp.status_code} evidence={waf['evidence']}",
+            f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={safe_text(path)} status={resp.status_code} evidence={waf['evidence']}",
         )
 
         return self._sync_bypass(method, path, url, resp, waf, **kwargs)
@@ -616,15 +674,15 @@ class WAFInterceptor:
             try:
                 resp = self._sync_request(method, new_url, **new_kwargs)
             except Exception as e:
-                self._log(f"  → bypass error: {e}")
+                self._log(f"  → bypass error: {type(e).__name__}")
                 continue
 
             if self.detect_waf(resp) is None:
                 self._stats["bypass_success"] += 1
-                self._log(f"  [+] Bypass worked: {bypass}")
+                self._log(f"  [+] Bypass worked: {safe_payload(str(bypass))}")
                 self._write_log(
                     "bypasses_log.txt",
-                    f"WAF={waf_name} bypass={bypass} method={method} path={new_path} status={resp.status_code}",
+                    f"WAF={waf_name} bypass={safe_payload(str(bypass))} method={method} path={safe_text(new_path)} status={resp.status_code}",
                 )
                 self._flush_summary()
                 return resp
@@ -644,7 +702,6 @@ class WAFInterceptor:
         3. Still blocked → Tier 2: obfuscate query param values in URL.
         """
         url = self.target + path if path.startswith("/") else urljoin(self.target + "/", path)
-        self._stats["total_requests"] += 1
 
         resp = self._sync_request(method, url, **kwargs)
         waf = self.detect_waf(resp)
@@ -652,10 +709,11 @@ class WAFInterceptor:
             return resp
 
         self._stats["waf_blocks"] += 1
-        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {path} [payload mode]")
+        self._flush_summary()
+        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {safe_text(path)} [payload mode]")
         self._write_log(
             "blocks_log.txt",
-            f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={path} status={resp.status_code} evidence={waf['evidence']} tier=payload",
+            f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={safe_text(path)} status={resp.status_code} evidence={waf['evidence']} tier=payload",
         )
 
         waf_name = waf["name"]
@@ -674,12 +732,12 @@ class WAFInterceptor:
             try:
                 resp = self._sync_request(method, new_url, **new_kwargs)
             except Exception as e:
-                self._log(f"  → bypass error: {e}")
+                self._log(f"  → bypass error: {type(e).__name__}")
                 continue
             if self.detect_waf(resp) is None:
                 self._stats["bypass_success"] += 1
-                self._log(f"  [+] Tier 1 bypass worked: {bypass}")
-                self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=1 bypass={bypass} method={method} path={new_path} status={resp.status_code}")
+                self._log(f"  [+] Tier 1 bypass worked: {safe_payload(str(bypass))}")
+                self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=1 bypass={safe_payload(str(bypass))} method={method} path={safe_text(new_path)} status={resp.status_code}")
                 self._flush_summary()
                 return resp
 
@@ -689,12 +747,12 @@ class WAFInterceptor:
             try:
                 resp = self._sync_request(method, obfuscated_url, **kwargs)
             except Exception as e:
-                self._log(f"  → payload obfuscation error ({technique}): {e}")
+                self._log(f"  → payload obfuscation error ({technique}): {type(e).__name__}")
                 continue
             if self.detect_waf(resp) is None:
                 self._stats["bypass_success"] += 1
                 self._log(f"  [+] Tier 2 payload bypass worked: {technique}")
-                self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=2 technique={technique} method={method} url={obfuscated_url} status={resp.status_code}")
+                self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=2 technique={technique} method={method} url={safe_text(obfuscated_url)} status={resp.status_code}")
                 self._flush_summary()
                 return resp
 
@@ -765,14 +823,16 @@ class WAFInterceptor:
             return response
 
         self._stats["waf_blocks"] += 1
-        parsed = urlparse(url)
+        self._flush_summary()
+        parsed = urlsplit(url)
         path = parsed.path or "/"
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
-        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {url}")
+        before_fragment = url.split('#', 1)[0]
+        if '?' in before_fragment:
+            path += '?' + before_fragment.split('?', 1)[1]
+        self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {safe_text(url)}")
         self._write_log(
             "blocks_log.txt",
-            f"WAF={waf['name']} confidence={waf['confidence']} method={method} url={url} status={response.status_code} evidence={waf['evidence']}",
+            f"WAF={waf['name']} confidence={waf['confidence']} method={method} url={safe_text(url)} status={response.status_code} evidence={waf['evidence']}",
         )
         return await self._async_bypass(client, method, url, response, waf, path=path, **kwargs)
 
@@ -784,7 +844,6 @@ class WAFInterceptor:
         **kwargs,
     ) -> httpx.Response:
         url = self.target + path if path.startswith("/") else urljoin(self.target + "/", path)
-        self._stats["total_requests"] += 1
 
         own_client = client is None
         if own_client:
@@ -795,17 +854,18 @@ class WAFInterceptor:
             )
 
         try:
-            resp = await client.request(method, url, **kwargs)
+            resp = await self._async_request(client, method, url, **kwargs)
 
             waf = self.detect_waf(resp)
             if waf is None:
                 return resp
 
             self._stats["waf_blocks"] += 1
-            self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {path}")
+            self._flush_summary()
+            self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {safe_text(path)}")
             self._write_log(
                 "blocks_log.txt",
-                f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={path} status={resp.status_code} evidence={waf['evidence']}",
+                f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={safe_text(path)} status={resp.status_code} evidence={waf['evidence']}",
             )
             return await self._async_bypass(client, method, url, resp, waf, path=path, **kwargs)
 
@@ -837,17 +897,17 @@ class WAFInterceptor:
             new_url = self.target + new_path if new_path.startswith("/") else url
 
             try:
-                resp = await client.request(method, new_url, **new_kwargs)
+                resp = await self._async_request(client, method, new_url, **new_kwargs)
             except Exception as e:
-                self._log(f"  → bypass error: {e}")
+                self._log(f"  → bypass error: {type(e).__name__}")
                 continue
 
             if self.detect_waf(resp) is None:
                 self._stats["bypass_success"] += 1
-                self._log(f"  [+] Bypass worked: {bypass}")
+                self._log(f"  [+] Bypass worked: {safe_payload(str(bypass))}")
                 self._write_log(
                     "bypasses_log.txt",
-                    f"WAF={waf_name} bypass={bypass} method={method} path={new_path} status={resp.status_code}",
+                    f"WAF={waf_name} bypass={safe_payload(str(bypass))} method={method} path={safe_text(new_path)} status={resp.status_code}",
                 )
                 self._flush_summary()
                 return resp
@@ -873,7 +933,6 @@ class WAFInterceptor:
         3. Still blocked → Tier 2: obfuscate query param values in URL.
         """
         url = self.target + path if path.startswith("/") else urljoin(self.target + "/", path)
-        self._stats["total_requests"] += 1
 
         own_client = client is None
         if own_client:
@@ -884,16 +943,17 @@ class WAFInterceptor:
             )
 
         try:
-            resp = await client.request(method, url, **kwargs)
+            resp = await self._async_request(client, method, url, **kwargs)
             waf = self.detect_waf(resp)
             if waf is None:
                 return resp
 
             self._stats["waf_blocks"] += 1
-            self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {path} [payload mode]")
+            self._flush_summary()
+            self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {safe_text(path)} [payload mode]")
             self._write_log(
                 "blocks_log.txt",
-                f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={path} status={resp.status_code} evidence={waf['evidence']} tier=payload",
+                f"WAF={waf['name']} confidence={waf['confidence']} method={method} path={safe_text(path)} status={resp.status_code} evidence={waf['evidence']} tier=payload",
             )
 
             waf_name = waf["name"]
@@ -910,14 +970,14 @@ class WAFInterceptor:
                 new_kwargs, new_path = self._build_bypass_kwargs(kwargs, bypass, path)
                 new_url = self.target + new_path if new_path.startswith("/") else url
                 try:
-                    resp = await client.request(method, new_url, **new_kwargs)
+                    resp = await self._async_request(client, method, new_url, **new_kwargs)
                 except Exception as e:
-                    self._log(f"  → bypass error: {e}")
+                    self._log(f"  → bypass error: {type(e).__name__}")
                     continue
                 if self.detect_waf(resp) is None:
                     self._stats["bypass_success"] += 1
-                    self._log(f"  [+] Tier 1 bypass worked: {bypass}")
-                    self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=1 bypass={bypass} method={method} path={new_path} status={resp.status_code}")
+                    self._log(f"  [+] Tier 1 bypass worked: {safe_payload(str(bypass))}")
+                    self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=1 bypass={safe_payload(str(bypass))} method={method} path={safe_text(new_path)} status={resp.status_code}")
                     self._flush_summary()
                     return resp
 
@@ -925,14 +985,14 @@ class WAFInterceptor:
             self._log(f"  → Tier 1 exhausted, trying Tier 2 payload obfuscation")
             for technique, obfuscated_url in self._obfuscate_url_params(url):
                 try:
-                    resp = await client.request(method, obfuscated_url, **kwargs)
+                    resp = await self._async_request(client, method, obfuscated_url, **kwargs)
                 except Exception as e:
-                    self._log(f"  → payload obfuscation error ({technique}): {e}")
+                    self._log(f"  → payload obfuscation error ({technique}): {type(e).__name__}")
                     continue
                 if self.detect_waf(resp) is None:
                     self._stats["bypass_success"] += 1
                     self._log(f"  [+] Tier 2 payload bypass worked: {technique}")
-                    self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=2 technique={technique} method={method} url={obfuscated_url} status={resp.status_code}")
+                    self._write_log("bypasses_log.txt", f"WAF={waf_name} tier=2 technique={technique} method={method} url={safe_text(obfuscated_url)} status={resp.status_code}")
                     self._flush_summary()
                     return resp
 
@@ -955,18 +1015,15 @@ class WAFInterceptor:
     def print_summary(self) -> None:
         """Print a human-readable stats summary."""
         s = self._stats
-        block_rate = (
-            f"{s['waf_blocks'] / s['total_requests'] * 100:.1f}%"
-            if s["total_requests"] else "n/a"
-        )
+
         bypass_rate = (
             f"{s['bypass_success'] / s['waf_blocks'] * 100:.1f}%"
             if s["waf_blocks"] else "n/a"
         )
         print(
             f"\n[WAF Interceptor Summary]\n"
-            f"  Total requests : {s['total_requests']}\n"
-            f"  WAF blocks     : {s['waf_blocks']} ({block_rate})\n"
+            f"  Client calls   : {s['total_requests']}\n"
+            f"  WAF blocks     : {s['waf_blocks']}\n"
             f"  Bypasses OK    : {s['bypass_success']} ({bypass_rate})\n"
             f"  Bypasses fail  : {s['bypass_fail']}\n"
             f"  Output         : {self._out_dir or 'N/A'}\n",

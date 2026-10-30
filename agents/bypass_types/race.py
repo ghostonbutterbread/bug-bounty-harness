@@ -30,6 +30,7 @@ from typing import Optional
 import httpx
 
 from . import BypassResult
+from agents.bypass_redaction import RaceEvidence
 
 try:
     from scope_validator import ScopeValidator
@@ -136,13 +137,21 @@ class RaceBypass:
 
         good = [r for r in responses if isinstance(r, dict) and r is not None]
         errors = len(responses) - len(good)
+        cancelled = sum(isinstance(r, asyncio.CancelledError) for r in responses)
+        missing = max(0, RACE_COUNT - len(responses))
+        incomplete = bool(errors or missing or not baseline)
+        observation_note = (f"burst observed={len(good)}/{RACE_COUNT}; "
+                            f"no response={errors}; cancelled={cancelled}; "
+                            f"unobserved={missing}; baseline={'observed' if baseline else 'unknown'}")
 
         if not good:
             results.append(BypassResult(
                 success=False, vuln_type="race", technique="concurrent_burst",
                 category="race_condition", payload=f"{method}×{RACE_COUNT}",
-                url=target, status_code=0, evidence="",
-                note=f"all {RACE_COUNT} requests failed",
+                url=target, status_code=0,
+                evidence=RaceEvidence(baseline["status"] if baseline else None, {}, errors, 0),
+                note=f"all {len(responses)} probes had no response; {observation_note}",
+                incomplete=True,
             ))
             return results
 
@@ -162,12 +171,6 @@ class RaceBypass:
 
         success = mixed_status or (body_variance and has_200)
 
-        evidence_lines = [f"Baseline: HTTP {baseline_status}"]
-        evidence_lines.append(f"Race results ({len(good)}/{RACE_COUNT} ok, {errors} errors):")
-        for status, count in sorted(status_counts.items()):
-            evidence_lines.append(f"  HTTP {status}: {count}×")
-        if body_variance:
-            evidence_lines.append(f"  Body variants: {len(hash_counts)} unique responses")
 
         note = ""
         if mixed_status:
@@ -177,6 +180,8 @@ class RaceBypass:
         elif status_variance:
             note = f"Status variance: {dict(status_counts)}"
 
+        if incomplete:
+            note = f"{note}; incomplete: {observation_note}".strip('; ')
         results.append(BypassResult(
             success=success,
             vuln_type="race",
@@ -185,8 +190,9 @@ class RaceBypass:
             payload=f"{method}×{RACE_COUNT}",
             url=target,
             status_code=max(status_counts, key=status_counts.get),
-            evidence=" | ".join(evidence_lines),
+            evidence=RaceEvidence(baseline_status, dict(status_counts), errors, len(hash_counts)),
             note=note,
+            incomplete=incomplete,
         ))
 
         # Individual hit records for each unique response variant
@@ -205,6 +211,7 @@ class RaceBypass:
                         status_code=r["status"],
                         evidence=r["text"][:200],
                         note="unique response body observed during race",
+                        incomplete=incomplete,
                     ))
 
         return results

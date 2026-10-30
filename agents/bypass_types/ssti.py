@@ -115,27 +115,26 @@ class SSTIBypass:
             # No query params — inject directly into path (common with some frameworks)
             params = ["_ssti_probe"]
 
-        tasks: list[tuple[str, str, str, str]] = []  # (param, engine, expr, pattern)
+        tasks: list[tuple[str, str, str, str, str]] = []  # param, engine, URL, expression, pattern
         for p in params:
             for engine, expr, pattern in _PROBES:
                 sep = "&" if "?" in target else "?"
                 url = f"{target}{sep}{p}={expr}"
-                tasks.append((p, engine, url, pattern))
+                tasks.append((p, engine, url, expr, pattern))
 
         coros = [
-            self._probe(param_name, engine, url, pattern, target, client, sem, limiter)
-            for param_name, engine, url, pattern in tasks
+            self._probe(param_name, engine, url, expr, pattern, target, client, sem, limiter)
+            for param_name, engine, url, expr, pattern in tasks
         ]
         raw = await asyncio.gather(*coros, return_exceptions=True)
 
         results: list[BypassResult] = []
-        for (param_name, engine, url, pattern), result in zip(tasks, raw):
-            if isinstance(result, Exception):
-                expr = next(e for _, e, p in _PROBES if p == pattern)
+        for (param_name, engine, url, expr, pattern), result in zip(tasks, raw):
+            if isinstance(result, (Exception, asyncio.CancelledError)):
                 results.append(BypassResult(
                     success=False, vuln_type="ssti", technique="param_injection",
                     category=engine, payload=f"{param_name}={expr}", url=url,
-                    status_code=0, evidence="", note=f"error: {result}",
+                    status_code=0, evidence="", note=f"error: {type(result).__name__}",
                 ))
             else:
                 results.append(result)
@@ -146,14 +145,13 @@ class SSTIBypass:
         param_name: str,
         engine: str,
         url: str,
+        expr: str,
         pattern: str,
         target: str,
         client: httpx.AsyncClient,
         sem: asyncio.Semaphore,
         limiter,
     ) -> BypassResult:
-        # Extract the expression from the URL for display
-        expr = url.split(f"{param_name}=", 1)[-1] if f"{param_name}=" in url else url
 
         async with sem:
             try:
@@ -164,7 +162,7 @@ class SSTIBypass:
                 return BypassResult(
                     success=False, vuln_type="ssti", technique="param_injection",
                     category=engine, payload=f"{param_name}={expr}", url=url,
-                    status_code=0, evidence="", note=f"request_error: {e}",
+                    status_code=0, evidence="", note=f"request_error: {type(e).__name__}",
                 )
 
         matched = bool(re.search(pattern, resp.text, re.IGNORECASE))

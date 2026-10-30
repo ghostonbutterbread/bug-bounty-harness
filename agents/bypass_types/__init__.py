@@ -20,6 +20,7 @@ Available modules:
 """
 
 from dataclasses import dataclass, field
+from agents.bypass_redaction import safe_evidence, safe_payload, safe_text
 
 # ---------------------------------------------------------------------------
 # Shared result type
@@ -36,12 +37,23 @@ class BypassResult:
     status_code: int
     evidence: str
     note: str = ""
+    incomplete: bool = False
+
+    def __post_init__(self):
+        # Results cross both the Python and report boundaries. Never retain raw
+        # response content here; detection already ran on the live response.
+        self.url = safe_text(self.url)
+        self.payload = safe_payload(self.payload)
+        self.evidence = safe_evidence(self.evidence)
+        self.note = safe_text(self.note)
 
     def to_line(self) -> str:
-        status = "HIT" if self.success else "miss"
+        status = "HIT" if self.success else ("unknown" if self.incomplete or self.status_code == 0 else "miss")
+        response = f"HTTP {self.status_code}" if self.status_code else "no HTTP response"
+        coverage = " [incomplete]" if self.incomplete else ""
         return (
-            f"[{status}] [{self.vuln_type}] [{self.category}/{self.technique}] "
-            f"{self.url} | {self.payload!r} | HTTP {self.status_code}"
+            f"[{status}]{coverage} [{self.vuln_type}] [{self.category}/{self.technique}] "
+            f"{self.url} | {self.payload!r} | {response}"
         )
 
 

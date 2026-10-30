@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import httpx
 
 from . import BypassResult
+from agents.bypass_redaction import CORSEvidence
 
 try:
     from scope_validator import ScopeValidator
@@ -113,11 +114,11 @@ class CORSBypass:
         probe_results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, origin), result in zip(origins, probe_results):
-            if isinstance(result, Exception):
+            if isinstance(result, (Exception, asyncio.CancelledError)):
                 results.append(BypassResult(
                     success=False, vuln_type="cors", technique="origin_header",
                     category=category, payload=origin, url=target,
-                    status_code=0, evidence="", note=f"error: {result}",
+                    status_code=0, evidence="", note=f"error: {type(result).__name__}",
                 ))
             else:
                 results.append(result)
@@ -145,7 +146,7 @@ class CORSBypass:
                 return BypassResult(
                     success=False, vuln_type="cors", technique="origin_header",
                     category=category, payload=origin, url=target,
-                    status_code=0, evidence="", note=f"request_error: {e}",
+                    status_code=0, evidence="", note=f"request_error: {type(e).__name__}",
                 )
 
         acao = resp.headers.get("access-control-allow-origin", "")
@@ -173,9 +174,7 @@ class CORSBypass:
             success = False
             note = ""
 
-        evidence = (
-            f"ACAO: {acao!r} | ACAC: {acac!r} | HTTP {resp.status_code}"
-        )
+        evidence = CORSEvidence(reflected, wildcard, bool(acao), creds)
         return BypassResult(
             success=success,
             vuln_type="cors",

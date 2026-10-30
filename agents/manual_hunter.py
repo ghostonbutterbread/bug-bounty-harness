@@ -622,7 +622,7 @@ def _fenced_lines(text: str) -> set[int]:
     """Identify fenced and indented code, including list and quote fences."""
     result: set[int] = set()
     fence: tuple[str, int, int, int] | None = None
-    list_indent: int | None = None
+    list_indents: list[int] = []
     list_quote_depth = 0
     for index, line in enumerate(text.splitlines()):
         expanded = line.expandtabs(4)
@@ -633,20 +633,25 @@ def _fenced_lines(text: str) -> set[int]:
         if fence and quote_depth < fence[3]:
             fence = None  # An unclosed fence ends with its quote container.
         if not fence and quote_depth != list_quote_depth:
-            list_indent = None
+            list_indents.clear()
             list_quote_depth = quote_depth
         indent = len(expanded) - len(expanded.lstrip(" "))
-        list_item = re.match(r"^( {0,3})(?:[-+*]|\d{1,9}[.)]) +", expanded)
         if fence and fence[2] and expanded.strip() and indent < fence[2]:
             fence = None  # An unclosed fence ends with its list container.
+        list_item = None
         if not fence:
-            if list_item:
-                list_indent = list_item.end()
-            elif expanded.strip() and list_indent is not None and indent < list_indent:
-                list_indent = None
-        content_indent = list_indent if list_indent is not None and indent >= list_indent else 0
-        marker = re.match(r"^(`{3,}|~{3,})", expanded[indent:])
-        valid_indent = indent - content_indent <= 3
+            if expanded.strip():
+                while list_indents and indent < list_indents[-1]:
+                    list_indents.pop()
+            base = list_indents[-1] if list_indents else 0
+            candidate = re.match(r"^ *(?:[-+*]|\d{1,9}[.)]) +", expanded)
+            if candidate and indent - base <= 3:
+                list_item = candidate
+                list_indents.append(candidate.end())
+        content_indent = list_indents[-1] if list_indents else 0
+        marker_offset = list_item.end() if list_item else indent
+        marker = re.match(r"^(`{3,}|~{3,})", expanded[marker_offset:])
+        valid_indent = marker_offset - content_indent <= 3
         if fence:
             result.add(index)
             if (
@@ -656,10 +661,10 @@ def _fenced_lines(text: str) -> set[int]:
                 and not expanded[indent + marker.end():].strip()
             ):
                 fence = None
-        elif marker and valid_indent and (marker.group(1)[0] != "`" or "`" not in expanded[indent + marker.end():]):
+        elif marker and valid_indent and (marker.group(1)[0] != "`" or "`" not in expanded[marker_offset + marker.end():]):
             result.add(index)
             fence = (marker.group(1)[0], len(marker.group(1)), content_indent, quote_depth)
-        elif indent >= 4:
+        elif indent - content_indent >= 4:
             result.add(index)
     return result
 
@@ -920,8 +925,6 @@ def parse_finding_text(
         if index in consumed:
             current_key = None
             continue
-        if re.match(r"^\s*#{1,6}\s", line):
-            current_key = None
         if not heading and not current_key and re.match(r"^\s*#\s+\S", line):
             heading = _derive_title(line, first_line_only=True)
         match = FIELD_RE.match(line)

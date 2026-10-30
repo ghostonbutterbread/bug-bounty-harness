@@ -31,6 +31,40 @@ from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
+    def test_fence_opening_on_list_item_does_not_conflict_with_class(self) -> None:
+        note = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Fixture.\n- ```\n  Class: ssrf\n  ```\nClass: idor\n"
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "idor")
+
+    def test_list_continuation_prose_is_not_indented_code(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Fixture.\n"
+        with patch("sys.stderr", new_callable=io.StringIO):
+            finding = parse_finding_text(base + "- Example:\n    SSRF is in this prose.\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "ssrf")
+        finding = parse_finding_text(base + "- Example:\n    Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "idor")
+
+    def test_nested_list_and_quoted_list_fences_close_in_their_container(self) -> None:
+        for code in (
+            "- Outer\n    - ```\n      Class: ssrf\n      ```\n",
+            "> - ```\n>   Class: ssrf\n>   ```\n",
+            "1. ```\n   Class: ssrf\n   ```\n",
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(_explicit_class(code + "Class: idor\n")[0], "idor")
+        nested = "- Outer\n    - ```\n      Class: ssrf\n      ```\n      Class: idor\n"
+        self.assertEqual(_explicit_class(nested)[0], "idor")
+
+    def test_list_fence_mismatch_and_container_end_are_safe(self) -> None:
+        examples = (
+            "- ````\n  Class: ssrf\n  ```\n  SSRF\n  ````\n  Class: idor\n",
+            "> - ~~~\n>   Class: ssrf\n>   ```\nClass: idor\n",
+            "- ```\n  Class: ssrf\nClass: idor\n",
+        )
+        for example in examples:
+            with self.subTest(example=example):
+                self.assertEqual(_explicit_class(example)[0], "idor")
+
     def test_blockquote_fenced_code_does_not_affect_class(self) -> None:
         base = "Title: Fixture\nFile: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n"
         for code in (

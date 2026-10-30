@@ -32,6 +32,18 @@ def _brain_file(sha1: str) -> dict[str, object]:
 
 
 class TestSyncReports(unittest.TestCase):
+    def test_list_item_fence_before_class_imports_synthetic_ledger(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] Finding\nFile: src/a.py\nSeverity: HIGH\nSource: origin\n"
+            "- ```\n  Class: ssrf\n  ```\nClass: idor\n### Description\nFixture.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        row = json.loads(next((self.tmp / "storage-root").rglob("ledger.json")).read_text())["findings"][0]
+        self.assertEqual((row["class_name"], row["file"], row["severity"], row["source"]), ("idor", "src/a.py", "HIGH", "origin"))
+
     def test_single_finding_class_ignores_report_prelude(self):
         self.report_path.write_text(
             "Class: prelude-class\nClass: another-prelude-class\nSource: prelude source\n\n"
@@ -207,7 +219,8 @@ class TestSyncReports(unittest.TestCase):
         hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
         candidate = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)[0]
         self.assertEqual(candidate["impact"], "Synthetic impact.")
-        self.assertEqual(candidate["remediation"], "Synthetic fix.")
+        # Preserve beta's single-finding flexible multiline metadata behavior.
+        self.assertEqual(candidate["remediation"], "Synthetic fix.\n### Description\nOwned fixture.")
 
     def test_structured_headings_and_unknown_are_preserved_per_finding(self):
         self.report_path.write_text(

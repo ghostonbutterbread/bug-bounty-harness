@@ -1,9 +1,9 @@
 # Manual-hunter Class heading integration dossier
 
-- **Status:** independent-review blockers repaired; new independent review and beta reconciliation pending
+- **Status:** list-container regressions repaired; independent review pending; beta merged into feature only
 - **Owner / task:** Hermes subagent, BBH t_4c4f1212 / PC-20260929-001815-14a98db0
 - **Branch / worktree:** `fix/manual-hunter-class-heading` / `/home/ryushe/worktrees/bbh-manual-hunter-class-heading`
-- **Base:** `origin/beta` `47b3aff4c102bc6987ce747877d08409761b3130`, re-fetched 2026-10-29
+- **Base:** `origin/beta` `47b3aff4c102bc6987ce747877d08409761b3130`; fetched `f5233990578835eda893614c79014731f2c87bbb`, merged into this feature at `f2821831cbe7aac3828796c326c938ad51941dac` (no rebase).
 - **Intended integration target:** `beta` (integration not authorized here)
 - **Prior immutable checkpoints:** `94cfe7d43f74f26bd59c7f17c95a557c7fe8ebc8`, `178fdfed8883e50f8dd0219468b9a687c9f8995f`; earlier checkpoint `4c899d46d82802cd7bf8c075ac789ba9e8715f0b`; initial implementation `204db4c25c4f2cd9cd463305f2e3f03291807e24`.
 - **Canonical references:** `agents/manual_hunter.py`, `agents/sync_reports.py`, corresponding tests, `docs/manual-hunter-class-input.md`. Prior metadata fix `3fa84b8` is an ancestor of base.
@@ -32,9 +32,14 @@ Structured sync validates every block's class and tier decision before returning
 
 ## Blockers and next action
 
+- The independent review of `05d321ad` (`deleg_072b0c79/task-0.log`) blocked list-item fence openings and four-space list continuation prose. Both were reproduced red with synthetic direct tests; the synthetic sync/ledger regression was also run red against `f2821831` and green here. Container indentation now tracks nested lists, including list-line fences, ordinary continuations and list-relative code; mismatch/unclosed and quote-boundary examples are covered. This is a targeted Markdown recognizer, not a complete CommonMark parser.
+- Review exposed an unrelated single-finding remediation behavior change. It was not an authorized improvement: restored beta's multiline behavior, including its arguably undesirable inclusion of following `### Description` and text, with a red/green regression. Any cleaner remediation extraction is a separate bugfix requiring independent scope and tests. Synthetic beta/feature real-ledger comparisons (`$TMPDIR/release-gate-comparison.py`) programmatically matched selected structured, solo, manual and duplicate-comment fields exactly after restoration; comparisons are fixture-specific, not proof of all metadata equivalence.
+- Current offline suite: `PYTHONPATH="$PWD:$TMPDIR/manual-class-core" HOME="$TMPDIR/manual-class-run-home" /usr/bin/python3 "$TMPDIR/manual-class-netdeny.py" /usr/bin/python3 -m unittest agents.test_manual_hunter agents.test_sync_reports agents.test_report_checker agents.test_report_checker_exceptional tests.test_security_reporting_skill -q`: **140 passed**. Adding `agents.test_finding_report`: **146 run, 145 passed, 1 failed** at the pre-existing provider-pin assertion described above; unchanged from beta. Seccomp denies socket and connect (including an inherited socket) with EPERM. All 18 scratch Bounty Core files matched the manifest-pin Git archive. Five prior reviewer scripts (prelude, adversarial, persist, focused, duplicate) exited zero; some print diagnostics rather than asserting them. Imports resolved to this worktree and the verified scratch core.
+- Fetch `origin/beta` again before any release review; stop on unexpected drift. A fresh independent review of the exact checkpoint and merge is still required. No beta integration, push, stable promotion, activation, Hoster, real findings, or closure authorized.
+
 1. Independent audit reproduced same-report sequential FID collision partial writes on beta as well as feature; Bounty Core follow-up `PC-20261030-013848-36ae0ab7` owns full transactional batch semantics. Reproduce with `$TMPDIR/review-class-fid.py` or `agents.test_sync_reports.TestSyncReports.test_real_ledger_fid_collision_continues_import_and_returns_nonzero`. Do not claim broad per-report atomicity.
 2. Fenced `File:` field override independently reproduced on beta, `PC-20261030-013848-fa990584`; not fixed here. The adversarial reproducer also exposes beta-compatible single-finding flexible impact/sink guesses; not claimed fixed.
-3. Fresh independent review of the new exact tip and current beta reconciliation are required. Fetch of `origin/beta` before offline tests confirmed `47b3aff4c102bc6987ce747877d08409761b3130`; no beta drift at that time. No integration, publication, activation or closure authorized.
+3. Before release, re-fetch selected beta and independently review the current feature checkpoint; this task does not authorize integration, publication, activation or closure.
 
 ## Interruption / decision record
 

@@ -1,11 +1,11 @@
 # Finding-report provider pin integration dossier
 
-- **Status:** blocked pending independent review and unrelated baseline test repair
+- **Status:** independently approved conditional on IDNA repair and combined beta gate
 - **Owner/task:** t_d8c93d35 / PC-20261030-014914-14bbd8c8
 - **Branch:** `fix/finding-report-provider-pin`
 - **Worktree:** `/home/ryushe/worktrees/bbh-finding-report-provider-pin`
 - **Fetched base:** `28f0fd8644412951d6c719bf08ba28c27b16fd59`
-- **Intended integration target:** `origin/beta` (no merge or push authorized)
+- **Intended integration target:** `origin/beta` (combined integration authorized; not yet completed)
 - **Latest immutable recovery checkpoint:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`
 - **Feature implementation commits:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`
 - **Last updated:** 2026-10-29 (PDT)
@@ -19,8 +19,7 @@ existing real registration tests still exercise packet and report behavior.
 No real finding, target, release, activation, or stable action is in scope.
 The pin update belongs to beta: BBH `4bc51020f4459a1aa4074a69b385d5143744dc1f`
 changed the provider pin while the finding-report assertion last changed at
-`f2de03a14055919648a82994cf66b045ca636920`. No descendant propagation or
-integration is authorized in this task.
+`f2de03a14055919648a82994cf66b045ca636920`. Stable promotion and activation are not authorized.
 
 ## Evidence and review
 
@@ -65,20 +64,15 @@ integration is authorized in this task.
   unchanged beta's dependency expectation omits `idna>=3,<4` present in the
   manifest since `878bcd02`. This is unrelated to the Bounty Core pin and is
   recorded in `BUGFIXES.md`; do not delete the dependency to make the suite pass.
-- Independent review: **not performed**, explicitly deferred to the parent.
+- Independent review: **APPROVE fix; integration conditional on IDNA repair and combined verification** of `3848b452d83ad38d2c7b904d665f195ad3658d54`, against beta `28f0fd8644412951d6c719bf08ba28c27b16fd59`. Reviewer ran 6 report and 56 pinned provider tests, verified unsafe-pin guards and provenance. Receipt: `/home/ryushe/.hermes/profiles/bugfix/cache/delegation/live/deleg_084ffed9/task-0.log`.
 
 ## Blockers and deferred work
 
-The dependency suite is not entirely green; the separate dependency-list owner
-must reconcile the missing `idna` entry and rerun `tests/test_runtime_dependencies.py`.
-A reviewer must independently check the source/provenance, negative compatibility
-cases, candidate diff and suite, then fetch and reconcile beta if it moved. No
-merge, push, stable promotion, runtime activation, or task closure is authorized.
+The separate IDNA repair is independently approved at `bc2a8eb4a1590fc054f7b1d8eaafd663889d55e0`; integrate it first and rerun the combined offline suite. Fresh beta drift, conflicts or failing tests block publication. Stable promotion, activation and task closure remain outside scope.
 
 ## Interruption and decision gates
 
 - **Owning feature branch:** `fix/finding-report-provider-pin`
 - **Checkpoint / implementation:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`; the later dossier-only handoff commit is the branch tip.
-- **Exact resume point:** review the committed candidate and resolve the unrelated
-  dependency test under its own task before considering integration.
+- **Exact resume point:** integrate approved IDNA repair first, then this branch; run combined offline release gate.
 - **Activation / promotion:** separate explicit owner decisions, not this task.

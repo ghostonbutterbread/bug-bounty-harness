@@ -149,7 +149,7 @@ class CORSBypass:
                 )
 
         acao = resp.headers.get("access-control-allow-origin", "")
-        acac = resp.headers.get("access-control-allow-credentials", "").lower()
+        acac = resp.headers.get("access-control-allow-credentials", "")
 
         # Origin equality includes default ports and case-insensitive hostnames.
         def origin_key(value):

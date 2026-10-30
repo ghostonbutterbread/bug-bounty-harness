@@ -1052,7 +1052,7 @@ def _write_report(path: Path, results: list[BypassResult], target: str, vuln_typ
             if r.note:
                 f.write(f"  note: {r.note}\n")
             if r.evidence:
-                f.write(f"  evidence: {r.evidence[:120]!r}\n")
+                f.write(f"  evidence: {r.evidence!r}\n")
             f.write("\n")
 
 
@@ -1075,6 +1075,8 @@ def _write_json(path: Path, results: list[BypassResult], target: str, vuln_type:
         "target":    safe_text(target),
         "type":      vuln_type,
         "timestamp": datetime.utcnow().isoformat(),
+        "schema_version": 2,
+        "results":   [asdict(r) for r in results],
         "hits":      [asdict(r) for r in results if r.success],
         "incomplete_results": [asdict(r) for r in results if r.incomplete],
         "total":     len(results),
@@ -1087,6 +1089,23 @@ def _write_json(path: Path, results: list[BypassResult], target: str, vuln_type:
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
+
+
+def _display_result(result: BypassResult) -> str:
+    """Label heuristic result entries without asserting a validated bypass."""
+    if result.incomplete or result.status_code == 0:
+        label = 'INCOMPLETE'
+    elif result.vuln_type in ('cors', 'race') and result.success:
+        label = 'WEAK OBSERVATION'
+    elif result.success:
+        label = 'CANDIDATE'
+    else:
+        label = 'MISS'
+    line = result.to_line().split(' ', 1)[1]
+    note = f"\n  note: {result.note}" if result.note else ''
+    if result.vuln_type == 'race' and result.success and 'validate state changes' not in result.note.lower():
+        note += '\n  validation: validate state changes and dynamic content; body variance is not proof'
+    return f'[{label}] {line}{note}'
 
 
 async def run_and_report(
@@ -1122,11 +1141,10 @@ async def run_and_report(
         total += 1
         if result.success:
             successes.append(result)
-            print(f"\033[92m[HIT]\033[0m {result.to_line()}", flush=True)
         else:
             failures.append(result)
-            if not quiet:
-                print(result.to_line(), flush=True)
+        if result.success or result.incomplete or result.status_code == 0 or not quiet:
+            print(_display_result(result), flush=True)
 
     out = _output_dir(program, output_dir)
     ts  = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -1149,14 +1167,16 @@ async def run_and_report(
           f"observed HTTP responses {counts['observed_responses']}; "
           f"generated {counts['generated']}; skipped by scope {counts['skipped_scope']}; "
           f"deferred {counts['deferred']}; unknown request failures {counts['unknown_failures']}", flush=True)
-    print(f"[*] Results: {total} entries → {len(successes)} HIT, {len(failures)} non-hit (includes errors/deferrals)", flush=True)
-    print(f"[*] Error-labelled result entries: {_result_error_count(successes + failures)} (may include deferrals)", flush=True)
+    all_results = successes + failures
+    weak = sum(r.success and not r.incomplete and r.status_code != 0 and r.vuln_type in ('cors', 'race') for r in all_results)
+    candidates = sum(r.success and not r.incomplete and r.status_code != 0 and r.vuln_type not in ('cors', 'race') for r in all_results)
+    incomplete = sum(r.incomplete or r.status_code == 0 for r in all_results)
+    print(f"[*] Results: {total} entries; {candidates} candidates, {weak} weak observations, "
+          f"{incomplete} incomplete, {total - candidates - weak - incomplete} other non-hits (includes errors/deferrals)", flush=True)
+    print("[*] These are result entries, not validated bypasses; independent validation is required.", flush=True)
+    print(f"[*] Error-labelled result entries: {_result_error_count(all_results)} (may include deferrals)", flush=True)
     print(f"[*] Unhandled task/detect/scan execution errors: {orchestrator.execution_errors}", flush=True)
     print(f"[*] Reports written to: {out}", flush=True)
-    if successes:
-        print(f"\n\033[92m[+] SUCCESSFUL BYPASSES ({len(successes)}):\033[0m")
-        for r in successes:
-            print(f"    {r.to_line()}")
 
     return successes, failures
 

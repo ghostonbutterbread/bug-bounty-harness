@@ -307,7 +307,20 @@ Race notes distinguish observed, no-response, cancelled, and unobserved counts;
 the no-response count includes cancellations. The additive JSON
 `incomplete_results` array includes incomplete hits and non-hits (and can
 overlap `hits`); legacy readers using only `hits` cannot see incomplete
-non-hits. If the 403 or IDOR baseline is unavailable, successful HTTP probe
+non-hits. JSON schema version `2` is additive to the previously unversioned
+format: `results` contains every supplied entry, including complete non-hits;
+`hits`, `hit_count`, and `incomplete_results` retain their historical meanings
+and may overlap `results` (do not sum the arrays). Per-result `derived_evidence`
+is null or a validated `type: race` object containing `baseline_status`,
+`status_counts` (JSON string status keys, integer counts), `errors`, and
+`body_variants`; the existing human-readable `evidence` remains. Text reports
+retain the complete safe derived evidence. This adds fields to the Python
+`BypassResult`/`asdict` shape as well as JSON; strict consumers must allow them.
+`success`, `hits`, and `hit_count` denote heuristics, not validated bypasses:
+CORS and race hits are weak observations, race response-variant entries may
+represent the same burst, and incomplete hits are not complete findings. CLI
+labels candidates, weak observations, and incomplete results separately, shows
+validation notes, and counts entries rather than validated bypasses. If the 403 or IDOR baseline is unavailable, successful HTTP probe
 responses are retained but comparison results are incomplete/unknown rather
 than a miss or hit. A wildcard ACAO plus `credentials=true` is recorded as a
 non-hit with derived headers because browsers reject credentialed wildcard CORS;
@@ -320,7 +333,9 @@ same-origin reflection is not cross-origin access (scheme, hostname, and
 effective port are compared); downgraded or target-subdomain origins have
 unproven control and are incomplete. Even other test origins, null origins,
 credentials, cookies, browser behavior, and response sensitivity need separate
-validation. HTTP status alone does not demonstrate data impact.
+validation. Only the case-sensitive ACAC literal `true` is classified as
+credentialed; absent, other-case, and other values are not. HTTP status alone
+does not demonstrate data impact.
 
 For HTTPX WAF retries, `response.extensions['bbh_waf_retry']` is a local
 provenance marker. The 403, LFI, RFI, SSRF and redirect reporters now mark

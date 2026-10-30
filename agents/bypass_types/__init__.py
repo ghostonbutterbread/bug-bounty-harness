@@ -26,7 +26,7 @@ if __package__ == 'bypass_types':
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from agents.bypass_redaction import safe_evidence, safe_payload, safe_text
+from agents.bypass_redaction import race_evidence_fields, safe_evidence, safe_payload, safe_text
 
 # ---------------------------------------------------------------------------
 # Shared result type
@@ -44,12 +44,14 @@ class BypassResult:
     evidence: str
     note: str = ""
     incomplete: bool = False
+    derived_evidence: dict | None = field(default=None, init=False)
 
     def __post_init__(self):
         # Results cross both the Python and report boundaries. Never retain raw
         # response content here; detection already ran on the live response.
         self.url = safe_text(self.url)
         self.payload = safe_payload(self.payload)
+        self.derived_evidence = race_evidence_fields(self.evidence)
         self.evidence = safe_evidence(self.evidence)
         self.note = safe_text(self.note)
 

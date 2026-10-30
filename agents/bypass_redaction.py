@@ -52,19 +52,29 @@ class RaceEvidence:
     body_variants: int
 
 
-def safe_evidence(value):
-    """Only project fixed derived fields; never trust raw response evidence."""
-    if isinstance(value, CORSEvidence) and all(type(x) is bool for x in
-            (value.reflected, value.wildcard, value.present, value.credentials)):
-        return (f"ACAO: {'reflected' if value.reflected else 'wildcard' if value.wildcard else 'other' if value.present else 'absent'}"
-                f" | credentials: {str(value.credentials).lower()}")
+def race_evidence_fields(value):
+    """Project only validated numeric race aggregates, never raw response data."""
     if (isinstance(value, RaceEvidence) and
             (value.baseline is None or type(value.baseline) is int and 100 <= value.baseline <= 999) and
             type(value.counts) is dict and all(type(k) is int and 100 <= k <= 999 and
             type(v) is int and v >= 0 for k, v in value.counts.items()) and
             type(value.errors) is int and value.errors >= 0 and
             type(value.body_variants) is int and value.body_variants >= 0):
-        counts = ', '.join(f'HTTP {k}: {v}' for k, v in sorted(value.counts.items()))
-        baseline = f'HTTP {value.baseline}' if value.baseline is not None else 'unknown'
-        return f'Baseline: {baseline} | {counts} | errors: {value.errors} | body variants: {value.body_variants}'
+        return {'type': 'race', 'baseline_status': value.baseline,
+                'status_counts': dict(sorted(value.counts.items())),
+                'errors': value.errors, 'body_variants': value.body_variants}
+    return None
+
+
+def safe_evidence(value):
+    """Only project fixed derived fields; never trust raw response evidence."""
+    if isinstance(value, CORSEvidence) and all(type(x) is bool for x in
+            (value.reflected, value.wildcard, value.present, value.credentials)):
+        return (f"ACAO: {'reflected' if value.reflected else 'wildcard' if value.wildcard else 'other' if value.present else 'absent'}"
+                f" | credentials: {str(value.credentials).lower()}")
+    fields = race_evidence_fields(value)
+    if fields is not None:
+        counts = ', '.join(f'HTTP {k}: {v}' for k, v in fields['status_counts'].items())
+        baseline = f"HTTP {fields['baseline_status']}" if fields['baseline_status'] is not None else 'unknown'
+        return f"Baseline: {baseline} | {counts} | errors: {fields['errors']} | body variants: {fields['body_variants']}"
     return '[response evidence withheld]' if value else ''

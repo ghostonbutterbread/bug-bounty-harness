@@ -1,6 +1,6 @@
 ---
 name: mullvad
-description: "Prefer West Coast Mullvad exit nodes through Tailscale; use standalone Mullvad CLI when Tailscale exits are unavailable or not allowed."
+description: "Check VPN egress and preserve the active manager safely."
 ---
 
 # Mullvad Egress: Tailscale First, Standalone Fallback
@@ -54,6 +54,13 @@ tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
 tailscale set --exit-node="$EXIT_NODE"
 mullvad status
 tailscale get exit-node
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
@@ -67,6 +74,13 @@ mullvad relay list             # discover current West Coast relays
 mullvad relay set location us sea  # example: listed Seattle city
 mullvad connect --wait
 mullvad status -v
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```

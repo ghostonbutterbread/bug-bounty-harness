@@ -52,6 +52,13 @@ tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
 tailscale set --exit-node="$EXIT_NODE"
 mullvad status
 tailscale get exit-node
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the `mullvad` skill's recovery preconditions. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
@@ -63,7 +70,6 @@ Verify routes, resolver, and the remote control path as well as the public IP:
 ```bash
 ip -4 rule; ip -4 route; ip -4 route get 1.1.1.1
 resolvectl status
-getent ahostsv4 am.i.mullvad.net
 tailscale get exit-node; mullvad status -v; mullvad auto-connect get
 ```
 
@@ -80,6 +86,13 @@ mullvad relay list
 mullvad relay set location us sea  # example; choose a listed WA/OR/CA relay
 mullvad connect --wait
 mullvad status -v
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the `mullvad` skill's recovery preconditions. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```

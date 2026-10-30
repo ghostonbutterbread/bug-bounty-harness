@@ -1,6 +1,6 @@
 # Submission package handoff
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes bugfix
 - **Branch:** feat/submission-package-handoff
 - **Base commit:** 47b3aff
@@ -23,10 +23,10 @@ Point the finding-capture route at `bunny-report-and-triage` as the submission w
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m pytest tests/test_security_reporting_skill.py tests/test_impact_escalation_routes.py -q`; `git diff --check`
-- Independent review: pending
+- Tests and commands: `python3 -m pytest tests/test_security_reporting_skill.py tests/test_impact_escalation_routes.py -q` (8 passed); `git diff --check`
+- Independent review: PASS on 2026-10-29 (deleg_1bbdb404). Fast-forward onto origin/beta is safe. Do not promote to main.
 - Replay/cohort/fixture evidence: none; routing text only
-- Merge/ancestry evidence: pending
+- Merge/ancestry evidence: feature tip contains origin/beta 47b3aff
 
 ## Blockers and deferred work
 
@@ -41,7 +41,8 @@ Point the finding-capture route at `bunny-report-and-triage` as the submission w
 - **Owning feature branch/ref:** feat/submission-package-handoff
 - **Latest immutable recovery checkpoint:** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
 - **Feature implementation commit(s):** f736f2ed6e672ed9d28c8da6bab72f4eeb083f22
-- **Exact resume point:** independent review of f736f2e, then merge to beta and update the projected OMP manual-hunter checkout
+- **Exact resume point:** merge fa5d207 plus this review record to beta, remove this dossier from beta, then update the projected OMP checkout
+- **Integration gate:** PASS. Merge to beta and remove this dossier from beta. Do not promote to main.
 - **Working-tree state at handoff:** clean after this checkpoint commit
 
 ## Decision gates
@@ -53,3 +54,4 @@ Point the finding-capture route at `bunny-report-and-triage` as the submission w
 ## Decision record
 
 - 2026-10-29 — created for the finding-capture submission package handoff.
+- 2026-10-29 — independent review PASS. Merge to beta only; remove this dossier from beta.

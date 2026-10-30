@@ -100,6 +100,64 @@ class ProbeRedirectTests(unittest.TestCase):
                 self.assertFalse(stream.read)
                 self.assertTrue(stream.closed)
 
+    def test_plain_client_is_rejected_before_any_request(self):
+        requests = []
+        async def exercise():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(
+                    302, headers={"Location": "https://bad.invalid:bad/SECRET"})
+            )) as client:
+                with self.assertRaisesRegex(ValueError, "capture hook"):
+                    await agent.probe_subdomain("start.invalid", asyncio.Semaphore(1), client)
+                self.assertEqual(client.event_hooks["response"], [])
+        asyncio.run(exercise())
+        self.assertEqual(requests, [])
+
+    def test_concurrent_plain_clients_fail_without_requests(self):
+        requests = []
+        async def exercise():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(302)
+            )) as client:
+                outcomes = await asyncio.gather(*(
+                    agent.probe_subdomain(f"plain{i}.invalid", asyncio.Semaphore(2), client)
+                    for i in range(20)
+                ), return_exceptions=True)
+                self.assertTrue(all(isinstance(outcome, ValueError) for outcome in outcomes))
+                self.assertEqual(client.event_hooks["response"], [])
+        asyncio.run(exercise())
+        self.assertEqual(requests, [])
+
+    def test_hook_after_another_hook_is_rejected_before_request(self):
+        requests = []
+        async def other(response):
+            raise RuntimeError("hook failed")
+        async def exercise():
+            hooks = [other, agent._capture_probe_response]
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda request: requests.append(request) or httpx.Response(200)),
+                event_hooks={"response": hooks},
+            ) as client:
+                with self.assertRaisesRegex(ValueError, "capture hook"):
+                    await agent.probe_subdomain("start.invalid", asyncio.Semaphore(1), client)
+                self.assertEqual(client.event_hooks["response"], hooks)
+        asyncio.run(exercise())
+        self.assertEqual(requests, [])
+
+    def test_removed_hook_during_request_never_causes_fallback(self):
+        requests = []
+        async def exercise():
+            def handler(request):
+                requests.append(request)
+                client.event_hooks["response"].clear()
+                return httpx.Response(302, headers={"Location": "https://bad.invalid:bad/SECRET"})
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                        event_hooks={"response": [agent._capture_probe_response]}) as client:
+                with self.assertRaisesRegex(ValueError, "capture hook"):
+                    await agent.probe_subdomain("start.invalid", asyncio.Semaphore(1), client)
+        asyncio.run(exercise())
+        self.assertEqual(len(requests), 1)
+
     def test_capture_hook_leaves_unrelated_requests_unmodified(self):
         async def exercise():
             async with httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, text="ok")), event_hooks={"response": [agent._capture_probe_response]}) as client:
@@ -108,6 +166,32 @@ class ProbeRedirectTests(unittest.TestCase):
                 self.assertNotIn("subdomain_probe_response", response.request.extensions)
                 self.assertEqual(client.event_hooks["response"], [agent._capture_probe_response])
         asyncio.run(exercise())
+
+    def test_takeover_recheck_never_follows_a_redirect(self):
+        requests = []
+        async def exercise():
+            async with httpx.AsyncClient(follow_redirects=True, transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(
+                    302, headers={"Location": "https://else.invalid/fingerprint"})
+            )) as client:
+                result = agent.ProbeResult("start.invalid", "https://start.invalid", 404, "", 0, "", "", "httpx")
+                self.assertIsNone(await agent.check_takeover_async(result, asyncio.Semaphore(1), client))
+        asyncio.run(exercise())
+        self.assertEqual([str(request.url) for request in requests], ["https://start.invalid"])
+
+    def test_malformed_takeover_location_is_reported_as_failed(self):
+        requests = []
+        failed = set()
+        async def exercise():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(
+                    302, headers={"Location": "https://else.invalid:bad/SECRET"})
+            )) as client:
+                result = agent.ProbeResult("start.invalid", "https://start.invalid", 404, "", 0, "", "", "httpx")
+                self.assertIsNone(await agent.check_takeover_async(result, asyncio.Semaphore(1), client, set(), failed))
+        asyncio.run(exercise())
+        self.assertEqual(failed, {"start.invalid"})
+        self.assertEqual(len(requests), 1)
 
     def test_successful_title_and_gzip_are_preserved(self):
         body = b"<html><title>Normal page</title></html>"
@@ -207,6 +291,39 @@ class ProbeRedirectTests(unittest.TestCase):
         self.assertEqual(len(streams), 1)
         self.assertTrue(streams[0].closed)
 
+    def test_run_reports_redirect_takeover_coverage_as_partial(self):
+        calls = []
+        counts = {}
+        real_client = httpx.AsyncClient
+        def handler(request):
+            host = request.url.host
+            calls.append(host)
+            counts[host] = counts.get(host, 0) + 1
+            if host == "redirect.invalid" or (host == "changed.invalid" and counts[host] == 2):
+                return httpx.Response(302, headers={"Location": "https://destination.invalid/missing"})
+            if host == "failed.invalid" and counts[host] == 2:
+                raise httpx.ConnectError("FAKE_SECRET", request=request)
+            return httpx.Response(404, text="NoSuchBucket")
+        def factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+        class Collector:
+            def __init__(self, *args): pass
+            def from_crtsh(self): return {"redirect.invalid", "changed.invalid", "normal.invalid", "failed.invalid"}
+            def from_js_files(self): return set()
+            def from_local_urls(self): return set()
+            def from_mutations(self, subs): return set()
+        output = io.StringIO()
+        with patch.object(httpx, "AsyncClient", side_effect=factory), patch.object(agent, "SubdomainCollector", Collector), patch.object(agent, "_which", return_value=None), patch.object(agent, "record_recon_artifacts", None), contextlib.redirect_stdout(output):
+            agent.run("invalid", "test", ["crtsh"], None, 2, False, False, False)
+        summary = json.loads((Path(self.temp.name) / "test/ghost/subdomain/summary.json").read_text())
+        self.assertEqual(summary["takeover_coverage"]["status"], "partial")
+        self.assertEqual(summary["takeover_coverage"]["redirect_deferred_subdomains"], ["changed.invalid", "redirect.invalid"])
+        self.assertEqual(summary["takeover_coverage"]["failed_subdomains"], ["failed.invalid"])
+        self.assertNotIn("FAKE_SECRET", output.getvalue() + json.dumps(summary))
+        self.assertEqual(summary["takeover_candidates"], 1)
+        self.assertNotIn("destination.invalid", calls)
+        self.assertIn("deferred", output.getvalue().lower())
+
     def test_run_recon_store_receives_only_redacted_artifacts(self):
         marker = "FAKE_STORE_SECRET"
         real_client = httpx.AsyncClient
@@ -226,6 +343,7 @@ class ProbeRedirectTests(unittest.TestCase):
             agent.run("start.invalid", "test", ["crtsh"], None, 2, False, False, True)
         self.assertEqual(set(captured), {"raw_subs.txt", "all_subs.txt", "alive_subs.txt", "dead_subs.txt", "takeover_candidates.txt", "scan_results.json", "summary.json"})
         self.assertNotIn(marker, json.dumps(captured))
+        self.assertEqual(json.loads(captured["summary.json"])["takeover_coverage"]["status"], "skipped")
         record = json.loads(captured["scan_results.json"])[0]
         self.assertEqual((record["status"], record["redirect_url"], record["title"]), (302, "[redacted]", ""))
 

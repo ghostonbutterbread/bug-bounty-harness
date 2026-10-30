@@ -524,12 +524,21 @@ async def _capture_probe_response(response):
 
 async def probe_subdomain(subdomain: str, sem: asyncio.Semaphore,
                           client, timeout: int = 10) -> Optional[ProbeResult]:
-    """Probe once per scheme; retry HTTP only if HTTPS yielded no response."""
+    """Probe once per scheme; retry HTTP only if HTTPS yielded no response.
+
+    The client must keep _capture_probe_response as its first response hook for
+    the whole operation. Callers must not mutate hooks while requests are live.
+    """
     for scheme in ("https", "http"):
         url = f"{scheme}://{subdomain}"
         captured = []
         resp = None
         async with sem:
+            # The first response hook must capture headers even if a later hook
+            # or HTTPX's Location parsing fails. Never mutate a shared client.
+            hooks = client.event_hooks.get("response", [])
+            if not hooks or hooks[0] is not _capture_probe_response:
+                raise ValueError("probe client requires the capture hook first")
             try:
                 request = client.build_request("GET", url)
                 request.extensions["subdomain_probe_response"] = captured
@@ -621,13 +630,18 @@ async def probe_all(subdomains: list[str], threads: int = 20,
 # ---------------------------------------------------------------------------
 
 async def check_takeover_async(result: ProbeResult, semaphore: asyncio.Semaphore,
-                               client) -> Optional[dict]:
+                               client, redirect_deferred: Optional[set[str]] = None,
+                               failed: Optional[set[str]] = None) -> Optional[dict]:
     """Async takeover check. Returns candidate dict or None."""
     if result.status not in (200, 404, 403):
         return None
     async with semaphore:
         try:
-            r = await client.get(result.url, timeout=10)
+            r = await client.get(result.url, timeout=10, follow_redirects=False)
+            if 300 <= r.status_code < 400:
+                if redirect_deferred is not None:
+                    redirect_deferred.add(result.subdomain)
+                return None
             body = r.text
             for service, patterns in TAKEOVER_FINGERPRINTS.items():
                 for pat in patterns:
@@ -639,20 +653,23 @@ async def check_takeover_async(result: ProbeResult, semaphore: asyncio.Semaphore
                             "service": service,
                         }
         except Exception:
-            pass
+            if failed is not None:
+                failed.add(result.subdomain)
     return None
 
 
 async def _run_takeover_checks(dead_results: list[ProbeResult],
-                                threads: int) -> list[dict]:
+                                threads: int, redirect_deferred: set[str],
+                                failed: set[str]) -> list[dict]:
     try:
         import httpx as _httpx
-    except ImportError:
-        return []
+    except ImportError as exc:
+        raise RuntimeError("httpx is required for takeover checks") from exc
     sem = asyncio.Semaphore(threads)
-    async with _httpx.AsyncClient(verify=False, follow_redirects=True,
+    async with _httpx.AsyncClient(verify=False, follow_redirects=False,
                                    timeout=10) as client:
-        tasks = [check_takeover_async(r, sem, client) for r in dead_results]
+        tasks = [check_takeover_async(r, sem, client, redirect_deferred, failed)
+                 for r in dead_results]
         candidates: list[dict] = []
         total = len(tasks)
         done = 0
@@ -723,7 +740,8 @@ def write_outputs(program: str, target: str,
                   all_subs: list[str],
                   probe_results: list[ProbeResult],
                   takeover_candidates: list[dict],
-                  sources_used: Optional[dict] = None) -> Path:
+                  sources_used: Optional[dict] = None,
+                  takeover_coverage: Optional[dict] = None) -> Path:
     out_dir = RECON_BASE / program / "ghost" / "subdomain"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -772,6 +790,7 @@ def write_outputs(program: str, target: str,
         "alive": len(alive),
         "dead": len(dead),
         "takeover_candidates": len(takeover_candidates),
+        "takeover_coverage": takeover_coverage or {"status": "unknown"},
         "sources": sources_used or {},
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -874,22 +893,31 @@ def run(target: str, program: str, use_apis: list[str],
 
     # ---- Phase 5: TAKEOVER CHECK ----
     takeover_candidates: list[dict] = []
+    redirect_deferred = {r.subdomain for r in probe_results if 300 <= r.status < 400}
+    takeover_failed: set[str] = set()
     if not skip_takeover:
         print("\n[Phase 5] Checking takeover candidates ...")
         dead_results = [r for r in probe_results
                         if r.status not in range(200, 400)]
         takeover_candidates = asyncio.run(
-            _run_takeover_checks(dead_results, threads)
+            _run_takeover_checks(dead_results, threads, redirect_deferred, takeover_failed)
         )
         for c in takeover_candidates:
             print(f"  [!] TAKEOVER CANDIDATE: {c['subdomain']} [{c['service']}]")
         print(f"  [+] Candidates    : {len(takeover_candidates)}")
+        print(f"  [!] Takeover coverage partial: {len(redirect_deferred)} redirect(s) deferred; "
+              f"{len(takeover_failed)} recheck(s) failed")
     else:
         print("\n[Phase 5] Takeover check skipped.")
 
+    coverage = {
+        "status": "skipped" if skip_takeover else "partial",
+        "redirect_deferred_subdomains": sorted(redirect_deferred),
+        "failed_subdomains": sorted(takeover_failed),
+    }
     # Re-write outputs with takeover data
     write_outputs(program, target, raw_subs, all_subs,
-                  probe_results, takeover_candidates, sources_used)
+                  probe_results, takeover_candidates, sources_used, coverage)
     if record_recon_artifacts is not None:
         manifest_path = record_recon_artifacts(
             program=program,

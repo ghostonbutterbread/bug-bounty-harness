@@ -1,6 +1,6 @@
 # Subdomain probe redirects — integration dossier
 
-- **Status:** feature; independent review and integration pending
+- **Status:** review blockers addressed locally; independent review and integration pending
 - **Owner:** delegated BBH task `t_f97c6d30`
 - **Branch:** `fix/subdomain-probe-redirect`
 - **Worktree:** `/home/ryushe/worktrees/bbh-subdomain-probe-redirect`
@@ -14,11 +14,11 @@
 
 ## Intent
 
-Stop probe-stage automatic redirect following and persistence of sensitive redirect destinations and reflected redirect titles. Retain normal authorized subdomain probing, normal 200 title extraction and no-response HTTPS-to-HTTP fallback. Do not incorporate the separate scope-consumers branch or alter passive providers, local tools or takeover checking.
+Stop probe-stage automatic redirect following and persistence of sensitive redirect destinations and reflected redirect titles. Retain normal authorized subdomain probing, normal 200 title extraction and no-response HTTPS-to-HTTP fallback. Prevent blind following during takeover rechecks and surface deferred redirect coverage; preserve passive providers and local modes.
 
 ## Implemented contract
 
-3xx responses are not followed or read; status is retained, title empty, content length zero, and a Location-bearing response records `[redacted]` rather than the Location or final URL. A response hook captures headers per request before HTTPX can parse malformed Location, with no shared hook mutation and request-local state removed after send. A response of any status prevents scheme fallback even if subsequent parsing or body decoding fails. Failures before headers permit HTTP fallback; errors are not printed. Normal non-3xx title and body length extraction remain. See `docs/subdomain-probe-redirects.md` for lost discovery and limitations; this is not general non-3xx content or network-egress sanitization.
+3xx responses are not followed or read; status is retained, title empty, content length zero, and a Location-bearing response records `[redacted]` rather than the Location or final URL. A response hook captures headers per request before HTTPX can parse malformed Location, with no shared hook mutation and request-local state removed after send. The helper rejects a client without the capture hook first before every request; callers must not mutate its hooks in flight. A response of any status prevents scheme fallback even if subsequent parsing or body decoding fails. Failures before headers permit HTTP fallback; errors are not printed. Normal non-3xx title and body length extraction remain. Takeover rechecks explicitly disable following and report observed redirects and recheck errors; summary and CLI label coverage partial, not complete. See `docs/subdomain-probe-redirects.md` for the limitations and wake condition; this is not general non-3xx content or network-egress sanitization.
 
 ## Evidence and review
 
@@ -27,6 +27,8 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 - Final offline focused suite: **78 passed, 22 subtests passed, 1 pre-existing `llm_harness.py` `datetime.utcnow` deprecation warning**. It covers 3xx variants, malformed Location and body, gzip, query/userinfo, errors and fallback, hook failure, cancellation, concurrent requests and closure, ordinary 200, all output files and mocked Recon Store input. Tests imported `agents/subdomain_agent.py` from this worktree and HTTPX 0.28.1 from the active Hermes Python environment. `bounty_core` was extracted from repository-pinned commit `6c36ee88a60073e1b687ec32deeade24ffafdd4f` into task scratch (not an editable installation).
 - The final suite ran behind an inherited Linux seccomp filter denying socket and connect syscalls; an independently launched child confirmed `Operation not permitted`. Reproduce while scratch exists: `GUARD=/home/ryushe/.hermes/profiles/bugfix/cache/scratch/bbh-probe-offline; PYTHONPATH="$PWD:$GUARD/core" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python "$GUARD/seccomp_run.py" python -c 'import sys; sys.path.append("/home/ryushe/.local/lib/python3.12/site-packages"); import pytest; raise SystemExit(pytest.main(["-q", "tests/test_subdomain_probe_redirect.py", "tests/test_scope_import_safety.py", "tests/test_scope_host_normalization.py"]))'`. Scratch is temporary; recreate filter and pinned dependency snapshot for later reruns.
 - An earlier exploratory suite invocation using system pytest failed 10 tests due to missing `httpx` and `bounty_core`; its scope-import subprocesses replaced PYTHONPATH, so the Python-level socket guard was not inherited. The final kernel-filtered suite above resolved both issues. All test inputs were synthetic; no target or credential was used.
+- Follow-up synthetic TDD: the plain-client regression failed because no ValueError was raised; a 404 takeover recheck issued 21 requests when its client followed redirects; and the coverage test failed with missing `takeover_coverage`. These now pass. The final same offline suite produced **85 passed, 22 subtests passed, one existing `datetime.utcnow` warning**. Additional tests cover concurrent plain clients, incorrectly ordered hooks, in-flight hook removal, malformed recheck Location, takeover recheck errors, direct fingerprint matching, skipped mode, and probe/recheck redirect deferral.
+- Investigation: scope validation is lexical and does not model redirect routing or DNS; `is_safe_url` accepts hostnames without resolving them. Safe scope/port/path validation plus DNS/connection/proxy binding was not substantiated. Manual per-hop traversal is therefore deferred, not implemented.
 - Independent review: pending. Merge/ancestry: feature branched directly from fetched `origin/beta`; no integration performed. Lowest-owner/stable history is not resolved because `origin/main` is not present locally; stable changes and propagation are explicitly unauthorized in this task.
 
 ## Blockers and deferred work
@@ -35,7 +37,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 - **Fixture/environment:** above synthetic tests and inherited network denial; pinned dependency snapshot. Trigger: parent agent proceeds with review/integration.
 - **Gate:** blocks integration until review and reconciliation; activation and stable promotion separately unauthorized.
 - **Next step:** parent reviews feature and dossier, fetches beta, reconciles if needed, runs offline checks and decides integration; remove branch dossier on integration under operations policy.
-- **Deferred feature:** scope-aware redirect destination discovery needs a separate authorized design; no redirect targets are persisted here.
+- **Deferred feature:** redirect-mediated 302→404 takeover eligibility and destination discovery require an authorized, independently tested manual hop-by-hop scope, port, path, DNS/connection and proxy design; see `docs/subdomain-probe-redirects.md`. The wake condition is a verified implementation with synthetic tests proving each hop is authorized before the connection; no redirect targets are persisted here.
 
 ## Interruption / resume handoff
 

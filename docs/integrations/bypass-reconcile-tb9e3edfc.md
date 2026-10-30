@@ -1,12 +1,12 @@
 # Bypass reconciliation integration dossier
 
-- **Status:** blocked pending independent fresh review; candidate only, not release
+- **Status:** blocked by independent review; candidate only, not release
 - **Task:** `t_b9e3edfc`, delegated isolated bypass slice
 - **Branch:** `fix/bypass-reconcile-tb9e3edfc-20261029`
 - **Worktree:** `/home/ryushe/worktrees/bbh-bypass-reconcile-tb9e3edfc-20261029`
 - **Fetched beta base / intended target:** `origin/beta` / `beta` at `533e87a28ab684b3206bb1318dfcc1f437dc78fc`
 - **Source:** `0c9a870e6483d800a7803151dbfc4090075d95e0` on `fix/scope-consumer-deny-tb9e3edfc`; source/beta merge base `baebf7b90f86f12f553a9a455723f888296e4a2c`. This is a path extraction, not a merge or a claim that the divergent parent is reviewed.
-- **Implementation checkpoint:** `cf376fd4cb2d039c135cc98b5703aa40088d3fc3`. Review exact current HEAD including subsequent fixes; this dossier cannot encode its own containing commit SHA.
+- **Implementation checkpoints:** `cf376fd4cb2d039c135cc98b5703aa40088d3fc3`, `4909c70894cfe2b6470ac9126ad8f9533c2bc77c`, `db1645b50de99ca31e1d93dcf176b92da50bf272`. The third checkpoint was independently reviewed and blocked; the subsequent dossier-only commit records that decision. Review exact current HEAD and all changes; this dossier cannot encode its own containing commit SHA.
 - **Last updated:** 2026-10-29
 
 ## Intent and contract
@@ -22,6 +22,8 @@ The harness, redaction module, seven listed bypass-type files, interceptor, six 
 Scope policy difference vs beta: beta bypass previously allowed empty saved scope and checked only initial URLs; this candidate requires named-program grants/deny-wins and per-request checks, with the explicit no-program contract retained. Other beta consumers are untouched and may have different policies. Source and beta validator are identical, not a port of another validator. Bounded repository Python caller search found only bypass harness uses this WAF class directly; unknown external and dynamic callers remain. A `total_requests` field in `harness_core.py` and `run_campaign.py` belongs to a different component.
 
 ## Evidence and review
+
+- **Independent fresh review BLOCK** of `db1645b50de99ca31e1d93dcf176b92da50bf272` by local session `local-f24d44a0bc126258ad7a71db4b1ab96a30048c29a53fa03d7ed4479236573b58`. The full guarded suite passed independently: **450 passed, 2 skipped, 10 subtests**. Three separate synthetic checks reproduced unresolved preexisting honest-output defects: (1) same-origin HTTP `http_downgrade` CORS probe can be called exploitable; origin control and data impact are not established, including HTTPS/port cases; (2) WAF retry response can be attributed to the original 403 payload although only the altered retry succeeded, and retries can change baseline; other payload-mode callers also need assessment; (3) a race burst of fourteen HTTP 200 and one 429 with identical bodies is labeled a race win although it establishes only status variance. Reviewer fixture is `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/bypass_review_synthetic_probe.py` (scratch is temporary), and session output records detail. No fix or fresh approval for these findings exists. Stop here rather than claim the slice is safely isolated. To resume, create durable fail-before/pass-after tests from those cases, examine baseline and probe retries across every affected family, preserve effective retry provenance or honest unknown, retain useful race aggregates and authorized probing, rerun guarded suite, and obtain fresh independent review of exact resulting commit.
 
 - Independent fresh local reviewer session `local-6911372d4f862d57e68115dae8bb51241b1ae665aa52873236e211e7709b9c09` blocked `4909c70894cfe2b6470ac9126ad8f9533c2bc77c`: missing 403/IDOR baselines produced false conclusions, wildcard credentialed CORS was overstated, and top-level `bypass_types` import was broken. Those result errors predated beta but are in scope for honest output. Reviewer independently reran the complete then-current suite: 443 passed, 2 skipped, 10 subtests. Four additional reviewer synthetic checks reproduced the findings and are retained in `tests/test_bypass_independent_review.py`, with positive baseline/reflected CORS cases added. The fixes retain the observed probe status while marking missing-baseline comparisons incomplete/unknown, preserve useful wildcard CORS classification without claiming credentialed exploitability, and restore the top-level import. Full post-fix guarded run (previous command plus `tests/test_bypass_waf_import_compat.py tests/test_bypass_independent_review.py`) gave **450 passed, 2 skipped, 10 subtests**. A fresh full independent review of the subsequent checkpoint is mandatory; this earlier block is not approval.
 
@@ -41,12 +43,12 @@ Scope policy difference vs beta: beta bypass previously allowed empty saved scop
 
 ## Blockers / handoff
 
-1. Independent reviewer must inspect exact reconciled diff and dossier, check retained legitimate coverage, scope decisions, privacy, output/API compatibility, cancellation/accounting, WAF shared behavior and dependencies, and independently rerun the stated offline suite. Resolve findings on this branch, rerun and obtain a fresh review. No release without this gate.
+1. Independent review blocked the current implementation on the three CORS origin, WAF retry attribution, and race-variance cases described above. Durable synthetic regression fixtures and precise fixes are missing. The wake condition is a follow-up that implements those repairs while retaining authorized probes, runs the documented guarded suite plus new tests, and obtains fresh independent review of the actual reconciled candidate. This blocks any integration.
 2. Mocked client tests do not establish real HTTP/proxy routing semantics, raw proof capture, external API compatibility or runtime activation. Any later integration/activation requires explicit authorization and appropriate synthetic isolated fixture checks; no real target testing is authorized by this task.
 3. Before any separately authorized integration fetch beta again, compare exact base and reconcile if advanced, rerun tests and review the actual resulting diff. Follow repository lifecycle and remove this temporary dossier from the integration target only then.
 
 ## Interruption / resume
 
-- Owning branch and recovery checkpoint: implementation checkpoint `cf376fd4cb2d039c135cc98b5703aa40088d3fc3`; inspect `git rev-parse HEAD` on the branch named above for the subsequent review-fix checkpoint. Git cannot encode its own commit SHA in itself.
-- Resume at independent review against `533e87a28ab684b3206bb1318dfcc1f437dc78fc`; inspect clean status, changed file list, actual current HEAD and any subsequent commits before review.
+- Owning branch and latest reviewed implementation checkpoint: `db1645b50de99ca31e1d93dcf176b92da50bf272`; inspect `git rev-parse HEAD` on the branch named above for the subsequent dossier-only checkpoint. Git cannot encode its own commit SHA in itself.
+- Resume with the three blocking findings above against base `533e87a28ab684b3206bb1318dfcc1f437dc78fc`; inspect clean status, changed file list, actual current HEAD and any subsequent commits before new work.
 - Integration, activation, promotion and closure are all outside this delegation.

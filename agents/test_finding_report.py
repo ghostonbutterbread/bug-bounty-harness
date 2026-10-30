@@ -54,7 +54,14 @@ class BunnyReportRegistrationTests(unittest.TestCase):
 
     def test_provider_pin_is_accepted_evidence_only_revision(self):
         manifest = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
-        self.assertIn("035c9a165fb6addfebb814d66b1b7f6143ab7e69", manifest)
+        # The safety-alert pin retains the evidence-only packet implementation:
+        # 035c9a165fb6addfebb814d66b1b7f6143ab7e69 is its provider ancestor.
+        # The registration tests below exercise that contract, not just the SHA.
+        self.assertIn(
+            "bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@"
+            "6c36ee88a60073e1b687ec32deeade24ffafdd4f",
+            manifest.splitlines(),
+        )
         self.assertNotIn("fd66f7ab9069a92c2aae624c85c00d15b6b34c90", manifest)
         self.assertNotIn("54ac5e8261edd313c815adde17d4fbb64fb4727d", manifest)
 

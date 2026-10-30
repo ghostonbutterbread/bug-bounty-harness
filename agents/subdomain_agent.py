@@ -295,8 +295,7 @@ class SubdomainCollector:
                         val = self.accept_name(page.get(key, ""))
                         if val:
                             subs.add(val)
-                    sub = _extract_host(task.get("url", ""))
-                    sub = self.accept_name(sub)
+                    sub = self.accept_name(_urlscan_task_host(task.get("url", "")))
                     if sub:
                         subs.add(sub)
             self.log(f"URLScan → {len(subs)} subs")
@@ -516,6 +515,26 @@ def is_safe_url(url: str) -> bool:
     )
 
 
+def _urlscan_task_host(url: str) -> str:
+    """Extract a structurally unambiguous HTTP URL authority for validation."""
+    if (not isinstance(url, str) or not re.match(r'^https?://', url, re.IGNORECASE)
+            or '\\' in url or any(unicodedata.category(c).startswith('C') for c in url)):
+        return ''
+    try:
+        parsed = urlparse(url)
+        authority = parsed.netloc
+        if (not authority or any(c.isspace() or c in '@%[]' for c in authority)
+                or authority.count(':') > 1):
+            return ''
+        host, separator, port = authority.partition(':')
+        # The parser's port property validates the numeric range.
+        if separator and (not port.isascii() or not port.isdigit() or parsed.port is None):
+            return ''
+        return host
+    except ValueError:
+        return ''
+
+
 def canonical_hostname(host: str) -> str:
     """Canonicalize a hostname, never an authority or URL; errors omit input."""
     if ScopeValidator is None:
@@ -655,14 +674,24 @@ async def probe_all(subdomains: list[str], threads: int = 20,
         tasks = [probe_subdomain(sub, sem, client, timeout, scope_check) for sub in subdomains]
         results = []
         total = len(tasks)
-        done = 0
+        done = attempted = responded = failed_count = skipped_count = 0
         for coro in asyncio.as_completed(tasks):
             result = await coro
             if result:
                 results.append(result)
+                if result.source == 'skipped':
+                    skipped_count += 1
+                else:
+                    attempted += 1
+                    if result.status:
+                        responded += 1
+                    else:
+                        failed_count += 1
             done += 1
             if done % 50 == 0 or done == total:
-                print(f"  [probe] {done}/{total} probed", end="\r", flush=True)
+                print(f"  [probe] {done}/{total} processed: {attempted} attempted, "
+                      f"{responded} responded, {failed_count} failed, "
+                      f"{skipped_count} skipped", end="\r", flush=True)
         print()
         return results
 
@@ -725,19 +754,33 @@ async def _run_takeover_checks(dead_results: list[ProbeResult],
     sem = asyncio.Semaphore(threads)
     async with _httpx.AsyncClient(verify=False, follow_redirects=False,
                                    timeout=10) as client:
-        tasks = [check_takeover_async(r, sem, client, redirect_deferred, failed)
-                 for r in dead_results]
+        async def check_one(probe_result):
+            local_deferred, local_failed = set(), set()
+            candidate = await check_takeover_async(
+                probe_result, sem, client, local_deferred, local_failed)
+            return candidate, local_deferred, local_failed
+
+        tasks = [check_one(r) for r in dead_results]
         candidates: list[dict] = []
         total = len(tasks)
-        done = 0
+        done = checked_count = deferred_count = failed_count = 0
         for coro in asyncio.as_completed(tasks):
-            result = await coro
+            result, local_deferred, local_failed = await coro
+            redirect_deferred.update(local_deferred)
+            failed.update(local_failed)
+            if local_deferred:
+                deferred_count += 1
+            elif local_failed:
+                failed_count += 1
+            else:
+                checked_count += 1
             if result:
                 candidates.append(result)
             done += 1
-            if done % 10 == 0:
-                print(f"  [takeover] {done}/{total} checked",
-                      end="\r", flush=True)
+            if done % 10 == 0 or done == total:
+                print(f"  [takeover] {done}/{total} attempts completed: "
+                      f"{checked_count} checked, {deferred_count} deferred, "
+                      f"{failed_count} failed", end="\r", flush=True)
         if dead_results:
             print()
         return candidates
@@ -843,7 +886,7 @@ def write_outputs(program: str, target: str,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "total_raw": len(raw_subs),
         "total_deduped": len(all_subs),
-        "total_probed": len(probe_results),
+        "total_probed": sum(1 for r in probe_results if r.source != 'skipped'),
         "alive": len(alive),
         "dead": len(dead),
         "takeover_candidates": len(takeover_candidates),
@@ -947,8 +990,10 @@ def run(target: str, program: str, use_apis: list[str],
         else:
             probe_results = asyncio.run(probe_all(all_subs, threads=threads, scope_check=scope_check))
         alive_count = sum(1 for r in probe_results if r.status in range(200, 400))
+        skipped_count = sum(1 for r in probe_results if r.source == 'skipped')
         print(f"  [+] Alive         : {alive_count}")
-        print(f"  [+] Dead/No-resp  : {len(probe_results) - alive_count}")
+        print(f"  [+] Dead/No-resp  : {len(probe_results) - alive_count - skipped_count}")
+        print(f"  [+] Skipped       : {skipped_count}")
     else:
         print("\n[Phase 3] Probe skipped.")
         # Create stub results for all subs so output files are populated

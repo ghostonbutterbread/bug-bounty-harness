@@ -36,14 +36,30 @@ noneligible statuses and intentionally skipped operations. In particular,
 `complete` is only complete for eligible direct rechecks, not all discovered
 hosts; 200 and other noneligible statuses are not checked. A malformed recheck
 Location can appear as a failure because HTTPX may raise while parsing it.
-No exception text or redirect destination is included in coverage.
+No exception text or redirect destination is included in coverage. Takeover
+progress reports completed attempts separately from successful checks, deferred
+redirects and failures; probe progress similarly separates attempts, responses,
+failures and scope skips.
+
+For compatibility, `scan_results.json` and `dead_subs.txt` still contain skipped
+probe stubs, and `dead` still counts them along with other non-alive records.
+`total_probed` now counts only records whose source is not `skipped`: it includes
+attempts that received no response, but excludes both `--skip-probe` stubs and
+scope-skipped probes. Consequently `alive` + `dead` can exceed `total_probed`;
+consumers should inspect each record's `source` rather than infer attempts from
+`dead` or the result-list length. The `total_probed` key remains unchanged, but
+its corrected value differs from earlier summaries when stubs were present.
 
 ## Provider names and scope
 
 Provider hostname fields are converted using IDNA and validated as hostnames
 before exact/subdomain boundary matching; paths, queries, userinfo, ports,
 controls and malformed labels are rejected without echoing the input. Wayback
-and URLScan URL fields use the URL host, not a suffix-shaped substring. The
+and URLScan URL fields use the URL host, not a suffix-shaped substring. URLScan
+accepts case-insensitive HTTP(S) schemes and IDNA hostnames, with an optional
+valid numeric port. It rejects userinfo, controls, backslashes, percent-encoded
+or ambiguous authorities, and malformed ports before canonicalizing the host;
+paths and queries do not contribute to host matching. The
 aggregate and prober validate again, including after the optional deduper.
 When scope exists, exclusions are checked even without allow entries; when allow
 entries exist, each probe URL must match them. HTTPS-to-HTTP fallback checks

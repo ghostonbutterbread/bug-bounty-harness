@@ -11,6 +11,52 @@ import pytest
 from agents import subdomain_agent as agent
 
 
+def test_urlscan_task_url_accepts_idna_and_case_insensitive_scheme():
+    collector = agent.SubdomainCollector('target.invalid', '', [], None)
+    collector.limiter = None
+    class Response:
+        status_code = 200
+        def json(self):
+            return {'results': [{'task': {'url': url}} for url in (
+                'https://bücher.target.invalid/path',
+                'HTTPS://UPPER.target.invalid:443/path?q=1',
+                'https://faß.target.invalid/',
+            )]}
+    with patch.object(collector.session, 'get', return_value=Response()):
+        assert collector.from_urlscan() == {
+            'xn--bcher-kva.target.invalid', 'upper.target.invalid',
+            'xn--fa-hia.target.invalid',
+        }
+
+
+@pytest.mark.parametrize('url', [
+    'https://user@x.target.invalid/',
+    'https://x.target.invalid@oob.invalid/',
+    'https://oob.invalid/path/x.target.invalid',
+    'https://oob.invalid/?fake=x.target.invalid',
+    'https://oob.invalid/#x.target.invalid',
+    'https://x.target.invalid:bad/',
+    'https://x.target.invalid:65536/',
+    'https://x.target.invalid:/',
+    'https://x.target.invalid:１２/',
+    'https://x.target.invalid\\@oob.invalid/',
+    'https://x.target.invalid%2eoob.invalid/',
+    'https://x.target.invalid\t.oob.invalid/',
+    'https://x.target.invalid：443/',
+    ' https://x.target.invalid/',
+    '//x.target.invalid/',
+    'https:///x.target.invalid/',
+])
+def test_urlscan_task_url_rejects_spoofed_or_malformed_authority(url):
+    collector = agent.SubdomainCollector('target.invalid', '', [], None)
+    collector.limiter = None
+    class Response:
+        status_code = 200
+        def json(self): return {'results': [{'task': {'url': url}}]}
+    with patch.object(collector.session, 'get', return_value=Response()):
+        assert collector.from_urlscan() == set()
+
+
 def test_crtsh_rejects_spoof_and_canonicalizes():
     collector = agent.SubdomainCollector('target.invalid', '', [], None)
     collector.limiter = None
@@ -30,6 +76,65 @@ def test_probe_rejects_url_authority_before_transport():
                 await agent.probe_subdomain('oob.invalid?fake=.target.invalid', asyncio.Semaphore(1), client)
     asyncio.run(exercise())
     assert not requests
+
+
+def test_takeover_progress_classifies_failed_and_successful_rechecks():
+    real_client = httpx.AsyncClient
+    def handler(request):
+        if request.url.host.startswith('fail'):
+            raise httpx.ConnectError('FAKE_SECRET', request=request)
+        if request.url.host.startswith('redirect'):
+            return httpx.Response(302, headers={'Location': 'https://else.invalid/'})
+        return httpx.Response(404, text='not a fingerprint')
+    def factory(**kwargs):
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)
+    results = [agent.ProbeResult(f'{name}.target.invalid', f'https://{name}.target.invalid', 404, '', 0, '', '', 'httpx') for name in ('fail', 'redirect', 'ok')]
+    output = io.StringIO()
+    with patch.object(httpx, 'AsyncClient', side_effect=factory), contextlib.redirect_stdout(output):
+        assert asyncio.run(agent._run_takeover_checks(results, 3, set(), set())) == []
+    assert '3/3 attempts completed' in output.getvalue()
+    assert '1 checked' in output.getvalue()
+    assert '1 deferred' in output.getvalue()
+    assert '1 failed' in output.getvalue()
+    assert 'FAKE_SECRET' not in output.getvalue()
+
+
+def test_probe_progress_distinguishes_scope_skips():
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        results = asyncio.run(agent.probe_all(['skip.target.invalid'], scope_check=lambda url: False))
+    assert results[0].source == 'skipped'
+    assert '0 attempted' in output.getvalue()
+    assert '1 skipped' in output.getvalue()
+
+
+def test_summary_counts_only_attempted_probes_including_no_response(tmp_path):
+    results = [
+        agent.ProbeResult('ok.target.invalid', 'https://ok.target.invalid', 200, '', 0, '', '', 'httpx'),
+        agent.ProbeResult('failed.target.invalid', 'https://failed.target.invalid', 0, '', 0, '', '', 'httpx'),
+        agent.ProbeResult('skipped.target.invalid', 'https://skipped.target.invalid', 0, '', 0, '', '', 'skipped'),
+    ]
+    with patch.object(agent, 'RECON_BASE', tmp_path):
+        out = agent.write_outputs('test', 'target.invalid', set(), [], results, [])
+    summary = json.loads((out / 'summary.json').read_text())
+    assert summary['total_probed'] == 2
+    assert len(json.loads((out / 'scan_results.json').read_text())) == 3
+
+
+def test_run_probe_summary_does_not_call_scope_skips_dead(tmp_path, capsys):
+    class Collector:
+        def __init__(self, *args): pass
+        def from_crtsh(self): return {'n.target.invalid'}
+        def from_js_files(self): return set()
+        def from_local_urls(self): return set()
+        def from_mutations(self, names): return set()
+    async def skipped(subs, threads):
+        return [agent.ProbeResult(s, 'https://' + s, 0, '', 0, '', '', 'skipped') for s in subs]
+    with patch.object(agent, 'SubdomainCollector', Collector), patch.object(agent, 'probe_all', skipped), patch.object(agent, 'RECON_BASE', tmp_path), patch.object(agent, '_which', return_value=None), patch.object(agent, 'record_recon_artifacts', None):
+        agent.run('target.invalid', 'test', ['crtsh'], None, 2, False, False, True)
+    output = capsys.readouterr().out
+    assert 'Dead/No-resp  : 0' in output
+    assert 'Skipped       : 1' in output
 
 
 def test_run_no_response_is_failed_not_checked(tmp_path):

@@ -583,6 +583,7 @@ class WAFInterceptor:
         self,
         method: str,
         url: str,
+        *, _waf_retry: bool = False,
         **kwargs,
     ) -> Any:
         import requests
@@ -597,11 +598,13 @@ class WAFInterceptor:
             raise
         else:
             self._stats["observed_responses"] += 1
+            if _waf_retry and isinstance(response, requests.Response):
+                response._bbh_waf_retry = True
             return response
         finally:
             self._flush_summary()
 
-    async def _async_request(self, client, method, url, **kwargs):
+    async def _async_request(self, client, method, url, *, _waf_retry=False, **kwargs):
         self._stats["total_requests"] += 1
         self._flush_summary()
         try:
@@ -614,6 +617,8 @@ class WAFInterceptor:
             raise
         else:
             self._stats["observed_responses"] += 1
+            if _waf_retry and isinstance(response, httpx.Response):
+                response.extensions['bbh_waf_retry'] = True
             return response
         finally:
             self._flush_summary()
@@ -677,7 +682,7 @@ class WAFInterceptor:
             new_url = self.target + new_path if new_path.startswith("/") else urljoin(self.target + "/", new_path)
 
             try:
-                resp = self._sync_request(method, new_url, **new_kwargs)
+                resp = self._sync_request(method, new_url, _waf_retry=True, **new_kwargs)
             except Exception as e:
                 self._log(f"  → bypass error: {type(e).__name__}")
                 continue
@@ -735,7 +740,7 @@ class WAFInterceptor:
             new_kwargs, new_path = self._build_bypass_kwargs(kwargs, bypass, path)
             new_url = self.target + new_path if new_path.startswith("/") else urljoin(self.target + "/", new_path)
             try:
-                resp = self._sync_request(method, new_url, **new_kwargs)
+                resp = self._sync_request(method, new_url, _waf_retry=True, **new_kwargs)
             except Exception as e:
                 self._log(f"  → bypass error: {type(e).__name__}")
                 continue
@@ -750,7 +755,7 @@ class WAFInterceptor:
         self._log(f"  → Tier 1 exhausted, trying Tier 2 payload obfuscation")
         for technique, obfuscated_url in self._obfuscate_url_params(url):
             try:
-                resp = self._sync_request(method, obfuscated_url, **kwargs)
+                resp = self._sync_request(method, obfuscated_url, _waf_retry=True, **kwargs)
             except Exception as e:
                 self._log(f"  → payload obfuscation error ({technique}): {type(e).__name__}")
                 continue
@@ -902,7 +907,7 @@ class WAFInterceptor:
             new_url = self.target + new_path if new_path.startswith("/") else url
 
             try:
-                resp = await self._async_request(client, method, new_url, **new_kwargs)
+                resp = await self._async_request(client, method, new_url, _waf_retry=True, **new_kwargs)
             except Exception as e:
                 self._log(f"  → bypass error: {type(e).__name__}")
                 continue
@@ -975,7 +980,7 @@ class WAFInterceptor:
                 new_kwargs, new_path = self._build_bypass_kwargs(kwargs, bypass, path)
                 new_url = self.target + new_path if new_path.startswith("/") else url
                 try:
-                    resp = await self._async_request(client, method, new_url, **new_kwargs)
+                    resp = await self._async_request(client, method, new_url, _waf_retry=True, **new_kwargs)
                 except Exception as e:
                     self._log(f"  → bypass error: {type(e).__name__}")
                     continue
@@ -990,7 +995,7 @@ class WAFInterceptor:
             self._log(f"  → Tier 1 exhausted, trying Tier 2 payload obfuscation")
             for technique, obfuscated_url in self._obfuscate_url_params(url):
                 try:
-                    resp = await self._async_request(client, method, obfuscated_url, **kwargs)
+                    resp = await self._async_request(client, method, obfuscated_url, _waf_retry=True, **kwargs)
                 except Exception as e:
                     self._log(f"  → payload obfuscation error ({technique}): {type(e).__name__}")
                     continue

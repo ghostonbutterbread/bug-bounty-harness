@@ -4,7 +4,7 @@ Race condition / TOCTOU bypass module.
 Sends the same request N times simultaneously using asyncio and looks for
 inconsistent responses that indicate a race window:
 
-  - Status code variance: some requests return 200, others 400/429
+  - Status code variance: some requests return 200, others 400/429 (not proof)
   - Response body differences: balance/count changes between parallel responses
   - Duplicate-action success: e.g., gift card redeemed twice
 
@@ -19,7 +19,8 @@ How it works:
   1. Capture baseline (one request)
   2. Send RACE_COUNT identical requests concurrently in a single asyncio gather
   3. Analyse variance in status codes and response bodies
-  4. Flag if: >1 unique status code OR >1 unique response body (when not trivially different)
+  4. Flag distinct successful response bodies as a weak investigation signal;
+     dynamic content and status differences do not prove a race or state change.
 """
 
 import asyncio
@@ -164,19 +165,18 @@ class RaceBypass:
         status_variance = len(status_counts) > 1
         body_variance   = len(hash_counts) > 1
 
-        # Success-variance: some 200, some non-200 (classic race win)
-        has_200      = 200 in status_counts or 201 in status_counts
-        has_non_2xx  = any(s >= 400 for s in status_counts)
-        mixed_status = has_200 and has_non_2xx
-
-        success = mixed_status or (body_variance and has_200)
-
-
+        # Status variance alone (especially 429) is not a race win. Distinct
+        # successful body hashes are a weak investigation signal, not proof of
+        # duplicated state changes; ordinary dynamic content can also vary.
+        successful_hashes = {r['hash'] for r in good if 200 <= r['status'] < 300}
+        success = len(successful_hashes) > 1
         note = ""
-        if mixed_status:
-            note = "RACE WIN: mixed success/failure → possible duplicate-action exploitation"
+        if success:
+            note = "Distinct successful response bodies under load; possible race signal, validate state changes and dynamic content"
+        elif 429 in status_counts:
+            note = "Rate-limit response observed; status variance does not establish a race"
         elif body_variance:
-            note = "Body variance under concurrent load → investigate for data races"
+            note = "Body variance under load; no race established"
         elif status_variance:
             note = f"Status variance: {dict(status_counts)}"
 
@@ -199,7 +199,7 @@ class RaceBypass:
         if success and body_variance:
             seen = set()
             for r in good:
-                if r["hash"] not in seen:
+                if 200 <= r['status'] < 300 and r["hash"] not in seen:
                     seen.add(r["hash"])
                     results.append(BypassResult(
                         success=True,

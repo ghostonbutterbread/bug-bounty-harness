@@ -219,7 +219,7 @@ def test_race_mixed_child_outcomes_respect_concurrency_and_keep_hit():
         results = await RaceBypass().scan('https://app.example.test/p', Client(), asyncio.Semaphore(3), Limiter())
         assert calls == RACE_COUNT + 1 and peak <= 3 and active == 0
         result = results[0]
-        assert result.success and result.incomplete and '[HIT]' in result.to_line()
+        assert not result.success and result.incomplete and '[unknown]' in result.to_line()
         assert '[incomplete]' in result.to_line()
         assert 'observed=12/15' in result.note and 'cancelled=1' in result.note
         assert 'HTTP 200:' in result.evidence and 'HTTP 403:' in result.evidence

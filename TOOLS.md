@@ -315,6 +315,34 @@ other public-data exposure requires separate investigation. The Python `run_and_
 second, historically named failures list; `success=False` alone is not proof
 of a complete negative. Parent cancellation still propagates without a result.
 
+CORS hits are header-level investigation signals, not established exposure:
+same-origin reflection is not cross-origin access (scheme, hostname, and
+effective port are compared); downgraded or target-subdomain origins have
+unproven control and are incomplete. Even other test origins, null origins,
+credentials, cookies, browser behavior, and response sensitivity need separate
+validation. HTTP status alone does not demonstrate data impact.
+
+For HTTPX WAF retries, `response.extensions['bbh_waf_retry']` is a local
+provenance marker. The 403, LFI, RFI, SSRF and redirect reporters now mark
+retried responses incomplete/unknown, suppress a hit and replace the payload
+with `[WAF retry variant unknown]`; a retried 403 baseline cannot establish
+the comparison either. This deliberately sacrifices attribution even for
+unchanged retry variants. URL fields describe the original probe, not a
+replayable retry. Standalone interceptor APIs still return response objects;
+external consumers must interpret retry provenance themselves and must not
+assume the original request produced the returned response. The marker is not
+durable proof of the effective headers, body, path, or payload. It is specific
+to the async HTTPX flow; sync `requests.Response` retries carry the analogous
+`_bbh_waf_retry` attribute. Absence of a marker is not proof of origin for
+third-party wrappers or nonstandard clients. Counters retain their existing client-call semantics.
+
+Race status variance, including 429, is not a race win. Distinct hashes of the
+first 64 characters of successful response bodies remain a weak possible-race
+investigation signal and can reflect ordinary dynamic content; neither a hit nor
+the aggregate proves duplicate state changes. Rate limits and incomplete
+transport observations remain visible, as do derived counts, without raw body
+evidence. Validate state separately with authorized fixtures.
+
 Result URLs and logs suppress query values; request URLs sent to HTTPX are not
 redacted or rewritten by this output projection. The `BypassResult` Python
 contract and text/JSON reports retain status, type, technique, category,

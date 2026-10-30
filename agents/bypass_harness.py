@@ -791,7 +791,8 @@ class BypassOrchestrator:
         segment = path.split("/")[-1]
 
         baseline_resp = await self._get(client, target, semaphore=sem)
-        baseline = baseline_resp.status_code if baseline_resp is not None else 0
+        baseline_unknown = baseline_resp is None or baseline_resp.extensions.get('bbh_waf_retry', False)
+        baseline = baseline_resp.status_code if not baseline_unknown else 0
         self._log(f"403 baseline: {safe_text(target)} → {baseline}")
 
         tasks = []
@@ -839,12 +840,13 @@ class BypassOrchestrator:
                     payload=payload, url=url, status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
                 continue
-            success = resp.status_code in (200, 201, 204) and baseline in (403, 401)
+            retry = resp.extensions.get('bbh_waf_retry', False)
+            success = not retry and resp.status_code in (200, 201, 204) and baseline in (403, 401)
             yield BypassResult(
                 success=success, vuln_type="403", technique=tech, category="403_bypass",
-                payload=payload, url=url, status_code=resp.status_code, evidence=resp.text[:200],
-                note="baseline unavailable" if baseline_resp is None else "",
-                incomplete=baseline_resp is None,
+                payload='[WAF retry variant unknown]' if retry else payload, url=url, status_code=resp.status_code, evidence=resp.text[:200],
+                note="WAF retry response; effective variant unknown" if retry else ("baseline unavailable or WAF retry; comparison unknown" if baseline_unknown else ""),
+                incomplete=bool(baseline_unknown or retry),
             )
 
     # ── LFI bypass ───────────────────────────────────────────────────────────
@@ -871,6 +873,9 @@ class BypassOrchestrator:
                     category=category, payload=payload, url=url,
                     status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('lfi', category, payload, url, resp)
                 continue
             matched = next((p for p in _LFI_CONFIRM_PATTERNS if p in resp.text), None)
             yield BypassResult(
@@ -905,6 +910,9 @@ class BypassOrchestrator:
                     status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
                 continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('rfi', category, payload, url, resp)
+                continue
             matched = next((p for p in _RFI_CONFIRM_PATTERNS if p.lower() in resp.text.lower()), None)
             yield BypassResult(
                 success=matched is not None, vuln_type="rfi", technique="param_injection",
@@ -937,6 +945,9 @@ class BypassOrchestrator:
                     category=category, payload=payload, url=url,
                     status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('ssrf', category, payload, url, resp)
                 continue
             combined = resp.text + " ".join(f"{k}: {v}" for k, v in resp.headers.items())
             matched = next(
@@ -976,6 +987,9 @@ class BypassOrchestrator:
                     status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
                 continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('redirect', category, payload, url, resp)
+                continue
             location = resp.headers.get("location", "")
             header_hit = resp.status_code in (301, 302, 303, 307, 308) and _EVIL_DOMAIN in location
             body_hit   = bool(_META_REDIRECT_RE.search(resp.text))
@@ -991,6 +1005,13 @@ class BypassOrchestrator:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _unknown_retry_result(vuln_type, category, payload, url, response):
+    return BypassResult(success=False, vuln_type=vuln_type, technique='param_injection',
+                        category=category, payload='[WAF retry variant unknown]', url=url,
+                        status_code=response.status_code, evidence='', incomplete=True,
+                        note='WAF retry response; effective variant unknown')
+
 
 def _guess_param(url: str) -> Optional[str]:
     qs = parse_qs(urlparse(url).query)

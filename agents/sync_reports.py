@@ -28,13 +28,18 @@ from agents.manual_hunter import (
     ReviewTierDecisionRequired,
     _default_run_id,
     _derive_title,
+    _explicit_class,
+    _fenced_lines,
     _infer_class,
     _infer_review_tier,
     _normalize_text,
     _tier_field_value,
 )
 from agents.report_paths import canonical_raw_reports_dir, discover_report_files, select_report_source
-from agents.report_checker import FindingRecord, _load_ledger_findings, _load_markdown_findings, _merge_findings
+from agents.report_checker import (
+    FindingRecord, _load_ledger_findings, _load_markdown_findings,
+    _load_markdown_findings_from_text, _merge_findings, _report_defaults_for_path,
+)
 from agents.source_roots import resolve_source_root
 from agents.verbosity import clamp_verbosity
 
@@ -188,34 +193,23 @@ def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str) -> 
 
 
 def _normalize_candidate(
-    record: FindingRecord, raw_text: str, source_path: Path, *, explicit_tier: str | None = None
+    record: FindingRecord, raw_text: str, source_path: Path, *, explicit_tier: str | None = None,
+    explicit_class: str | None = None,
 ) -> dict[str, Any]:
     finding = record.to_finding_dict()
     title = _normalize_text(finding.get("title") or finding.get("type"))
     description = _normalize_text(finding.get("description"))
-    blob = "\n".join(
-        part
-        for part in (
-            title,
-            _normalize_text(finding.get("type")),
-            description,
-            _normalize_text(finding.get("context")),
-            _normalize_text(finding.get("exploitability")),
-            _normalize_text(finding.get("source")),
-            _normalize_text(finding.get("sink")),
-            raw_text,
-        )
-        if part
-    )
 
     if not title:
         title = _derive_title(description or raw_text, fallback=source_path.stem.replace("_", " "))
     if not description:
         description = _derive_title(raw_text, fallback=title)
 
-    class_name = _normalize_text(finding.get("class_name") or finding.get("vuln_class")).lower()
-    if not class_name or class_name == "unknown":
-        class_name = _infer_class(blob)
+    if explicit_class is not None:
+        class_name = explicit_class
+    else:
+        fenced = _fenced_lines(raw_text)
+        class_name = _infer_class("\n".join(line for i, line in enumerate(raw_text.splitlines()) if i not in fenced))
 
     category = _normalize_text(finding.get("category")).lower() or ("novel" if class_name == "novel" else "class")
     if category not in {"class", "novel"}:
@@ -331,8 +325,17 @@ def _candidates_for_file(
     source_path: Path,
 ) -> list[dict[str, Any]]:
     raw_text = source_path.read_text(encoding="utf-8", errors="replace")
-    structured = _load_markdown_findings(program, hunt_type, report_paths=[source_path])
-    heading_blocks = re.split(r"(?m)^##\s+\[", raw_text)[1:]
+    fenced = _fenced_lines(raw_text)
+    # The report reader uses line-based splitting; indent fake headings inside
+    # fences so examples remain content rather than becoming findings.
+    lines = raw_text.splitlines(keepends=True)
+    safe_text = "".join("  " + line if i in fenced and re.match(r"^##\s+\[", line) else line for i, line in enumerate(lines))
+    if safe_text == raw_text:
+        structured = _load_markdown_findings(program, hunt_type, report_paths=[source_path])
+    else:
+        category, status = _report_defaults_for_path(source_path)
+        structured = _load_markdown_findings_from_text(safe_text, default_category=category, default_status=status)
+    heading_blocks = re.split(r"(?m)^##\s+\[", safe_text)[1:]
     explicit_headings: list[str] = []
     if heading_blocks and len(heading_blocks) != len(structured):
         raise ReviewTierDecisionRequired(
@@ -348,7 +351,10 @@ def _candidates_for_file(
                     "DORMANT_ACTIVE, or DORMANT_HYPOTHETICAL."
                 )
             tier = heading.group(1)
-            for line in block.splitlines()[1:]:
+            fenced_block = _fenced_lines(block)
+            for line_index, line in enumerate(block.splitlines()[1:], start=1):
+                if line_index in fenced_block:
+                    continue
                 field = FIELD_RE.match(line)
                 if not field:
                     continue
@@ -364,42 +370,32 @@ def _candidates_for_file(
                         "Conflicting Review Tier heading and field; supply one explicit decision."
                     )
             explicit_headings.append(tier)
-    try:
-        flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
-    except ClassConflictError:
-        if len(structured) <= 1 or len(heading_blocks) != len(structured):
-            raise
-        # A whole-file parse sees multiple findings as one. Check each block
-        # separately so different findings may have different classes, while a
-        # conflict inside any one finding still stops the import.
-        for block in heading_blocks:
-            try:
-                hunter.parse_text(block, source_label=str(source_path), source_path=source_path)
-            except ClassConflictError:
-                raise
-            except ValueError:
-                pass  # Structured parsing owns the remaining per-block fields.
-        flexible = []
-    except InvalidReviewTierError:
-        raise
-    except ReviewTierDecisionRequired:
-        if not explicit_headings:
-            raise
-        # A structured per-finding tier is an explicit decision, even when a
-        # whole-file loose parse cannot make sense of its evidence narrative.
-        flexible = []
-    if structured and flexible and len(structured) == 1 and len(flexible) == 1:
-        merged = [_merge_single_record(structured[0], flexible[0])]
-    elif structured:
-        merged = structured
+    # Class decisions are per finding, independent of tier and required fields.
+    # Validate all class/tier decisions before returning candidates to the writer.
+    class_values = [_explicit_class(block)[0] for block in heading_blocks] if explicit_headings else [_explicit_class(raw_text)[0]]
+    if explicit_headings:
+        merged = []
+        for record, block, tier in zip(structured, heading_blocks, explicit_headings):
+            # Give the loose parser the already-validated heading decision so
+            # narrative ambiguity cannot discard otherwise valid metadata.
+            flexible = _flexible_findings_for_file(hunter, source_path, f"Review Tier: {tier}\n{block}")
+            merged.append(_merge_single_record(record, flexible[0]) if flexible else record)
     else:
-        merged = flexible
+        flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+        if structured and flexible and len(structured) == 1 and len(flexible) == 1:
+            merged = [_merge_single_record(structured[0], flexible[0])]
+        elif structured:
+            merged = structured
+        else:
+            merged = flexible
 
     candidates: list[dict[str, Any]] = []
     seen_fingerprints: set[str] = set()
     for index, record in enumerate(merged):
         explicit_tier = explicit_headings[index] if explicit_headings else None
-        normalized = _normalize_candidate(record, raw_text, source_path, explicit_tier=explicit_tier)
+        block_text = heading_blocks[index] if explicit_headings else raw_text
+        explicit_class = class_values[index] if explicit_headings else class_values[0]
+        normalized = _normalize_candidate(record, block_text, source_path, explicit_tier=explicit_tier, explicit_class=explicit_class)
         if not _normalize_text(normalized.get("file")):
             continue
         fingerprint = hunter.ledger.fingerprint_for(normalized)

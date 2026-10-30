@@ -615,7 +615,82 @@ def _infer_sink(note: dict[str, Any]) -> str:
 
 
 class ClassConflictError(ValueError):
-    """Explicit class values disagree and require an operator decision."""
+    """Explicit class values disagree or a heading value is ambiguous."""
+
+
+def _fenced_lines(text: str) -> set[int]:
+    """Identify CommonMark-style backtick or tilde fenced lines."""
+    result: set[int] = set()
+    fence: tuple[str, int] | None = None
+    for index, line in enumerate(text.splitlines()):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            result.add(index)
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= fence[1] and not line[marker.end():].strip():
+                fence = None
+        elif marker:
+            result.add(index)
+            fence = (marker.group(1)[0], len(marker.group(1)))
+    return result
+
+
+def _explicit_class(text: str) -> tuple[str | None, set[int]]:
+    """Extract class declarations outside fences; return consumed line indexes."""
+    found: str | None = None
+    consumed: set[int] = set()
+    awaiting = False
+    fenced = _fenced_lines(text)
+
+    def add(value: str, *, heading_value: bool = False) -> None:
+        nonlocal found
+        value = value.strip()
+        marked = bool(re.match(r"^[-*+]\s+", value)) or (value.startswith("**") and value.endswith("**"))
+        value = re.sub(r"^[-*+]\s+", "", value)
+        if value.startswith("**") and value.endswith("**") and len(value) >= 4:
+            value = value[2:-2].strip()
+        if not value:
+            return
+        pattern = r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*)*" if marked else r"[\w][\w./+-]*"
+        if heading_value and not re.fullmatch(pattern, value):
+            raise ClassConflictError("Ambiguous Class heading value; use an explicit 'Class: <value>' field.")
+        candidate = _normalize_class(value)
+        if found and candidate != found:
+            raise ClassConflictError("Conflicting Class values; supply one consistent explicit Class.")
+        found = candidate
+
+    for index, line in enumerate(text.splitlines()):
+        if index in fenced:
+            awaiting = False
+            continue
+        heading = re.match(r"^ {0,3}#{1,6}\s+(?:\*\*)?class(?:\*\*)?(?:\s*:\s*(.*?))?\s*#*\s*$", line, re.I)
+        if heading:
+            consumed.add(index)
+            value = heading.group(1)
+            awaiting = not value
+            if value:
+                add(value, heading_value=True)
+            continue
+        field = FIELD_RE.match(line)
+        if awaiting:
+            if not line.strip():
+                consumed.add(index)
+                continue
+            awaiting = False
+            if not field and not re.match(r"^\s*#{1,6}\s", line):
+                consumed.add(index)
+                add(line, heading_value=True)
+                continue
+        if field:
+            label = field.group("label").strip().lower().replace("-", " ")
+            if label in {"class", "discovered during class pass"}:
+                value = field.group("value").strip()
+                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", line):
+                    value = value[2:].lstrip()
+                elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", line):
+                    value = value[:-2].rstrip()
+                add(value)
+                consumed.add(index)
+    return found, consumed
 
 
 class ReviewTierDecisionRequired(ValueError):
@@ -791,33 +866,26 @@ def parse_finding_text(
     if not text:
         raise ValueError("finding note is empty")
 
-    parsed: dict[str, str] = {}
+    explicit_class, consumed = _explicit_class(text)
+    parsed: dict[str, str] = {"class_name": explicit_class} if explicit_class is not None else {}
     narrative_lines: list[str] = []
     current_key: str | None = None
     heading = ""
-    awaiting_class = False
+    fenced = _fenced_lines(text)
 
-    def set_class(value: str) -> None:
-        candidate = _normalize_class(value)
-        previous = _normalize_class(parsed.get("class_name"))
-        if candidate and previous and candidate != previous:
-            raise ClassConflictError("Conflicting Class values; supply one consistent explicit Class.")
-        if candidate:
-            parsed["class_name"] = value
-
-    for raw_line in text.splitlines():
+    for index, raw_line in enumerate(text.splitlines()):
         line = raw_line.rstrip()
-        if re.match(r"^\s*#{1,6}\s+class\s*#*\s*$", line, re.IGNORECASE):
-            awaiting_class = True
+        if index in fenced:
+            if current_key:
+                parsed[current_key] = (parsed.get(current_key, "") + "\n" + line).strip()
+            else:
+                narrative_lines.append(line)
+            continue
+        if index in consumed:
             current_key = None
             continue
-        if awaiting_class:
-            if not line.strip():
-                continue
-            awaiting_class = False
-            if not FIELD_RE.match(line) and not re.match(r"^\s*#{1,6}\s", line):
-                set_class(line.strip())
-                continue
+        if re.match(r"^\s*#{1,6}\s", line):
+            current_key = None
         if not heading and not current_key and re.match(r"^\s*#\s+\S", line):
             heading = _derive_title(line, first_line_only=True)
         match = FIELD_RE.match(line)
@@ -838,10 +906,7 @@ def parse_finding_text(
                         raise ReviewTierDecisionRequired(
                             "Conflicting Review Tier fields; supply one explicit decision."
                         )
-                if key == "class_name":
-                    set_class(value)
-                else:
-                    parsed[key] = value
+                parsed[key] = value
                 current_key = key if key in MULTILINE_FIELDS else None
                 continue
         if current_key and line.strip():
@@ -882,7 +947,7 @@ def parse_finding_text(
     class_name = _normalize_class(parsed.get("class_name"))
     class_inferred = not class_name
     if class_inferred:
-        class_name = _infer_class(text)
+        class_name = _infer_class("\n".join(line for i, line in enumerate(text.splitlines()) if i not in fenced))
         print(
             f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
             "Keyword matching cannot tell an asserted class from a denied one -- state 'Class: <x>' "
@@ -1537,4 +1602,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except ClassConflictError as exc:
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        raise SystemExit(1)

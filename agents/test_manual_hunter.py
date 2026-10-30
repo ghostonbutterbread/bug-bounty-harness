@@ -169,6 +169,57 @@ class ManualHunterTests(unittest.TestCase):
                     main([self.program, "--lane", "apk", "--from-file", str(note)])
                 self.assertFalse(self._ledger_path().exists())
 
+    def test_cli_duplicate_class_heading_uses_real_disposable_ledger(self) -> None:
+        note = self.tmp / "cli-note.md"
+        root = self.tmp / "cli-root"
+        common = "Title: Synthetic access\nType: Synthetic access\nFile: src/a.py\nReview Tier: CONFIRMED\nDescription: Owned fixture DOM XSS not observed.\n"
+        command = [sys.executable, "-m", "agents.manual_hunter", self.program, "--lane", "apk", "--root", str(root), "--from-file", str(note)]
+        note.write_text(common + "Class: custom/v1\n")
+        first = subprocess.run(command, text=True, capture_output=True, check=False)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        note.write_text(common + "## Class\ncustom/v1\n")
+        second = subprocess.run(command + ["--link-duplicate-comment"], text=True, capture_output=True, check=False)
+        self.assertEqual(second.returncode, 1, second.stderr)
+        self.assertIn("Linked duplicate note to D01", second.stdout)
+        ledger = next(root.rglob("ledger.json"))
+        self.assertEqual([f["class_name"] for f in json.loads(ledger.read_text())["findings"]], ["custom/v1"])
+
+    def test_direct_cli_class_conflict_is_actionable_without_traceback(self) -> None:
+        note = self.tmp / "conflict.md"
+        note.write_text("File: src/a.py\nDescription: Owned fixture.\nClass: idor\nClass: ssrf\n")
+        result = subprocess.run(
+            [sys.executable, "-m", "agents.manual_hunter", self.program, "--lane", "apk", "--root", str(self.tmp / "cli-root"), "--from-file", str(note)],
+            text=True, capture_output=True, env=os.environ.copy(), check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Conflicting Class", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(list((self.tmp / "cli-root").rglob("ledger.json")))
+
+    def test_empty_heading_infers_and_class_alias_conflicts_are_detected(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+        common = "Title: Synthetic\nFile: src/a.py\nDescription: Owned DOM XSS fixture.\n"
+        with patch("sys.stderr", new_callable=io.StringIO) as errors:
+            finding = parse_finding_text(common + "## Class\n## Other\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "dom-xss")
+        self.assertTrue(finding["class_inferred"])
+        self.assertIn("inferred", errors.getvalue())
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            parse_finding_text(common + "Discovered During Class Pass: idor\nClass: ssrf\n", source_label="fixture", family="binaries", lane="apk")
+
+    def test_class_markup_fences_and_ambiguous_prose(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+        common = "Title: Synthetic\nFile: src/a.py\nDescription: Owned DOM XSS fixture.\n"
+        for payload in ("## Class: idor\n", "## **Class**\n**idor**\n", "## Class\n- idor\n", "**Class: idor**\n", "```md\nClass: ssrf\n```\nClass: idor\n"):
+            with self.subTest(payload=payload):
+                finding = parse_finding_text(common + payload, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+                self.assertFalse(finding["class_inferred"])
+        with self.assertRaisesRegex(ValueError, "[Aa]mbiguous.*Class"):
+            parse_finding_text(common + "## Class\nThis section intentionally has no classification.\n", source_label="fixture", family="binaries", lane="apk")
+        with self.assertRaisesRegex(ValueError, "[Aa]mbiguous.*Class"):
+            parse_finding_text(common + "## Class\nNot classified\n", source_label="fixture", family="binaries", lane="apk")
+
     def test_class_heading_and_field_variants_follow_existing_normalization(self) -> None:
         from agents.manual_hunter import parse_finding_text
 
@@ -176,7 +227,7 @@ class ManualHunterTests(unittest.TestCase):
         for field in (
             "Class: Broken_Access Control\n", "**Class:** Broken_Access Control\n",
             "**Class**: Broken_Access Control\n", "- Class: Broken_Access Control\n",
-            "## Class\nBroken_Access Control\n", "### CLASS ###\n\nBroken_Access Control\n",
+            "## Class\n**Broken_Access Control**\n", "### CLASS ###\n\n- Broken_Access Control\n",
             "Class: Broken_Access Control\n## Class\nbroken-access-control\n",
             "Class: Broken_Access Control\nClass:\n",
         ):

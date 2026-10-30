@@ -18,6 +18,8 @@ from agents.coverage_store import CoverageStore
 from agents.snapshot_identity import get_snapshot_identity
 from agents.manual_hunter import (
     ManualHunter,
+    _explicit_class,
+    parse_finding_text,
     _build_hunt_context,
     _build_subagent_handoff_bundle,
     main,
@@ -29,6 +31,38 @@ from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
+    def test_class_heading_accepts_single_inline_code_token(self) -> None:
+        self.assertEqual(_explicit_class("## Class\n`idor`\n")[0], "idor")
+        self.assertEqual(_explicit_class("## Class: `custom/v1`\n")[0], "custom/v1")
+        with self.assertRaisesRegex(ValueError, "Ambiguous Class"):
+            _explicit_class("## Class\n`narrative sentence`\n")
+
+    def test_unclosed_list_fence_ends_with_list_container(self) -> None:
+        self.assertEqual(_explicit_class("- Example:\n    ```\n    Class: ssrf\nClass: idor\n")[0], "idor")
+
+    def test_leading_indented_code_not_class_in_direct_note(self) -> None:
+        note = "    Class: ssrf\nTitle: Fixture\nFile: src/a.py\nClass: idor\nDescription: Fixture.\nReview Tier: CONFIRMED\n"
+        parsed = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk")
+        self.assertEqual(parsed.finding["class_name"], "idor")
+
+    def test_ordinary_note_fields_survive_fenced_metadata(self) -> None:
+        note = ("Title: Fixture\nFile: src/a.py\nClass: unknown\nSeverity: LOW\n"
+                "Source: origin\nSink: destination\nReview Tier: CONFIRMED\n"
+                "Description: Plain finding.\n```\nClass: ssrf\nReview Tier: DORMANT_ACTIVE\n```\n")
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual((finding["class_name"], finding["severity"], finding["source"], finding["sink"], finding["review_tier"]),
+                         ("unknown", "LOW", "origin", "destination", "CONFIRMED"))
+
+    def test_class_ignores_indented_and_nested_code(self) -> None:
+        for example in (
+            "    Class: ssrf\n",
+            "\tClass: ssrf\n",
+            "- Example:\n    ```\n    Class: ssrf\n    ```\n",
+            "- Example:\n    ~~~\n  Class: ssrf\n    ~~~\n",
+        ):
+            with self.subTest(example=example):
+                self.assertEqual(_explicit_class(example + "Class: idor\n")[0], "idor")
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)

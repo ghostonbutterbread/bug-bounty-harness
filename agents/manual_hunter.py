@@ -619,18 +619,38 @@ class ClassConflictError(ValueError):
 
 
 def _fenced_lines(text: str) -> set[int]:
-    """Identify CommonMark-style backtick or tilde fenced lines."""
+    """Identify fenced and indented code lines, including list fences."""
     result: set[int] = set()
-    fence: tuple[str, int] | None = None
+    fence: tuple[str, int, int] | None = None
+    list_indent: int | None = None
     for index, line in enumerate(text.splitlines()):
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        expanded = line.expandtabs(4)
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        list_item = re.match(r"^( {0,3})(?:[-+*]|\d{1,9}[.)]) +", expanded)
+        if fence and fence[2] and expanded.strip() and indent < fence[2]:
+            fence = None  # An unclosed fence ends with its list container.
+        if not fence:
+            if list_item:
+                list_indent = list_item.end()
+            elif expanded.strip() and list_indent is not None and indent < list_indent:
+                list_indent = None
+        content_indent = list_indent if list_indent is not None and indent >= list_indent else 0
+        marker = re.match(r"^(`{3,}|~{3,})", expanded[indent:])
+        valid_indent = indent - content_indent <= 3
         if fence:
             result.add(index)
-            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= fence[1] and not line[marker.end():].strip():
+            if (
+                marker and fence[2] <= indent <= fence[2] + 3
+                and marker.group(1)[0] == fence[0]
+                and len(marker.group(1)) >= fence[1]
+                and not expanded[indent + marker.end():].strip()
+            ):
                 fence = None
-        elif marker:
+        elif marker and valid_indent and (marker.group(1)[0] != "`" or "`" not in expanded[indent + marker.end():]):
             result.add(index)
-            fence = (marker.group(1)[0], len(marker.group(1)))
+            fence = (marker.group(1)[0], len(marker.group(1)), content_indent)
+        elif indent >= 4:
+            result.add(index)
     return result
 
 
@@ -648,6 +668,8 @@ def _explicit_class(text: str) -> tuple[str | None, set[int]]:
         value = re.sub(r"^[-*+]\s+", "", value)
         if value.startswith("**") and value.endswith("**") and len(value) >= 4:
             value = value[2:-2].strip()
+        if heading_value and re.fullmatch(r"`[\w][\w./+-]*`", value):
+            value = value[1:-1]
         if not value:
             return
         pattern = r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*)*" if marked else r"[\w][\w./+-]*"
@@ -862,8 +884,8 @@ def parse_finding_text(
     source_path: Path | None = None,
 ) -> ParsedFinding:
     """Parse and validate a note without initializing storage or a ledger."""
-    text = raw_text.replace("\r\n", "\n").strip()
-    if not text:
+    text = raw_text.replace("\r\n", "\n").strip("\n")
+    if not text.strip():
         raise ValueError("finding note is empty")
 
     explicit_class, consumed = _explicit_class(text)

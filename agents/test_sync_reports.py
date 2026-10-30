@@ -32,6 +32,53 @@ def _brain_file(sha1: str) -> dict[str, object]:
 
 
 class TestSyncReports(unittest.TestCase):
+    def test_structured_multi_finding_persists_beta_metadata_without_guesses(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\nClass: idor\nSeverity: HIGH\nScoring Authority: synthetic owner\nSeverity Rationale: owned rationale\nSource: owned source\nSink: owned sink\n### Description\nActual one description.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\nSeverity: LOW\nSource: other source\nBlocked Reason: synthetic prerequisite\n### Description\nActual two description.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        rows = json.loads(ledger.read_text())["findings"]
+        self.assertEqual(len(rows), 2)
+        for row, expected in zip(rows, [
+            ("idor", "Actual one description.", "owned source", "owned sink", "HIGH", "CONFIRMED"),
+            ("unknown", "Actual two description.", "other source", "", "LOW", "DORMANT_ACTIVE"),
+        ]):
+            cls, description, source, sink, severity, tier = expected
+            self.assertEqual((row["class_name"], row["description"], row["impact"], row["source"], row.get("sink", ""), row["severity"], row["review_tier"]),
+                             (cls, description, description, source, sink, severity, tier))
+            self.assertFalse(row.get("scoring_authority"))
+            self.assertFalse(row.get("severity_rationale"))
+
+    def test_second_finding_tier_conflict_rejects_entire_report_before_writes(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\nClass: idor\n### Description\nFirst.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\nReview Tier: CONFIRMED\n### Description\nSecond.\n"
+        )
+        errors = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        self.assertIn("Conflicting Review Tier", errors.getvalue())
+        for ledger in (self.tmp / "storage-root").rglob("ledger.json"):
+            self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+
+    def test_nested_fenced_class_and_tier_metadata_do_not_override_real_values(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\n- Example:\n    ```\n    Class: ssrf\n    Review Tier: DORMANT_ACTIVE\n    ```\nClass: idor\n### Description\nFirst.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\n### Description\nSecond.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        rows = json.loads(ledger.read_text())["findings"]
+        self.assertEqual([(r["class_name"], r["review_tier"]) for r in rows],
+                         [("idor", "CONFIRMED"), ("unknown", "DORMANT_ACTIVE")])
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)

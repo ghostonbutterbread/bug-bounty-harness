@@ -374,12 +374,18 @@ def _candidates_for_file(
     # Validate all class/tier decisions before returning candidates to the writer.
     class_values = [_explicit_class(block)[0] for block in heading_blocks] if explicit_headings else [_explicit_class(raw_text)[0]]
     if explicit_headings:
-        merged = []
-        for record, block, tier in zip(structured, heading_blocks, explicit_headings):
-            # Give the loose parser the already-validated heading decision so
-            # narrative ambiguity cannot discard otherwise valid metadata.
-            flexible = _flexible_findings_for_file(hunter, source_path, f"Review Tier: {tier}\n{block}")
-            merged.append(_merge_single_record(record, flexible[0]) if flexible else record)
+        # Preserve the structured reader's authority for multi-finding reports.
+        # Beta merges a whole-file flexible parse only for a single finding.
+        merged = structured
+        if len(structured) == 1:
+            try:
+                flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+            except InvalidReviewTierError:
+                raise
+            except ReviewTierDecisionRequired:
+                flexible = []
+            if flexible:
+                merged = [_merge_single_record(structured[0], flexible[0])]
     else:
         flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
         if structured and flexible and len(structured) == 1 and len(flexible) == 1:

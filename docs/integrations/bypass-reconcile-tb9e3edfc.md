@@ -1,6 +1,6 @@
 # Bypass reconciliation integration dossier
 
-- **Status:** repair checkpoint; fresh independent review required, candidate only, not release
+- **Status:** independent review APPROVE for exact `350fe366622084d2cafa6a63821d301afc96b9f1`; beta integration gate pending.
 - **Task:** `t_b9e3edfc`, delegated isolated bypass slice
 - **Branch:** `fix/bypass-reconcile-tb9e3edfc-20261029`
 - **Worktree:** `/home/ryushe/worktrees/bbh-bypass-reconcile-tb9e3edfc-20261029`
@@ -56,7 +56,7 @@ Scope policy difference vs beta: beta bypass previously allowed empty saved scop
 
 ## Blockers / handoff
 
-1. Independent review blocked `4bc6207c6c909c48f79265a97a17dfbe6b4c76ac` on text-report labeling and absent race-variant caveats. The latest fix and synthetic tests exist, but **fresh independent review of the exact resulting checkpoint remains mandatory**, including API/schema compatibility, redaction, conservative WAF provenance, and the weak race signal. This blocks any integration.
+1. Independent reviewer APPROVE at exact implementation `350fe366622084d2cafa6a63821d301afc96b9f1` against fetched beta `533e87a28ab684b3206bb1318dfcc1f437dc78fc`; integrated-tree testing and fresh beta check remain mandatory. Prior blocks below are historical.
 2. Mocked client tests do not establish real HTTP/proxy routing semantics, raw proof capture, external API compatibility or runtime activation. Any later integration/activation requires explicit authorization and appropriate synthetic isolated fixture checks; no real target testing is authorized by this task.
 3. Before any separately authorized integration fetch beta again, compare exact base and reconcile if advanced, rerun tests and review the actual resulting diff. Follow repository lifecycle and remove this temporary dossier from the integration target only then.
 
@@ -64,4 +64,8 @@ Scope policy difference vs beta: beta bypass previously allowed empty saved scop
 
 - Owning branch and prior blocked checkpoint: `4bc6207c6c909c48f79265a97a17dfbe6b4c76ac`; inspect `git rev-parse HEAD` on the branch named above for the subsequent repair checkpoint. Git cannot encode its own commit SHA in itself.
 - Resume by reviewing the current branch tip and all changes since base `533e87a28ab684b3206bb1318dfcc1f437dc78fc`; rerun the guarded command above, assess the residual limitations, and request fresh independent review. Inspect clean status and actual HEAD; this dossier cannot contain its own commit SHA.
-- Integration, activation, promotion and closure are all outside this delegation.
+- Earlier delegation excluded integration; the parent has now explicitly authorized a separate conditional beta-only integration gate. Activation, promotion, Hoster and closure remain unauthorized.
+
+## Final independent review decision
+
+- 2026-10-29 — Independent fresh reviewer `deleg_62d71c8c/task-1` **APPROVE** bounded beta-only implementation `350fe366622084d2cafa6a63821d301afc96b9f1` against freshly fetched beta `533e87a28ab684b3206bb1318dfcc1f437dc78fc`; **475 passed, 2 skipped, 10 subtests** under seccomp. CLI/text weak and incomplete race cases had caveats without `[HIT]`; synthetic privacy markers absent; Python/JSON legacy heuristic flags remain. Evidence: `/home/ryushe/.hermes/profiles/bugfix/cache/delegation/live/deleg_62d71c8c/task-1.log` (ephemeral). This dossier-only approval follows the reviewed implementation and does not approve source changes. Remaining gates: fetch exact beta, integrate and rerun suites with dependency provenance and kernel network denial. External API consumers, real proxy/egress/transport and activation are unverified; no stable, Hoster, runtime activation or closure is authorized.

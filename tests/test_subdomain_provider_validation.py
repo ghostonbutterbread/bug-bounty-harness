@@ -137,6 +137,35 @@ def test_run_probe_summary_does_not_call_scope_skips_dead(tmp_path, capsys):
     assert 'Skipped       : 1' in output
 
 
+def test_scope_skipped_probe_makes_mixed_coverage_partial(tmp_path, capsys):
+    class Collector:
+        def __init__(self, *args): self.calls = {}
+        def from_crtsh(self): return {'ok.target.invalid', 'skip.target.invalid'}
+        def from_js_files(self): return set()
+        def from_local_urls(self): return set()
+        def from_mutations(self, names): return set()
+        def is_in_scope(self, url):
+            if 'skip.target.invalid' not in url:
+                return True
+            self.calls[url] = self.calls.get(url, 0) + 1
+            return url.startswith('https:') and self.calls[url] == 1
+
+    calls = []
+    real_client = httpx.AsyncClient
+    def factory(**kwargs):
+        return real_client(transport=httpx.MockTransport(
+            lambda request: calls.append(str(request.url)) or httpx.Response(404, text='not a fingerprint')
+        ), **kwargs)
+    with patch.object(agent, 'SubdomainCollector', Collector), patch.object(agent, 'RECON_BASE', tmp_path), patch.object(agent, '_which', return_value=None), patch.object(agent, 'record_recon_artifacts', None), patch.object(agent.socket, 'getaddrinfo', side_effect=OSError('offline')), patch.object(httpx, 'AsyncClient', side_effect=factory):
+        agent.run('target.invalid', 'test', ['crtsh'], None, 2, False, False, False)
+    coverage = json.loads((tmp_path / 'test/ghost/subdomain/summary.json').read_text())['takeover_coverage']
+    assert calls == ['https://ok.target.invalid', 'https://ok.target.invalid']
+    assert coverage['checked_subdomains'] == ['ok.target.invalid']
+    assert coverage['skipped_subdomains'] == ['skip.target.invalid']
+    assert coverage['status'] == 'partial'
+    assert 'Takeover coverage partial: 1 checked, 0 deferred, 1 skipped, 0 failed' in capsys.readouterr().out
+
+
 def test_run_no_response_is_failed_not_checked(tmp_path):
     class Collector:
         def __init__(self, *a): pass

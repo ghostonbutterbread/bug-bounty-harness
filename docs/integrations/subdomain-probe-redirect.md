@@ -8,7 +8,7 @@
 - **Intended integration target:** `beta` (parent agent owns integration)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `cb9571710b4043dd3c8e0ec17737287eaf58096f` (latest review repair); any subsequent dossier-only commit must also be reviewed.
+- **Latest immutable recovery checkpoint:** `59a6c21e6347b0cd32a97292dff0537461828c68` (pre-repair checkpoint); review the subsequent coverage repair commit and current branch tip.
 - **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`, `cb9571710b4043dd3c8e0ec17737287eaf58096f`
 - **Inspiration / canonical references:** independent synthetic reproduction, `agents/subdomain_agent.py`, HTTPX 0.28.1 redirect semantics, `httpx-redirect-observation`.
 
@@ -33,6 +33,9 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 
 - Latest independent review of `70a2a7e2767e2e4196715b547b8cff706415e6f6` blocked URLScan Unicode/uppercase schemes, failed rechecks printed as checked, and skipped probe stubs counted as probed. Five focused task-owned regressions were observed RED before their fixes; 16 additional malformed/spoofed URL cases guard the authority boundary. Fresh final rerun using the above kernel-filtered fixture and four test files produced **142 passed, 22 subtests passed, 1 pre-existing deprecation warning** (121 original tests plus 21 new cases). The original 121+22 selection separately produced **121 passed, 22 subtests passed, 20 deselected, 1 warning** before the last independent skip-display test; final full rerun covers all originals. Independent scratch `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/review_subdomain_adversarial.py` produced **56 passed**, also separately **53 passed, 3 deselected** and **3 passed, 53 deselected**. Its inherited-kernel-guard test verifies denied socket/connect in a child. Reproduce by substituting that scratch test path for the test-file arguments in the above seccomp command; scratch fixtures may expire and must then be recreated. No network, live data, remote fetch, branch operation, push, or activation was performed in this follow-up by explicit direction. The prior scope-bypass, redirect non-following and deferred takeover tests remain included. A fresh independent review of this new repair is still required.
 
+- Independent review of `59a6c21e6347b0cd32a97292dff0537461828c68` found that a host admitted during aggregation but scope-skipped during probing could be reported as complete when another direct recheck succeeded. A real `run` regression with stateful synthetic scope and HTTPX MockTransport failed RED with `complete` instead of `partial`; the repair classifies any skipped probe result as partial while retaining skipped takeover precedence and the existing distinction for noneligible HTTP responses. The regression also verifies the checked/skipped lists, only the permitted host's two requests, and the CLI coverage line.
+- GREEN verification under the inherited network-denying `bbh-review-seccomp.py` filter: focused categories **9 passed**, including complete, no-eligible, disabled, empty, failed probe, deferred redirect, and skipped probe; the existing four-file suite plus the new regression **143 passed, 22 subtests passed, 1 existing deprecation warning**; independent scratch files `subdomain_independent_fresh_review.py` and `review_subdomain_adversarial.py` **59 passed**, including their child-process seccomp denial checks. Reproduce with the command above, substituting `bbh-review-seccomp.py` for the guard runner, adding `tests/test_subdomain_provider_validation.py` to the four-file suite, or substituting the two scratch test paths. The repair is made on the existing feature branch only; no remote fetch, branch switch, target/data access, push, integration, activation, or closure was performed. A fresh independent review of the repair commit and full branch diff remains required.
+
 ## Blockers and deferred work
 
 - **Missing evidence:** fresh independent review of committed diff and offline test rerun, current beta reconciliation and integrated-tree checks.
@@ -44,7 +47,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `cb9571710b4043dd3c8e0ec17737287eaf58096f` (latest review repair); any subsequent dossier-only commit must also be reviewed.
+- **Latest immutable recovery checkpoint:** `59a6c21e6347b0cd32a97292dff0537461828c68` (pre-repair checkpoint); review the subsequent coverage repair commit and current branch tip.
 - **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`, `cb9571710b4043dd3c8e0ec17737287eaf58096f`
 - **Exact resume point:** independent review of committed branch and parent-owned integration; no push.
 - **Working-tree state at handoff:** intended clean after checkpoint and dossier update.

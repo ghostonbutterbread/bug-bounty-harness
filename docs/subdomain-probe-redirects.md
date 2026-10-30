@@ -27,7 +27,8 @@ previously followed recheck destinations are no longer checked.
 `skipped` when takeover is disabled, `no-eligible` when nothing was eligible,
 `complete` when all eligible direct rechecks finished without failure or
 redirect, and `partial` for deferred redirects, probe/recheck failures, or
-skipped probing of nonempty input. The intermediate output is `unknown`.
+skipped probing of nonempty input, including scope-skipped probes. The intermediate
+output is `unknown`.
 `checked_count`, `deferred_count`, `skipped_count`, `failed_count` and their
 corresponding subdomain lists classify results: checked means a completed direct
 403/404 recheck, deferred means an observed redirect, failed includes status-zero

@@ -1027,7 +1027,7 @@ def run(target: str, program: str, use_apis: list[str],
         print("\n[Phase 5] Takeover check skipped.")
 
     checked = {r.subdomain for r in eligible} - redirect_deferred - takeover_failed
-    status = ('skipped' if skip_takeover else 'partial' if redirect_deferred or takeover_failed or (skip_probe and probe_results) else 'complete' if checked else 'no-eligible')
+    status = ('skipped' if skip_takeover else 'partial' if redirect_deferred or takeover_failed or any(r.source == 'skipped' for r in probe_results) else 'complete' if checked else 'no-eligible')
     coverage = {
         "status": status,
         "checked_count": len(checked),

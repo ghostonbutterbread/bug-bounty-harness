@@ -68,6 +68,100 @@ class TestIngestRoundtrip(unittest.TestCase):
         if self.db_path.exists():
             self.db_path.unlink()
 
+    def test_off_implicitly_never_runs_scope_puller(self):
+        source = TEMP_SHARED / "off-no-pull.txt"
+        source.write_text("https://unknown.example.test/a\n")
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "empty-scopes"), patch.object(
+            M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"
+        ), patch.object(M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")) as run:
+            M.ingest(self.program, source_file=str(source), scope_filter="off")
+        run.assert_not_called()
+        with M.get_conn(self.program) as conn:
+            row = conn.execute(
+                "SELECT urls_accepted, urls_rejected, scope_mode, scope_source "
+                "FROM imports ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(tuple(row), (1, 0, "scope_filter_off", "saved_scope"))
+
+    def test_on_implicitly_pulls_missing_scope_and_rejects_out_of_scope(self):
+        source = TEMP_SHARED / "on-pull.txt"
+        source.write_text("https://in.example.test/a\nhttps://out.example.test/b\n")
+        scopes = TEMP_SHARED / "on-scopes"
+
+        def successful_pull(args, **kwargs):
+            scope = scopes / self.program / "in-scope.txt"
+            scope.parent.mkdir(parents=True, exist_ok=True)
+            scope.write_text("in.example.test\n")
+            return M.subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", scopes), patch.object(
+            M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"
+        ), patch.object(M.subprocess, "run", side_effect=successful_pull) as run:
+            M.ingest(self.program, source_file=str(source), scope_filter="on")
+        self.assertEqual(run.call_count, 1)
+        with M.get_conn(self.program) as conn:
+            row = conn.execute(
+                "SELECT urls_accepted, urls_rejected, scope_mode, scope_source FROM imports"
+            ).fetchone()
+            hosts = [row[0] for row in conn.execute("SELECT host FROM urls")]
+        self.assertEqual(tuple(row), (1, 1, "pulled_scope", "pulled_scope"))
+        self.assertEqual(hosts, ["in.example.test"])
+
+    def test_ingest_repull_options_use_mode_defaults_and_honor_overrides(self):
+        source = TEMP_SHARED / "mode-matrix.txt"
+        source.write_text("https://unknown.example.test/a\n")
+        cases = [
+            ({}, 0, "scope_filter_off", "saved_scope"),
+            ({"scope_filter": "off", "repull_scope": False}, 0, "scope_filter_off", "saved_scope"),
+            ({"scope_filter": "off", "repull_scope": True}, 3, "scope_filter_off", "no_scope_after_pull"),
+            ({"scope_filter": "auto"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "auto", "repull_scope": True}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "auto", "repull_scope": False}, 0, "no_saved_scope", "saved_scope"),
+            ({"scope_filter": "on"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "on", "repull_scope": True}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "on", "repull_scope": False}, 0, "no_saved_scope", "saved_scope"),
+            ({"scope_filter": "unknown"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "OFF"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": None}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+        ]
+        for kwargs, count, mode, origin in cases:
+            with self.subTest(kwargs=kwargs), patch.object(
+                M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "empty-scopes"
+            ), patch.object(M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"), patch.object(
+                M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")
+            ) as run:
+                M.ingest(self.program, source_file=str(source), **kwargs)
+                self.assertEqual(run.call_count, count)
+                if count:
+                    self.assertEqual([call.args[0][-1] for call in run.call_args_list], list(M.PULLSCOPE_PLATFORMS))
+                with M.get_conn(self.program) as conn:
+                    row = conn.execute(
+                        "SELECT urls_accepted, urls_rejected, scope_mode, scope_source "
+                        "FROM imports ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                self.assertEqual(tuple(row), (1, 0, mode, origin))
+
+    def test_ingest_cli_repull_defaults_and_overrides(self):
+        cases = [([], False), (["--scope-filter", "off"], False),
+                 (["--scope-filter", "auto"], True),
+                 (["--scope-filter", "off", "--repull-scope"], True),
+                 (["--scope-filter", "auto", "--no-repull-scope"], False)]
+        for flags, expected in cases:
+            with self.subTest(flags=flags), patch.object(M, "ingest") as ingest, patch.object(
+                sys, "argv", ["url_ingest.py", "ingest", self.program, *flags]
+            ):
+                M.main()
+                self.assertIs(ingest.call_args.kwargs["repull_scope"], expected)
+
+    def test_ingest_cli_rejects_non_cli_scope_modes(self):
+        for mode in ("on", "unknown", "OFF"):
+            with self.subTest(mode=mode), patch.object(M, "ingest") as ingest, patch.object(
+                sys, "argv", ["url_ingest.py", "ingest", self.program, "--scope-filter", mode]
+            ), self.assertRaises(SystemExit) as error:
+                M.main()
+            self.assertEqual(error.exception.code, 2)
+            ingest.assert_not_called()
+
     def test_ingest_dedupes(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
             tf.write("https://api.canva.com/api/v2/widgets?limit=10\n")

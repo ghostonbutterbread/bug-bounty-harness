@@ -196,15 +196,15 @@ class IDORBypass:
 
         results: list[BypassResult] = []
         for (category, payload, url, _), resp in zip(tasks, raw):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 results.append(BypassResult(
                     success=False, vuln_type="idor", technique="id_swap",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 ))
                 continue
 
-            status_change  = resp["status"] == 200 and baseline_status != 200
+            status_change  = baseline_resp is not None and resp["status"] == 200 and baseline_status != 200
             len_diff       = abs(resp["len"] - baseline_len)
             content_diff   = resp["status"] == 200 and len_diff > 50 and baseline_status == 200
             success        = status_change or content_diff
@@ -219,9 +219,10 @@ class IDORBypass:
                 status_code=resp["status"],
                 evidence=resp["text"][:200],
                 note=(
-                    f"baseline={baseline_status}/{baseline_len}b "
-                    f"new={resp['status']}/{resp['len']}b"
+                    (f"baseline={baseline_status}/{baseline_len}b " if baseline_resp is not None
+                     else "baseline unavailable ") + f"new={resp['status']}/{resp['len']}b"
                 ),
+                incomplete=baseline_resp is None,
             ))
         return results
 

@@ -17,9 +17,38 @@ Middleware that wraps all HTTP requests. Auto-detects 13+ WAF types and retries 
 | `await interceptor.apost(path, client=, **kwargs)` | Async POST with WAF auto-bypass |
 | `await interceptor.wrap_async(client, method, url, resp)` | Wrap an already-made async response — zero cost if not blocked |
 | `interceptor.detect_waf(response)` | Returns `{"name", "confidence", "evidence"}` dict or `None` |
-| `interceptor.stats` | Dict: total_requests, waf_blocks, bypass_success, bypass_fail |
+| `interceptor.stats` | Dict: total_requests, observed_responses, client_call_failures, client_call_cancellations, waf_blocks, bypass_success, bypass_fail |
 | `interceptor.print_summary()` | Print human-readable stats |
 | `WAFInterceptor.fingerprint(response)` | Class method — quick WAF name from response, no side effects |
+
+`total_requests` is a compatibility name for interceptor-owned client-call
+attempts, including initial calls and retries that raise before transport. It is
+not a count of actual sends or responses. `wrap_async` excludes its externally
+supplied response and counts only retry calls it makes. `waf_blocks` counts
+initial responses detected as blocks, including wrapped responses, so it does
+not share a denominator with `total_requests`. The old block percentage was
+removed; consumers must not treat the changed count as the previous logical-call
+count. This interceptor's count is separate from the bypass guard's count.
+`observed_responses`, `client_call_failures` and `client_call_cancellations`
+classify completed interceptor-owned calls, not wire sends; a call in progress
+is in `total_requests` but not yet in an outcome count. Cancellation during a
+retry delay is not a client-call cancellation. For a program, `summary.json`
+is initialized at zero and refreshed at attempts and outcomes, including
+failures and cancellations. It is an instance snapshot, not a cumulative or
+multiprocess aggregate: instances sharing a program overwrite the same file.
+The file is ordinary synchronous I/O, not an atomic/crash-durable journal.
+If a `summary.json` open/write/close raises `OSError`, the request still
+proceeds or returns its original response, failure, or cancellation unchanged;
+even when persistence is the only failure it is **not raised**. A sanitized
+warning identifies the summary, numeric errno if available, stale/partial
+snapshot risk, and storage/permission checks without paths or exception text.
+`interceptor.summary_write_failures` counts failed flushes for the instance;
+`interceptor.summary_last_errno` holds the last failure's integer errno or
+`None`, even after a later successful flush. These diagnostics are in memory,
+not a durable audit; logging configuration can suppress warnings. Directory
+creation and the separate block/bypass log writes are not covered by this
+summary-write contract. Consumers requiring durable accounting must check these
+diagnostics and independently resolve the storage failure.
 
 **Detected WAFs:** Akamai, Cloudflare, AWS WAF/CloudFront, Imperva/Incapsula, F5 BIG-IP, Sucuri, Wordfence, ModSecurity, FortiWeb, Citrix NetScaler, DDoS-Guard, PerimeterX, DataDome
 
@@ -237,13 +266,117 @@ python3 bypass_harness.py --target "https://target.com/api"          --type cors
 ### Output
 
 ```
-~/Shared/bounty_recon/{program}/ghost/bypass/
-├── full_sweep_{timestamp}.json   # Full sweep results (hits + misses)
-├── full_sweep_{timestamp}.txt
-├── {type}_{timestamp}.json       # Single-type results
+~/Shared/bounty_recon/{program}/agent_shared/findings/bypass/
+├── full_sweep_{timestamp}.json   # Hits and counts
+├── full_sweep_{timestamp}.txt    # Result entries
+├── {type}_{timestamp}.json       # Single-type hits and counts
 ├── {type}_{timestamp}.txt
-└── summary.json                  # Latest hits only
+└── summary.json                  # Latest hits and counts
 ```
+
+JSON `request_counts` dimensions are not all additive: `generated` counts
+request-guard attempts and explicitly omitted mutations/initial scope denials;
+`client_call_attempts` counts invocations of the underlying client, not proven
+transport dispatch; `observed_responses` counts returned HTTP responses;
+`skipped_scope` and `deferred` count scope denials or omitted mutations;
+`unknown_failures` counts non-scope validation/client exceptions, whose
+transport state may be unknown. WAF retries and baseline/detect calls are
+included. The deprecated `dispatched` key is always `null` in JSON and `None`
+in direct `BypassOrchestrator.request_counts` mapping access because wire
+dispatch is not observable. `request_counts` is now a `RequestCounts` dict,
+not a `Counter`: known dimensions are initialized to zero, unknown indexing
+raises `KeyError`, and Counter arithmetic/default-zero semantics are gone.
+Migrate readers to `client_call_attempts`, which is not proof of a send. `completed`
+aliases `observed_responses`; `errors` aliases `unknown_failures`. Parent task
+cancellation propagates and closes owned clients. An individually cancelled
+`gather` probe is a no-response result (`status_code=0`, cancellation note),
+not an observed response; race reports cancelled burst probes as an aggregate.
+Cancellation of a client call after invocation remains included in attempts,
+but not in responses or `unknown_failures`; transport state is unknown.
+`KeyboardInterrupt` and `SystemExit` are not handled as probe failures. `total`
+and the additive `result_count` count supplied result entries, not tested requests
+or client calls. The summary now includes non-hit entries in that count because
+it is written from all results rather than hits alone; `hits` still contains
+successes only. `result_error_count` may include deferrals, and `execution_errors` can overlap
+request failures. JSON `hits` contains successes only. Results now have an
+additive `incomplete` boolean (default false). A race with a missing baseline,
+or missing, failed or cancelled burst probes, is incomplete. The legacy Python
+`to_line()` renders an incomplete non-hit as `[unknown]` and a heuristic hit
+based on partial observations as `[HIT] [incomplete]`; neither is proof.
+Race notes distinguish observed, no-response, cancelled, and unobserved counts;
+the no-response count includes cancellations. The additive JSON
+`incomplete_results` array includes incomplete hits and non-hits (and can
+overlap `hits`); legacy readers using only `hits` cannot see incomplete
+non-hits. JSON schema version `2` is additive to the previously unversioned
+format: `results` contains every supplied entry, including complete non-hits;
+`hits`, `hit_count`, and `incomplete_results` retain their historical meanings
+and may overlap `results` (do not sum the arrays). Per-result `derived_evidence`
+is null or a validated `type: race` object containing `baseline_status`,
+`status_counts` (JSON string status keys, integer counts), `errors`, and
+`body_variants`; the existing human-readable `evidence` remains. Text reports
+retain the complete safe derived evidence. This adds fields to the Python
+`BypassResult`/`asdict` shape as well as JSON; strict consumers must allow them.
+`success`, `hits`, and `hit_count` denote heuristics, not validated bypasses:
+CORS and race hits are weak observations, race response-variant entries may
+represent the same burst, and incomplete hits are not complete findings. CLI
+and text reports label candidates, weak observations, and incomplete results
+separately and show validation notes; CLI counts entries rather than validated
+bypasses. Text reports, unlike the legacy Python `to_line()`, do not label
+heuristic positives as `[HIT]`. If the 403 or IDOR baseline is unavailable, successful HTTP probe
+responses are retained but comparison results are incomplete/unknown rather
+than a miss or hit. A wildcard ACAO plus `credentials=true` is recorded as a
+non-hit with derived headers because browsers reject credentialed wildcard CORS;
+other public-data exposure requires separate investigation. The Python `run_and_report` tuple retains incomplete non-hits in its
+second, historically named failures list; `success=False` alone is not proof
+of a complete negative. Parent cancellation still propagates without a result.
+
+CORS hits are header-level investigation signals, not established exposure:
+same-origin reflection is not cross-origin access (scheme, hostname, and
+effective port are compared); downgraded or target-subdomain origins have
+unproven control and are incomplete. Even other test origins, null origins,
+credentials, cookies, browser behavior, and response sensitivity need separate
+validation. Only the case-sensitive ACAC literal `true` is classified as
+credentialed; absent, other-case, and other values are not. HTTP status alone
+does not demonstrate data impact.
+
+For HTTPX WAF retries, `response.extensions['bbh_waf_retry']` is a local
+provenance marker. The 403, LFI, RFI, SSRF and redirect reporters now mark
+retried responses incomplete/unknown, suppress a hit and replace the payload
+with `[WAF retry variant unknown]`; a retried 403 baseline cannot establish
+the comparison either. This deliberately sacrifices attribution even for
+unchanged retry variants. URL fields describe the original probe, not a
+replayable retry. Standalone interceptor APIs still return response objects;
+external consumers must interpret retry provenance themselves and must not
+assume the original request produced the returned response. The marker is not
+durable proof of the effective headers, body, path, or payload. It is specific
+to the async HTTPX flow; sync `requests.Response` retries carry the analogous
+`_bbh_waf_retry` attribute. Absence of a marker is not proof of origin for
+third-party wrappers or nonstandard clients. Counters retain their existing client-call semantics.
+
+Race status variance, including 429, is not a race win. Distinct hashes of the
+first 64 characters of successful response bodies remain a weak possible-race
+investigation signal and can reflect ordinary dynamic content; neither a hit nor
+the aggregate proves duplicate state changes. Rate limits and incomplete
+transport observations remain visible, as do derived counts, without raw body
+evidence. Validate state separately with authorized fixtures.
+
+Result URLs and logs suppress query values; request URLs sent to HTTPX are not
+redacted or rewritten by this output projection. The `BypassResult` Python
+contract and text/JSON reports retain status, type, technique, category,
+redacted payload and derived notes but replace raw response-body/header evidence
+with a withholding marker. CORS evidence retains only derived ACAO classification
+(reflected, wildcard, other or absent) and credentials boolean; race evidence
+retains baseline status, status counts, error count and number of body variants.
+Other evidence defaults to withholding. This is an intentional compatibility change: raw
+response snippets are no longer available through these results. No raw response
+artifact is retained by this harness. Recognized credentials, cookies and
+secret-like fields are redacted with the shared evidence redactor and additional
+conservative output masking. This is **not** a guarantee of detecting arbitrary
+secrets in paths, unstructured payloads, notes, program names or other data;
+treat all output as potentially sensitive and review before sharing. Do not use
+these projections as exact replay requests. WAF logs use the same best-effort
+redaction. Access to raw evidence requires a separately authorized protected
+capture workflow, not these reports.
 
 ---
 

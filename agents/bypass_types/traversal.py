@@ -136,11 +136,11 @@ class TraversalBypass:
 
         results: list[BypassResult] = []
         for (category, payload), result in zip(_PAYLOADS, raw):
-            if isinstance(result, Exception):
+            if isinstance(result, (Exception, asyncio.CancelledError)):
                 results.append(BypassResult(
                     success=False, vuln_type="traversal", technique="param_injection",
                     category=category, payload=payload, url=target,
-                    status_code=0, evidence="", note=f"error: {result}",
+                    status_code=0, evidence="", note=f"error: {type(result).__name__}",
                 ))
             else:
                 results.append(result)
@@ -168,7 +168,7 @@ class TraversalBypass:
                 return BypassResult(
                     success=False, vuln_type="traversal", technique="param_injection",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note=f"request_error: {e}",
+                    status_code=0, evidence="", note=f"request_error: {type(e).__name__}",
                 )
 
         matched = next(

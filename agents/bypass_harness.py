@@ -53,7 +53,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urljoin
+from collections import Counter
+from urllib.parse import urlparse, urlsplit, urlunsplit, parse_qs, urlencode, urljoin
 
 import httpx
 
@@ -66,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from agents.rate_limiter import RateLimiter
 from agents.scope_validator import ScopeValidator
 from agents.waf_interceptor import WAFInterceptor
+from agents.bypass_redaction import safe_text
 
 # ---------------------------------------------------------------------------
 # Shared result type (re-exported from bypass_types for consumers)
@@ -290,6 +292,163 @@ class _null_cm:
     async def __aexit__(self, *_): pass
 
 
+def _reject_url_userinfo(url):
+    """Validate with HTTPX before output; never rewrite the supplied URL."""
+    from urllib.parse import unquote
+    try:
+        raw = str(url)
+        actual = httpx.URL(raw)
+        parsed = urlsplit(raw)
+        decoded = parsed.netloc
+        # Unquote until stable. Each successful decoding shortens the string.
+        while True:
+            decoded_next = unquote(decoded)
+            if decoded_next == decoded:
+                break
+            decoded = decoded_next
+        if '@' in decoded or decoded.count(':') != parsed.netloc.count(':'):
+            raise ValueError
+        if parsed.scheme.lower() not in ('http', 'https') or not parsed.netloc:
+            raise ValueError
+        if (not actual.host or actual.userinfo
+                or any(c.isspace() for c in parsed.netloc)
+                or any(ord(c) < 32 or ord(c) == 127 for c in raw)):
+            raise ValueError
+        _ = parsed.port
+    except (ValueError, httpx.InvalidURL, UnicodeError):
+        pass
+    else:
+        return
+    raise ValueError("invalid target URL or unsupported credentials")
+
+
+class _ScopeDeferred(httpx.RequestError):
+    """A guard decision, distinct from an actual request or validator error."""
+
+
+class RequestCounts(dict):
+    """Guard/client observations; wire dispatch is not observable here."""
+
+    def __init__(self):
+        super().__init__({key: 0 for key in (
+            'generated', 'client_call_attempts', 'observed_responses',
+            'skipped_scope', 'deferred', 'unknown_failures', 'completed', 'errors',
+        )})
+        self['dispatched'] = None
+
+
+class _ScopedClient:
+    """Guard cooperating in-repository scanners, not arbitrary Python code."""
+
+    _HOST_HEADERS = frozenset({'host', 'x-host', 'x-forwarded-host', 'x-original-host'})
+    _REWRITE_HEADERS = frozenset({'x-original-url', 'x-rewrite-url'})
+    _UNCERTAIN_HEADERS = frozenset({
+        'forwarded', 'x-real-ip', 'x-originating-ip', 'cf-connecting-ip',
+        'true-client-ip', 'x-client-ip', 'x-proxyuser-ip', 'client-ip',
+        'x-custom-ip-authorization', 'x-custom-ip-access', 'x-original-uri',
+    })
+
+    def __init__(self, client, check_scope, *, enforce_headers=True, deferred=None, counts=None):
+        self._client = client
+        self._check_scope = check_scope
+        self._enforce_headers = enforce_headers
+        self._deferred = deferred if deferred is not None else Counter()
+        self._counts = counts if counts is not None else RequestCounts()
+
+    def _deny(self, reason):
+        self._deferred[reason] += 1
+        self._counts['skipped_scope' if 'outside saved scope' in reason else 'deferred'] += 1
+        raise _ScopeDeferred(f"scope deferred: {reason}")
+
+    def _check_headers(self, url, headers):
+        parsed = urlsplit(str(url))
+        items = httpx.Headers(headers or {}).multi_items()
+        seen = set()
+        for name, value in items:
+            if name in seen and (name in self._HOST_HEADERS or name in self._REWRITE_HEADERS
+                                 or name.startswith('x-forwarded-') or name in self._UNCERTAIN_HEADERS):
+                self._deny('duplicate routing header')
+            seen.add(name)
+            if name in self._HOST_HEADERS:
+                # Exact same authority only: arbitrary proxy host semantics and
+                # cross-origin combinations are not inferred from a grant.
+                if value.lower() != parsed.netloc.lower():
+                    self._deny('host override is not the request authority')
+            elif name in self._REWRITE_HEADERS:
+                # Only simple origin-form paths have a predictable interpretation.
+                if (not re.fullmatch(r'/[A-Za-z0-9_~./-]*', value)
+                        or '//' in value or any(p in ('.', '..') for p in value.split('/'))):
+                    self._deny('ambiguous rewrite header')
+                effective = urlunsplit((parsed.scheme, parsed.netloc, value, '', ''))
+                if not self._check_scope(effective) or not self._check_scope(str(httpx.URL(effective))):
+                    self._deny('rewrite resource outside saved scope')
+                if value != (parsed.path or '/'):
+                    self._deny('different rewrite path has uncertain routing semantics')
+            elif name == 'x-forwarded-proto':
+                if value != parsed.scheme:
+                    self._deny('forwarded scheme differs from request')
+            elif name == 'x-forwarded-port':
+                if value != str(parsed.port or (443 if parsed.scheme == 'https' else 80)):
+                    self._deny('forwarded port differs from request')
+            elif name in self._UNCERTAIN_HEADERS or name.startswith('x-forwarded-'):
+                self._deny('forwarding semantics not proven safe')
+
+    async def request(self, method, url, **kwargs):
+        self._counts['generated'] += 1
+        # Check both the spelling supplied by the generator and HTTPX's parsed
+        # destination; HTTPX can remove dot segments while building a request.
+        error_type = ''
+        try:
+            _reject_url_userinfo(url)
+            if not self._check_scope(str(url)) or not self._check_scope(str(httpx.URL(url))):
+                self._deny('request URL outside saved scope')
+            if self._enforce_headers:
+                self._check_headers(url, kwargs.get('headers'))
+        except _ScopeDeferred:
+            raise
+        except Exception as exc:
+            self._counts['errors'] += 1
+            self._counts['unknown_failures'] += 1
+            error_type = type(exc).__name__
+            if isinstance(exc, UnicodeError):
+                safe_class = RuntimeError
+            elif isinstance(exc, ValueError):
+                safe_class = ValueError
+            elif isinstance(exc, OSError):
+                safe_class = OSError
+            else:
+                safe_class = RuntimeError
+        else:
+            safe_class = None
+        if safe_class is not None:
+            raise safe_class(f"request validation failed: {error_type}")
+        # A call to HTTPX may still fail before it reaches the transport.
+        kwargs["follow_redirects"] = False
+        self._counts['client_call_attempts'] += 1
+
+        try:
+            response = await self._client.request(method, url, **kwargs)
+        except Exception as exc:
+            self._counts['errors'] += 1
+            self._counts['unknown_failures'] += 1
+            error_type = type(exc).__name__
+        else:
+            self._counts['completed'] += 1
+            self._counts['observed_responses'] += 1
+            return response
+        # Raise outside the handler so the original exception is not attached.
+        raise httpx.RequestError(f"client request failed: {error_type}")
+
+    async def get(self, url, **kwargs):
+        return await self.request("GET", url, **kwargs)
+
+    async def post(self, url, **kwargs):
+        return await self.request("POST", url, **kwargs)
+
+    async def options(self, url, **kwargs):
+        return await self.request("OPTIONS", url, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # BypassOrchestrator
 # ---------------------------------------------------------------------------
@@ -329,6 +488,9 @@ class BypassOrchestrator:
         self.concurrency = concurrency
         self.verbose     = verbose
         self.program     = program
+        self.deferred: Counter[str] = Counter()
+        self.request_counts = RequestCounts()
+        self.execution_errors = 0
         self._limiter    = RateLimiter(requests_per_second=rps, burst=min(int(rps * 3), 30))
         self._scope: Optional[ScopeValidator] = None
         if program:
@@ -338,17 +500,23 @@ class BypassOrchestrator:
 
     def _log(self, msg: str) -> None:
         if self.verbose:
-            print(f"[bypass] {msg}", flush=True)
+            print(f"[bypass] {safe_text(msg)}", flush=True)
 
     def _check_scope(self, url: str) -> bool:
+        _reject_url_userinfo(url)
         if self._scope is None:
             return True
-        if self._scope.is_empty():
-            return True
-        ok = self._scope.is_in_scope(url)
-        if not ok:
-            self._log(f"OUT OF SCOPE: {url}")
-        return ok
+        try:
+            ok = self._scope.is_in_scope(url)
+        except OSError:
+            safe_error = OSError("scope validation failed")
+        except Exception as exc:
+            safe_error = RuntimeError(f"scope validation failed: {type(exc).__name__}")
+        else:
+            if not ok:
+                self._log("OUT OF SCOPE: request rejected")
+            return ok
+        raise safe_error
 
     # ── Full sweep ────────────────────────────────────────────────────────────
 
@@ -359,6 +527,8 @@ class BypassOrchestrator:
     ) -> AsyncIterator[BypassResult]:
         """Run ALL bypass modules in parallel and yield every result."""
         if not self._check_scope(target):
+            self.request_counts['generated'] += 1
+            self.request_counts['skipped_scope'] += 1
             yield BypassResult(
                 success=False, vuln_type="sweep", technique="scope_check",
                 category="scope", payload=target, url=target,
@@ -373,12 +543,24 @@ class BypassOrchestrator:
             verify=False,
             headers={"User-Agent": self.USER_AGENT},
         ) as client:
+            client = _ScopedClient(client, self._check_scope,
+                                   enforce_headers=self.program is not None,
+                                   deferred=self.deferred, counts=self.request_counts)
             # Run detect() on each module first
             detect_coros = [
                 cls().detect(target, client, self._limiter)
                 for cls in ALL_MODULES
             ]
             detected = await asyncio.gather(*detect_coros, return_exceptions=True)
+
+            for cls, outcome in zip(ALL_MODULES, detected):
+                if isinstance(outcome, (Exception, asyncio.CancelledError)):
+                    self.execution_errors += 1
+                    yield BypassResult(
+                        success=False, vuln_type=cls().name.lower(), technique="detect_error",
+                        category="error", payload="", url=target, status_code=0,
+                        evidence="", note=f"detect error: {type(outcome).__name__}",
+                    )
 
             # For each module, run scan() (we run all regardless of detect()
             # result — detect() is advisory, scan() is authoritative)
@@ -404,11 +586,12 @@ class BypassOrchestrator:
 
             # Yield module results
             for mod_name, results in zip(module_names, scan_results):
-                if isinstance(results, Exception):
+                if isinstance(results, (Exception, asyncio.CancelledError)):
+                    self.execution_errors += 1
                     yield BypassResult(
                         success=False, vuln_type=mod_name.lower(), technique="module_error",
                         category="error", payload="", url=target,
-                        status_code=0, evidence="", note=f"module error: {results}",
+                        status_code=0, evidence="", note=f"module error: {type(results).__name__}",
                     )
                 else:
                     for r in results:
@@ -428,6 +611,8 @@ class BypassOrchestrator:
     ) -> AsyncIterator[BypassResult]:
         """Dispatch to the right scanner for a single bypass type."""
         if not self._check_scope(target):
+            self.request_counts['generated'] += 1
+            self.request_counts['skipped_scope'] += 1
             yield BypassResult(
                 success=False, vuln_type=vuln_type, technique="scope_check",
                 category="scope", payload=target, url=target,
@@ -442,6 +627,9 @@ class BypassOrchestrator:
             verify=False,
             headers={"User-Agent": self.USER_AGENT},
         ) as client:
+            client = _ScopedClient(client, self._check_scope,
+                                   enforce_headers=self.program is not None,
+                                   deferred=self.deferred, counts=self.request_counts)
 
             # New bypass_types modules
             if vuln_type in self._MODULE_TYPES:
@@ -538,8 +726,8 @@ class BypassOrchestrator:
 
     def _get_waf(self, target: str) -> WAFInterceptor:
         """Return a WAFInterceptor scoped to this target (lazy init / reuse)."""
-        parsed = httpx.URL(target)
-        origin = f"{parsed.scheme}://{parsed.host}"
+        parsed = urlsplit(target)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
         if self._waf is None or self._waf.target != origin:
             self._waf = WAFInterceptor(
                 target=origin,
@@ -568,7 +756,7 @@ class BypassOrchestrator:
                     resp = await waf.wrap_async(client, method, url, resp, headers=headers or {})
                     return resp
             except httpx.RequestError as e:
-                self._log(f"Request error {url}: {e}")
+                self._log(f"Request error: {type(e).__name__}")
                 return None
 
     async def _get_payload(
@@ -587,7 +775,7 @@ class BypassOrchestrator:
                     self._limiter.adapt_to_response(resp)
                     return resp
             except httpx.RequestError as e:
-                self._log(f"Request error {url}: {e}")
+                self._log(f"Request error: {type(e).__name__}")
                 return None
 
     # ── 403 bypass ───────────────────────────────────────────────────────────
@@ -595,24 +783,41 @@ class BypassOrchestrator:
     async def _run_403(
         self, target: str, client: httpx.AsyncClient, sem: asyncio.Semaphore
     ) -> AsyncIterator[BypassResult]:
-        parsed = httpx.URL(target)
-        base = str(parsed.copy_with(path="", query="", fragment=""))
-        path = str(parsed.path) or "/"
-        segment = path.split("/")[-1] if "/" in path else path
+        parsed = urlsplit(target)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        path = parsed.path or "/"  # urlsplit retains percent-encoded path bytes
+        before_fragment = target.split('#', 1)[0]
+        query = '?' + before_fragment.split('?', 1)[1] if '?' in before_fragment else ''
+        segment = path.split("/")[-1]
 
         baseline_resp = await self._get(client, target, semaphore=sem)
-        baseline = baseline_resp.status_code if baseline_resp else 0
-        self._log(f"403 baseline: {target} → {baseline}")
+        baseline_unknown = baseline_resp is None or baseline_resp.extensions.get('bbh_waf_retry', False)
+        baseline = baseline_resp.status_code if not baseline_unknown else 0
+        self._log(f"403 baseline: {safe_text(target)} → {baseline}")
 
         tasks = []
-        for headers in _403_HEADER_PAYLOADS:
+        for headers in _403_HEADER_PAYLOADS + [
+            {"X-Original-URL": path}, {"X-Rewrite-URL": path},
+            {"X-Forwarded-Host": parsed.netloc},
+        ]:
             tasks.append(("header_injection", str(headers), target, headers, "GET"))
         for suffix in _403_PATH_SUFFIXES:
-            variant = base + path.rstrip("/") + suffix
+            # A fragment never reaches HTTP; a second '?' alters an existing query.
+            # An empty-query delimiter without an existing query is a distinct
+            # HTTPX request target and still passes the ordinary scope guard.
+            if suffix == '#' or (suffix == '?' and query):
+                self.deferred['path delimiter mutation changes query semantics'] += 1
+                self.request_counts['generated'] += 1
+                self.request_counts['deferred'] += 1
+                continue
+            variant = base + path.rstrip("/") + suffix + query
             tasks.append(("path_manipulation", suffix, variant, {}, "GET"))
-        tasks.append(("case_variation", path.upper(), base + path.upper(), {}, "GET"))
+        # Never alter hexadecimal digits within an encoded byte.
+        upper_path = ''.join(part if part.startswith('%') else part.upper()
+                             for part in re.split(r'(%[0-9a-fA-F]{2})', path))
+        tasks.append(("case_variation", upper_path, base + upper_path + query, {}, "GET"))
         for prefix in _403_PATH_PREFIXES:
-            variant = base + prefix + "/" + segment
+            variant = base + prefix + "/" + segment + query
             tasks.append(("path_prefix", prefix, variant, {}, "GET"))
         for method in _403_METHODS:
             tasks.append(("method_switch", method, target, {}, method))
@@ -627,16 +832,21 @@ class BypassOrchestrator:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (tech, payload, url, h, m), resp in zip(tasks, results):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)):
+                self.execution_errors += 1
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 yield BypassResult(
                     success=False, vuln_type="403", technique=tech, category="403_bypass",
-                    payload=payload, url=url, status_code=0, evidence="", note="request_error",
+                    payload=payload, url=url, status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
                 continue
-            success = resp.status_code in (200, 201, 204) and baseline in (403, 401)
+            retry = resp.extensions.get('bbh_waf_retry', False)
+            success = not retry and resp.status_code in (200, 201, 204) and baseline in (403, 401)
             yield BypassResult(
                 success=success, vuln_type="403", technique=tech, category="403_bypass",
-                payload=payload, url=url, status_code=resp.status_code, evidence=resp.text[:200],
+                payload='[WAF retry variant unknown]' if retry else payload, url=url, status_code=resp.status_code, evidence=resp.text[:200],
+                note="WAF retry response; effective variant unknown" if retry else ("baseline unavailable or WAF retry; comparison unknown" if baseline_unknown else ""),
+                incomplete=bool(baseline_unknown or retry),
             )
 
     # ── LFI bypass ───────────────────────────────────────────────────────────
@@ -655,12 +865,17 @@ class BypassOrchestrator:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, payload, url), resp in zip(tasks, results):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)):
+                self.execution_errors += 1
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 yield BypassResult(
                     success=False, vuln_type="lfi", technique="param_injection",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('lfi', category, payload, url, resp)
                 continue
             matched = next((p for p in _LFI_CONFIRM_PATTERNS if p in resp.text), None)
             yield BypassResult(
@@ -686,12 +901,17 @@ class BypassOrchestrator:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, payload, url), resp in zip(tasks, results):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)):
+                self.execution_errors += 1
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 yield BypassResult(
                     success=False, vuln_type="rfi", technique="param_injection",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('rfi', category, payload, url, resp)
                 continue
             matched = next((p for p in _RFI_CONFIRM_PATTERNS if p.lower() in resp.text.lower()), None)
             yield BypassResult(
@@ -717,12 +937,17 @@ class BypassOrchestrator:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, payload, url), resp in zip(tasks, results):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)):
+                self.execution_errors += 1
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 yield BypassResult(
                     success=False, vuln_type="ssrf", technique="param_injection",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('ssrf', category, payload, url, resp)
                 continue
             combined = resp.text + " ".join(f"{k}: {v}" for k, v in resp.headers.items())
             matched = next(
@@ -753,12 +978,17 @@ class BypassOrchestrator:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, payload, url), resp in zip(tasks, results):
-            if isinstance(resp, Exception) or resp is None:
+            if isinstance(resp, (Exception, asyncio.CancelledError)):
+                self.execution_errors += 1
+            if isinstance(resp, (Exception, asyncio.CancelledError)) or resp is None:
                 yield BypassResult(
                     success=False, vuln_type="redirect", technique="param_injection",
                     category=category, payload=payload, url=url,
-                    status_code=0, evidence="", note="request_error",
+                    status_code=0, evidence="", note="error: CancelledError" if isinstance(resp, asyncio.CancelledError) else "request_error",
                 )
+                continue
+            if resp.extensions.get('bbh_waf_retry', False):
+                yield _unknown_retry_result('redirect', category, payload, url, resp)
                 continue
             location = resp.headers.get("location", "")
             header_hit = resp.status_code in (301, 302, 303, 307, 308) and _EVIL_DOMAIN in location
@@ -775,6 +1005,13 @@ class BypassOrchestrator:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _unknown_retry_result(vuln_type, category, payload, url, response):
+    return BypassResult(success=False, vuln_type=vuln_type, technique='param_injection',
+                        category=category, payload='[WAF retry variant unknown]', url=url,
+                        status_code=response.status_code, evidence='', incomplete=True,
+                        note='WAF retry response; effective variant unknown')
+
 
 def _guess_param(url: str) -> Optional[str]:
     qs = parse_qs(urlparse(url).query)
@@ -807,29 +1044,67 @@ def _output_dir(program: Optional[str], custom_dir: Optional[str]) -> Path:
 def _write_report(path: Path, results: list[BypassResult], target: str, vuln_type: str) -> None:
     with open(path, "w") as f:
         f.write(f"# Bypass Harness Report\n")
-        f.write(f"# Target:    {target}\n")
+        f.write(f"# Target:    {safe_text(target)}\n")
         f.write(f"# Type:      {vuln_type}\n")
-        f.write(f"# Count:     {len(results)}\n\n")
+        f.write(f"# Count:     {len(results)}\n")
+        f.write("# These are result entries, not validated bypasses; independent validation is required.\n\n")
         for r in results:
-            f.write(r.to_line() + "\n")
-            if r.note:
-                f.write(f"  note: {r.note}\n")
+            f.write(_display_result(r) + "\n")
             if r.evidence:
-                f.write(f"  evidence: {r.evidence[:120]!r}\n")
+                f.write(f"  evidence: {r.evidence!r}\n")
             f.write("\n")
 
 
-def _write_json(path: Path, results: list[BypassResult], target: str, vuln_type: str) -> None:
+def _result_error_count(results: list[BypassResult]) -> int:
+    return sum(1 for result in results if result.category == 'error' or
+               result.note.startswith(('error:', 'request_error', 'module error:', 'detect error:')))
+
+
+def _write_json(path: Path, results: list[BypassResult], target: str, vuln_type: str,
+                deferred: Optional[dict[str, int]] = None,
+                counts: Optional[dict[str, int]] = None, execution_errors: int = 0) -> None:
+    request_counts = {key: (counts or {}).get(key, 0) for key in
+                      ('generated', 'client_call_attempts', 'observed_responses',
+                       'skipped_scope', 'deferred', 'unknown_failures',
+                       'completed', 'errors')}
+    # Wire dispatch is not observable at this boundary. Retain the legacy key
+    # as null so existing readers cannot mistake client invocation for a send.
+    request_counts['dispatched'] = None
     payload = {
-        "target":    target,
+        "target":    safe_text(target),
         "type":      vuln_type,
         "timestamp": datetime.utcnow().isoformat(),
+        "schema_version": 2,
+        "results":   [asdict(r) for r in results],
         "hits":      [asdict(r) for r in results if r.success],
+        "incomplete_results": [asdict(r) for r in results if r.incomplete],
         "total":     len(results),
+        "result_count": len(results),
+        "result_error_count": _result_error_count(results),
+        "request_counts": request_counts,
+        "execution_errors": execution_errors,
         "hit_count": sum(1 for r in results if r.success),
+        "deferred_requests_by_reason": dict(deferred or {}),
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
+
+
+def _display_result(result: BypassResult) -> str:
+    """Label heuristic result entries without asserting a validated bypass."""
+    if result.incomplete or result.status_code == 0:
+        label = 'INCOMPLETE'
+    elif result.vuln_type in ('cors', 'race') and result.success:
+        label = 'WEAK OBSERVATION'
+    elif result.success:
+        label = 'CANDIDATE'
+    else:
+        label = 'MISS'
+    line = result.to_line().split(' ', 1)[1]
+    note = f"\n  note: {result.note}" if result.note else ''
+    if result.vuln_type == 'race' and result.success and 'validate state changes' not in result.note.lower():
+        note += '\n  validation: validate state changes and dynamic content; body variance is not proof'
+    return f'[{label}] {line}{note}'
 
 
 async def run_and_report(
@@ -845,6 +1120,7 @@ async def run_and_report(
     quiet: bool = False,
 ) -> tuple[list[BypassResult], list[BypassResult]]:
     """Run all techniques and write reports. Returns (successes, failures)."""
+    _reject_url_userinfo(target)
     orchestrator = BypassOrchestrator(
         timeout=timeout, concurrency=concurrency,
         rps=rps, verbose=verbose, program=program,
@@ -864,31 +1140,42 @@ async def run_and_report(
         total += 1
         if result.success:
             successes.append(result)
-            print(f"\033[92m[HIT]\033[0m {result.to_line()}", flush=True)
         else:
             failures.append(result)
-            if not quiet:
-                print(f"[miss] {result.to_line()}", flush=True)
+        if result.success or result.incomplete or result.status_code == 0 or not quiet:
+            print(_display_result(result), flush=True)
 
     out = _output_dir(program, output_dir)
     ts  = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     if vuln_type == "sweep":
-        _write_json(out / f"full_sweep_{ts}.json",   successes + failures, target, vuln_type)
+        _write_json(out / f"full_sweep_{ts}.json",   successes + failures, target, vuln_type, orchestrator.deferred, orchestrator.request_counts, orchestrator.execution_errors)
         _write_report(out / f"full_sweep_{ts}.txt",  successes + failures, target, vuln_type)
     else:
-        _write_json(out / f"{vuln_type}_{ts}.json",  successes + failures, target, vuln_type)
+        _write_json(out / f"{vuln_type}_{ts}.json",  successes + failures, target, vuln_type, orchestrator.deferred, orchestrator.request_counts, orchestrator.execution_errors)
         _write_report(out / f"{vuln_type}_{ts}.txt", successes + failures, target, vuln_type)
 
     # Always update summary.json
-    _write_json(out / "summary.json", successes, target, vuln_type)
+    _write_json(out / "summary.json", successes + failures, target, vuln_type, orchestrator.deferred, orchestrator.request_counts, orchestrator.execution_errors)
 
-    print(f"\n[*] Tested {total} techniques → {len(successes)} HIT, {len(failures)} miss", flush=True)
+    if orchestrator.deferred:
+        print(f"[*] Deferred request attempts/mutations by reason: {dict(orchestrator.deferred)}", flush=True)
+
+    counts = orchestrator.request_counts
+    print(f"\n[*] Client-call attempts {counts['client_call_attempts']}; "
+          f"observed HTTP responses {counts['observed_responses']}; "
+          f"generated {counts['generated']}; skipped by scope {counts['skipped_scope']}; "
+          f"deferred {counts['deferred']}; unknown request failures {counts['unknown_failures']}", flush=True)
+    all_results = successes + failures
+    weak = sum(r.success and not r.incomplete and r.status_code != 0 and r.vuln_type in ('cors', 'race') for r in all_results)
+    candidates = sum(r.success and not r.incomplete and r.status_code != 0 and r.vuln_type not in ('cors', 'race') for r in all_results)
+    incomplete = sum(r.incomplete or r.status_code == 0 for r in all_results)
+    print(f"[*] Results: {total} entries; {candidates} candidates, {weak} weak observations, "
+          f"{incomplete} incomplete, {total - candidates - weak - incomplete} other non-hits (includes errors/deferrals)", flush=True)
+    print("[*] These are result entries, not validated bypasses; independent validation is required.", flush=True)
+    print(f"[*] Error-labelled result entries: {_result_error_count(all_results)} (may include deferrals)", flush=True)
+    print(f"[*] Unhandled task/detect/scan execution errors: {orchestrator.execution_errors}", flush=True)
     print(f"[*] Reports written to: {out}", flush=True)
-    if successes:
-        print(f"\n\033[92m[+] SUCCESSFUL BYPASSES ({len(successes)}):\033[0m")
-        for r in successes:
-            print(f"    {r.to_line()}")
 
     return successes, failures
 
@@ -933,7 +1220,7 @@ Examples:
         help="Bypass type (default: sweep = run all)",
     )
     p.add_argument("--param",       "-p",              help="Parameter name to inject into")
-    p.add_argument("--program",                        help="Bug bounty program slug (scope + output dir)")
+    p.add_argument("--program",                        help="Program slug; require saved scope grants for targets (also selects output dir)")
     p.add_argument("--output-dir",  "-o",              help="Output directory override")
     p.add_argument("--timeout",     type=int, default=10,  help="Request timeout seconds (default: 10)")
     p.add_argument("--concurrency", "-c", type=int, default=10, help="Max parallel requests (default: 10)")
@@ -947,12 +1234,17 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    try:
+        _reject_url_userinfo(args.target)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     mode = "FULL SWEEP" if args.type == "sweep" else args.type.upper()
     print(f"[*] Bypass Meta-Harness", flush=True)
-    print(f"[*] Target:  {args.target}", flush=True)
+    print(f"[*] Target:  {safe_text(args.target)}", flush=True)
     print(f"[*] Mode:    {mode}", flush=True)
     if args.param:
-        print(f"[*] Param:   {args.param}", flush=True)
+        print(f"[*] Param:   {safe_text(args.param)}", flush=True)
     if args.program:
         print(f"[*] Program: {args.program}", flush=True)
     print(flush=True)

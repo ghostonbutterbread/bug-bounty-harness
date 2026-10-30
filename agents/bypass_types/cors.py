@@ -9,9 +9,8 @@ Tests for common CORS misconfigurations:
   - Pre-domain injection (evil.target.com)
   - HTTP downgrade (http: origin on https: target)
 
-Findings:
-  - Access-Control-Allow-Origin reflects attacker origin + ACAO-Credentials: true → exploitable
-  - ACAO: * — no credentials, but useful for info disclosure
+Findings describe CORS header observations, not proven browser access or impact.
+Origin control, credentials and sensitive response contents require validation.
 """
 
 import asyncio
@@ -21,6 +20,7 @@ from urllib.parse import urlparse
 import httpx
 
 from . import BypassResult
+from agents.bypass_redaction import CORSEvidence
 
 try:
     from scope_validator import ScopeValidator
@@ -113,11 +113,11 @@ class CORSBypass:
         probe_results = await asyncio.gather(*coros, return_exceptions=True)
 
         for (category, origin), result in zip(origins, probe_results):
-            if isinstance(result, Exception):
+            if isinstance(result, (Exception, asyncio.CancelledError)):
                 results.append(BypassResult(
                     success=False, vuln_type="cors", technique="origin_header",
                     category=category, payload=origin, url=target,
-                    status_code=0, evidence="", note=f"error: {result}",
+                    status_code=0, evidence="", note=f"error: {type(result).__name__}",
                 ))
             else:
                 results.append(result)
@@ -145,37 +145,57 @@ class CORSBypass:
                 return BypassResult(
                     success=False, vuln_type="cors", technique="origin_header",
                     category=category, payload=origin, url=target,
-                    status_code=0, evidence="", note=f"request_error: {e}",
+                    status_code=0, evidence="", note=f"request_error: {type(e).__name__}",
                 )
 
         acao = resp.headers.get("access-control-allow-origin", "")
-        acac = resp.headers.get("access-control-allow-credentials", "").lower()
+        acac = resp.headers.get("access-control-allow-credentials", "")
 
-        # Exploitable: reflected origin (not wildcard) + credentials: true
+        # Origin equality includes default ports and case-insensitive hostnames.
+        def origin_key(value):
+            try:
+                p = urlparse(value)
+                if p.scheme.lower() not in ('http', 'https') or not p.hostname:
+                    return None
+                host = httpx.URL(value).raw_host.decode('ascii').lower()
+                port = p.port if p.port is not None else (443 if p.scheme.lower() == 'https' else 80)
+                return (p.scheme.lower(), host, port)
+            except (ValueError, UnicodeError, httpx.InvalidURL):
+                return None
+
         reflected = acao == origin or (origin == "null" and acao == "null")
         wildcard  = acao == "*"
         creds     = acac == "true"
+        target_key, probe_key = origin_key(target), origin_key(origin)
+        same_origin = target_key is not None and target_key == probe_key
+        cross_origin = origin == 'null' or (target_key is not None and probe_key is not None and not same_origin)
 
-        if reflected and creds:
+        conditional = category in {'http_downgrade', 'evil_subdomain', 'pre_domain'}
+        incomplete = False
+        if reflected and same_origin:
+            success = False
+            note = "same-origin ACAO; no cross-origin access demonstrated"
+        elif reflected and cross_origin and conditional:
+            success = False
+            incomplete = True
+            note = "cross-origin ACAO observed; validate origin control, browser access and sensitive data"
+        elif reflected and cross_origin and creds:
             success = True
-            note = "EXPLOITABLE: reflected origin + credentials=true → CSRF/data theft possible"
+            note = "cross-origin ACAO with credentials=true; validate origin control, browser access and sensitive data"
         elif wildcard and creds:
-            # Per spec this is invalid but some servers do it
+            success = False
+            note = "wildcard ACAO with credentials=true: browsers reject credentialed access"
+        elif reflected and cross_origin:
             success = True
-            note = "EXPLOITABLE: wildcard ACAO + credentials=true (misconfigured)"
-        elif reflected:
-            success = True
-            note = f"origin reflected in ACAO (no credentials header) — info-disclosure"
+            note = "cross-origin ACAO without credentials; validate browser access and sensitive data"
         elif wildcard:
             success = False
-            note = "ACAO: * (no credentials) — low impact"
+            note = "ACAO: * (no credentials); validate accessible data and impact"
         else:
             success = False
             note = ""
 
-        evidence = (
-            f"ACAO: {acao!r} | ACAC: {acac!r} | HTTP {resp.status_code}"
-        )
+        evidence = CORSEvidence(reflected, wildcard, bool(acao), creds)
         return BypassResult(
             success=success,
             vuln_type="cors",
@@ -186,4 +206,5 @@ class CORSBypass:
             status_code=resp.status_code,
             evidence=evidence,
             note=note,
+            incomplete=incomplete,
         )

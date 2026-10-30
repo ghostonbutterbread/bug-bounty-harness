@@ -4,7 +4,7 @@ Race condition / TOCTOU bypass module.
 Sends the same request N times simultaneously using asyncio and looks for
 inconsistent responses that indicate a race window:
 
-  - Status code variance: some requests return 200, others 400/429
+  - Status code variance: some requests return 200, others 400/429 (not proof)
   - Response body differences: balance/count changes between parallel responses
   - Duplicate-action success: e.g., gift card redeemed twice
 
@@ -19,7 +19,8 @@ How it works:
   1. Capture baseline (one request)
   2. Send RACE_COUNT identical requests concurrently in a single asyncio gather
   3. Analyse variance in status codes and response bodies
-  4. Flag if: >1 unique status code OR >1 unique response body (when not trivially different)
+  4. Flag distinct successful response bodies as a weak investigation signal;
+     dynamic content and status differences do not prove a race or state change.
 """
 
 import asyncio
@@ -30,6 +31,7 @@ from typing import Optional
 import httpx
 
 from . import BypassResult
+from agents.bypass_redaction import RaceEvidence
 
 try:
     from scope_validator import ScopeValidator
@@ -136,13 +138,21 @@ class RaceBypass:
 
         good = [r for r in responses if isinstance(r, dict) and r is not None]
         errors = len(responses) - len(good)
+        cancelled = sum(isinstance(r, asyncio.CancelledError) for r in responses)
+        missing = max(0, RACE_COUNT - len(responses))
+        incomplete = bool(errors or missing or not baseline)
+        observation_note = (f"burst observed={len(good)}/{RACE_COUNT}; "
+                            f"no response={errors}; cancelled={cancelled}; "
+                            f"unobserved={missing}; baseline={'observed' if baseline else 'unknown'}")
 
         if not good:
             results.append(BypassResult(
                 success=False, vuln_type="race", technique="concurrent_burst",
                 category="race_condition", payload=f"{method}×{RACE_COUNT}",
-                url=target, status_code=0, evidence="",
-                note=f"all {RACE_COUNT} requests failed",
+                url=target, status_code=0,
+                evidence=RaceEvidence(baseline["status"] if baseline else None, {}, errors, 0),
+                note=f"all {len(responses)} probes had no response; {observation_note}",
+                incomplete=True,
             ))
             return results
 
@@ -155,28 +165,23 @@ class RaceBypass:
         status_variance = len(status_counts) > 1
         body_variance   = len(hash_counts) > 1
 
-        # Success-variance: some 200, some non-200 (classic race win)
-        has_200      = 200 in status_counts or 201 in status_counts
-        has_non_2xx  = any(s >= 400 for s in status_counts)
-        mixed_status = has_200 and has_non_2xx
-
-        success = mixed_status or (body_variance and has_200)
-
-        evidence_lines = [f"Baseline: HTTP {baseline_status}"]
-        evidence_lines.append(f"Race results ({len(good)}/{RACE_COUNT} ok, {errors} errors):")
-        for status, count in sorted(status_counts.items()):
-            evidence_lines.append(f"  HTTP {status}: {count}×")
-        if body_variance:
-            evidence_lines.append(f"  Body variants: {len(hash_counts)} unique responses")
-
+        # Status variance alone (especially 429) is not a race win. Distinct
+        # successful body hashes are a weak investigation signal, not proof of
+        # duplicated state changes; ordinary dynamic content can also vary.
+        successful_hashes = {r['hash'] for r in good if 200 <= r['status'] < 300}
+        success = len(successful_hashes) > 1
         note = ""
-        if mixed_status:
-            note = "RACE WIN: mixed success/failure → possible duplicate-action exploitation"
+        if success:
+            note = "Distinct successful response bodies under load; possible race signal, validate state changes and dynamic content"
+        elif 429 in status_counts:
+            note = "Rate-limit response observed; status variance does not establish a race"
         elif body_variance:
-            note = "Body variance under concurrent load → investigate for data races"
+            note = "Body variance under load; no race established"
         elif status_variance:
             note = f"Status variance: {dict(status_counts)}"
 
+        if incomplete:
+            note = f"{note}; incomplete: {observation_note}".strip('; ')
         results.append(BypassResult(
             success=success,
             vuln_type="race",
@@ -185,15 +190,16 @@ class RaceBypass:
             payload=f"{method}×{RACE_COUNT}",
             url=target,
             status_code=max(status_counts, key=status_counts.get),
-            evidence=" | ".join(evidence_lines),
+            evidence=RaceEvidence(baseline_status, dict(status_counts), errors, len(hash_counts)),
             note=note,
+            incomplete=incomplete,
         ))
 
         # Individual hit records for each unique response variant
         if success and body_variance:
             seen = set()
             for r in good:
-                if r["hash"] not in seen:
+                if 200 <= r['status'] < 300 and r["hash"] not in seen:
                     seen.add(r["hash"])
                     results.append(BypassResult(
                         success=True,
@@ -205,6 +211,7 @@ class RaceBypass:
                         status_code=r["status"],
                         evidence=r["text"][:200],
                         note="unique response body observed during race",
+                        incomplete=incomplete,
                     ))
 
         return results

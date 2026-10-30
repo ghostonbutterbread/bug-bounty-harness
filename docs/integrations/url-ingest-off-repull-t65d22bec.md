@@ -1,6 +1,6 @@
 # URL Ingest off-mode repull integration dossier
 
-- **Status:** feature; prior review blocked, fresh independent review pending
+- **Status:** independently approved for beta integration only; integrated verification pending
 - **Owner:** task t_65d22bec (PC-20261029-204345-fed8ef44)
 - **Branch:** `fix/url-ingest-off-repull-t65d22bec`
 - **Worktree:** `/home/ryushe/worktrees/bbh-url-ingest-off-repull-t65d22bec`
@@ -27,25 +27,27 @@
 - Independent reviewer blocked `68fa1cd`: API `on` with missing scope and a successful pull was silently skipped, adopting both synthetic URLs instead of filtering. New `test_on_implicitly_pulls_missing_scope_and_rejects_out_of_scope` failed on `68fa1cd` (zero calls, 2 accepted) and passes after the fix (one mocked call, 1 accepted / 1 rejected; DB contains only in-scope host). The reviewer comparison confirms base and fixed feature both pull and filter for `on`.
 - Re-run after fix: 40 passed, 22 subtests (URL Ingest plus portable import paths), under the same verified seccomp/subprocess guard and normal SQLite durability. The reviewer's 36-case beta/feature matrix, with its obsolete `on` expectation corrected, plus its successful-pull comparison: 37 passed, one intentional old-off-red case deselected. Matrix covers saved/missing scope, off/auto/on, omitted/true/false overrides, failed pulls and recorded provenance. Additional suite subtests cover unknown/uppercase/None API modes and CLI rejection of unsupported modes. Inputs and mocked scope are synthetic only; no live target.
 - Base fixture hash matches `git show f8a38fe:agents/url_ingest.py` SHA-256 `aa756575371400ee4ef170d7b56a7b217393894bdbc105a43ccad3a09e7f5827`; guarded tests confirmed feature import resolves to this worktree. Review matrix: `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/bbh-release-gate-t65d22bec/test_independent.py` (ephemeral). Command: replace test path in wrapper above, append `-k 'not old_off_expected_red'`.
-- Prior independent review: BLOCK at `68fa1cd`; fresh independent review of the updated committed tip is pending parent. No fresh beta fetch in this network-denied batch; `origin/beta` local ref remains `f8a38fe`, not evidence of current remote.
+- Prior independent review: BLOCK at `68fa1cd`; corrected in `0999bfc7264a6953cbcdedc0b3725e313b18b686`.
+- Fresh independent review APPROVE beta-only at exact implementation tip `0999bfc7264a6953cbcdedc0b3725e313b18b686`, against freshly fetched beta `f8a38feedc2326175bc216cb5ce3ec8f794f5c69`. Reviewer reran 40 tests + 22 subtests, the 36-case matrix plus successful-pull check, and 15 additional checks under verified network and process denial with normal SQLite durability. Review receipt: `/home/ryushe/.hermes/profiles/bugfix/cache/delegation/live/deleg_50a8786c/task-0.log` (ephemeral). The release integrator independently fetched the same beta and inspected the code diff. Existing missing-scope unfiltered fallback and explicit repulls remain intentional.
 
 ## Blockers and deferred work
 
-- Independent review and current-beta reconciliation are required before integration. Parent owns these gates. Re-fetch `origin/beta`, inspect the feature diff, rerun the guarded URL Ingest suite on the reviewed source and resolve any divergence. No live network/target testing is requested.
+- Integrated-tree guarded suite, matrix, provenance and clean-diff checks are required before publishing beta. Stop on drift, conflicts or unexpected failures. No live network/target testing is requested.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/url-ingest-off-repull-t65d22bec`
 - **Prior immutable recovery checkpoint:** `68fa1cded1db957bb53e991007a31ae74ed78c1e`; subsequent fix is in the commit carrying this dossier.
 - **Feature implementation commit(s):** `44ee6803a4354959c506a649633915e5626f7271`
-- **Exact resume point:** review the feature diff and guarded test evidence; parent handles review and integration.
+- **Exact resume point:** fetch reviewed feature including this dossier-only decision commit into the designated clean beta clone, merge without committing, remove this new dossier, rerun guarded integrated checks, then publish only if every gate passes.
 - **Working-tree state at handoff:** clean after the dossier checkpoint commit; verify with `git status`.
 
 ## Decision gates
 
-- **Integration:** parent review, fresh beta and guarded tests; remove this branch-local dossier during integration.
+- **Integration:** reviewed beta-only; fresh beta and guarded integrated tests required; remove this branch-local dossier during integration.
 - **Activation / promotion:** not authorized or attempted in this task.
 
 ## Decision record
 
 - 2026-10-29 — reproduced API-only discrepancy on freshly fetched beta; implemented and locally verified the narrowly scoped fix.
+- 2026-10-29 — independent review approved exact feature `0999bfc7264a6953cbcdedc0b3725e313b18b686` for beta only; integration remains subject to current-beta and integrated verification gates.

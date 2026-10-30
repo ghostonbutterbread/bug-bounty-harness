@@ -614,6 +614,10 @@ def _infer_sink(note: dict[str, Any]) -> str:
     return _derive_title(text, fallback="manual finding")
 
 
+class ClassConflictError(ValueError):
+    """Explicit class values disagree and require an operator decision."""
+
+
 class ReviewTierDecisionRequired(ValueError):
     """A note must explicitly select a tier before it can be imported."""
 
@@ -791,9 +795,29 @@ def parse_finding_text(
     narrative_lines: list[str] = []
     current_key: str | None = None
     heading = ""
+    awaiting_class = False
+
+    def set_class(value: str) -> None:
+        candidate = _normalize_class(value)
+        previous = _normalize_class(parsed.get("class_name"))
+        if candidate and previous and candidate != previous:
+            raise ClassConflictError("Conflicting Class values; supply one consistent explicit Class.")
+        if candidate:
+            parsed["class_name"] = value
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
+        if re.match(r"^\s*#{1,6}\s+class\s*#*\s*$", line, re.IGNORECASE):
+            awaiting_class = True
+            current_key = None
+            continue
+        if awaiting_class:
+            if not line.strip():
+                continue
+            awaiting_class = False
+            if not FIELD_RE.match(line) and not re.match(r"^\s*#{1,6}\s", line):
+                set_class(line.strip())
+                continue
         if not heading and not current_key and re.match(r"^\s*#\s+\S", line):
             heading = _derive_title(line, first_line_only=True)
         match = FIELD_RE.match(line)
@@ -814,7 +838,10 @@ def parse_finding_text(
                         raise ReviewTierDecisionRequired(
                             "Conflicting Review Tier fields; supply one explicit decision."
                         )
-                parsed[key] = value
+                if key == "class_name":
+                    set_class(value)
+                else:
+                    parsed[key] = value
                 current_key = key if key in MULTILINE_FIELDS else None
                 continue
         if current_key and line.strip():

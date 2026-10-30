@@ -60,6 +60,40 @@ class TestSyncReports(unittest.TestCase):
             ),
         )
 
+    def test_conflicting_class_is_not_downgraded_by_sync_fallback(self):
+        text = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\nClass: idor\n## Class\ndom-xss\n"
+        self.report_path.write_text(text, encoding="utf-8")
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            _flexible_findings_for_file(hunter, self.report_path, text)
+        errors = io.StringIO()
+        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        write.assert_not_called()
+        self.assertIn("Conflicting Class", errors.getvalue())
+
+    def test_structured_distinct_classes_are_not_a_conflict_across_findings(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nClass: idor\n### Description\nOwned first.\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: dom-xss\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+        self.assertEqual([c["class_name"] for c in candidates], ["idor", "dom-xss"])
+
+    def test_structured_class_conflict_inside_one_finding_is_rejected(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nClass: idor\n### Description\nOwned first.\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: dom-xss\n"
+            "## Class\nssrf\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+
     def test_ambiguous_tier_is_skipped_without_loose_fallback(self):
         text = (
             "Title: Cross-account record read\n"

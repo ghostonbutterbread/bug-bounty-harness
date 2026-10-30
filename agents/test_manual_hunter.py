@@ -131,6 +131,98 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
 
+    def test_class_heading_links_existing_synthetic_finding(self) -> None:
+        note = self.tmp / "synthetic-duplicate.md"
+        common = (
+            "Title: Synthetic record access\nType: Synthetic record access\n"
+            "File: src/access.py\nReview Tier: CONFIRMED\n"
+            "Description: Owned fixture returned a record. DOM XSS was not observed.\n"
+        )
+        note.write_text(common + "Class: broken-access-control\n", encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        note.write_text(common + "## Class\nbroken-access-control\n", encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main([self.program, "--lane", "apk", "--from-file", str(note), "--link-duplicate-comment"])
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("Linked duplicate note to D01", out.getvalue())
+        ledger = json.loads(self._ledger_path().read_text(encoding="utf-8"))
+        self.assertEqual([(f["fid"], f["class_name"]) for f in ledger["findings"]], [("D01", "broken-access-control")])
+        comments = (self._storage().ledgers_root / "manual_comments.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(json.loads(comments[0])["fid"], "D01")
+        self.assertIn("## Class\nbroken-access-control", json.loads(comments[0])["raw_note"])
+
+    def test_conflicting_explicit_class_values_fail_before_storage(self) -> None:
+        note = self.tmp / "conflicting-class.md"
+        common = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\n"
+        for fields in (
+            "Class: idor\nClass: dom-xss\n",
+            "Class: idor\n## Class\ndom-xss\n",
+            "## Class\nidor\nClass: dom-xss\n",
+            "## Class\nidor\n## Class\ndom-xss\n",
+        ):
+            with self.subTest(fields=fields):
+                note.write_text(common + fields, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "[Cc]onflicting.*[Cc]lass.*one"):
+                    main([self.program, "--lane", "apk", "--from-file", str(note)])
+                self.assertFalse(self._ledger_path().exists())
+
+    def test_class_heading_and_field_variants_follow_existing_normalization(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        common = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\n"
+        for field in (
+            "Class: Broken_Access Control\n", "**Class:** Broken_Access Control\n",
+            "**Class**: Broken_Access Control\n", "- Class: Broken_Access Control\n",
+            "## Class\nBroken_Access Control\n", "### CLASS ###\n\nBroken_Access Control\n",
+            "Class: Broken_Access Control\n## Class\nbroken-access-control\n",
+            "Class: Broken_Access Control\nClass:\n",
+        ):
+            with self.subTest(field=field), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(common + field, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "broken-access-control")
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
+
+    def test_class_heading_consumes_only_one_value_line(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        note = (
+            "Title: Synthetic access\nFile: src/access.py\n"
+            "Description: First line.\nSecond line.\n## Class\nunknown-custom\n"
+            "Follow-up prose is not part of the class.\nImpact: Owned fixture impact.\n"
+        )
+        finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "unknown-custom")
+        self.assertEqual(finding["description"], "First line.\nSecond line.")
+        self.assertIn("Follow-up prose is not part of the class.", finding["review_notes"])
+        self.assertEqual(finding["impact"], "Owned fixture impact.")
+        self.assertFalse(finding["class_inferred"])
+
+    def test_empty_or_malformed_class_heading_preserves_inference_warning(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        for field in ("Class:\n", "## Class\n", "## Class\nFile: src/access.py\n", "## Class\n## Other\n"):
+            with self.subTest(field=field), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                note = "Title: Synthetic access\nFile: src/access.py\nDescription: DOM XSS was not observed.\n" + field
+                finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "dom-xss")
+                self.assertTrue(finding["class_inferred"])
+                self.assertIn("no 'Class:'", warning.getvalue())
+
+    def test_unknown_explicit_class_is_not_rejected_or_inferred(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        for value in ("unknown", "custom/v1", "!? malformed"):
+            with self.subTest(value=value), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                note = "File: src/access.py\nDescription: DOM XSS was not observed.\nClass: " + value
+                finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], value.replace(" ", "-"))
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
+
     def test_from_file_markdown_class_is_stored_without_bold_markers(self) -> None:
         note = self.tmp / "markdown-class.md"
         note.write_text(

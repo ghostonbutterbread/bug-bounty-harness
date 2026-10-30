@@ -20,6 +20,7 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     FIELD_ALIASES,
+    ClassConflictError,
     FIELD_RE,
     InvalidReviewTierError,
     ManualHunter,
@@ -174,8 +175,8 @@ def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str) -> 
     findings: list[FindingRecord] = []
     try:
         parsed = hunter.parse_text(text, source_label=str(path), source_path=path)
-    except ReviewTierDecisionRequired:
-        raise  # Never downgrade an ambiguous or invalid tier via the loose importer.
+    except (ReviewTierDecisionRequired, ClassConflictError):
+        raise  # Never downgrade an explicit decision conflict via the loose importer.
     except ValueError:
         loose = _loose_markdown_fallback(text, path)
         if loose:
@@ -365,6 +366,20 @@ def _candidates_for_file(
             explicit_headings.append(tier)
     try:
         flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+    except ClassConflictError:
+        if len(structured) <= 1 or len(heading_blocks) != len(structured):
+            raise
+        # A whole-file parse sees multiple findings as one. Check each block
+        # separately so different findings may have different classes, while a
+        # conflict inside any one finding still stops the import.
+        for block in heading_blocks:
+            try:
+                hunter.parse_text(block, source_label=str(source_path), source_path=source_path)
+            except ClassConflictError:
+                raise
+            except ValueError:
+                pass  # Structured parsing owns the remaining per-block fields.
+        flexible = []
     except InvalidReviewTierError:
         raise
     except ReviewTierDecisionRequired:
@@ -676,12 +691,17 @@ def main(argv: list[str] | None = None) -> int:
     imported_fids: list[str] = []
     skipped_fids: list[str] = []
     review_tier_errors: list[Path] = []
+    class_conflicts: list[Path] = []
     fid_collisions: list[tuple[Path, str]] = []
     chain_lines: list[str] = []
 
     for report_path in report_files:
         try:
             candidates = _candidates_for_file(program, hunt_type, hunter, report_path)
+        except ClassConflictError as exc:
+            class_conflicts.append(report_path)
+            print(f"[sync_reports] skipped {report_path}: {exc}", file=sys.stderr)
+            continue
         except ReviewTierDecisionRequired as exc:
             review_tier_errors.append(report_path)
             print(f"[sync_reports] skipped {report_path}: {exc}", file=sys.stderr)
@@ -744,6 +764,8 @@ def main(argv: list[str] | None = None) -> int:
     print(_format_summary_count("Skipped", len(skipped_fids), "duplicates", duplicate_summary))
     if review_tier_errors:
         print(f"  Review-tier decisions required: {len(review_tier_errors)}")
+    if class_conflicts:
+        print(f"  Class decisions required: {len(class_conflicts)}")
     if fid_collisions:
         print(_format_summary_count(
             "FID collisions", len(fid_collisions), "report needs manual reconciliation",
@@ -751,7 +773,7 @@ def main(argv: list[str] | None = None) -> int:
         ))
     if chain_lines:
         print(f"  Chain suggestions: {'; '.join(chain_lines)}")
-    return 1 if (review_tier_errors or fid_collisions) else 0
+    return 1 if (review_tier_errors or class_conflicts or fid_collisions) else 0
 
 
 if __name__ == "__main__":

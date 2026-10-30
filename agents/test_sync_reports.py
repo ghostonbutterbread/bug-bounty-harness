@@ -32,6 +32,122 @@ def _brain_file(sha1: str) -> dict[str, object]:
 
 
 class TestSyncReports(unittest.TestCase):
+    def test_list_class_unknown_and_alias_persist_per_finding(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\n+ **Class:** unknown\n"
+            "1. Discovered During Class Pass: unknown\n### Description\nDOM XSS was not observed.\n"
+            "## [CONFIRMED] Two\nFile: src/b.py\n- Outer\n    2) **Class: Broken_Access Control**\n"
+            "    + Class: broken-access-control\n    - ```\n      Class: ssrf\n      ```\n"
+            "### Description\nOwned fixture.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        rows = json.loads(next((self.tmp / "storage-root").rglob("ledger.json")).read_text())["findings"]
+        self.assertEqual([row["class_name"] for row in rows], ["unknown", "broken-access-control"])
+
+    def test_list_class_conflict_in_second_finding_rejects_before_writes(self):
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker):
+                self.report_path.write_text(
+                    "## [CONFIRMED] First\nFile: src/a.py\nClass: idor\n### Description\nFirst.\n"
+                    "## [CONFIRMED] Second\nFile: src/b.py\nClass: idor\n" + marker + " Class: ssrf\n### Description\nSecond.\n"
+                )
+                root = self.tmp / ("storage-" + marker.replace(".", "dot").replace(")", "paren"))
+                with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+                    rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=root)
+                self.assertEqual(rc, 1)
+                self.assertIn("Conflicting Class", errors.getvalue())
+                for ledger in root.rglob("ledger.json"):
+                    self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+                self.assertFalse(list(root.rglob("EVIDENCE.md")))
+                reports = resolve_storage("synthetic_program", family="binaries", lane="apk", root_override=root, create=False).reports_root
+                self.assertFalse(list(reports.rglob("*.md")))
+
+    def test_list_item_fence_before_class_imports_synthetic_ledger(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] Finding\nFile: src/a.py\nSeverity: HIGH\nSource: origin\n"
+            "- ```\n  Class: ssrf\n  ```\nClass: idor\n### Description\nFixture.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        row = json.loads(next((self.tmp / "storage-root").rglob("ledger.json")).read_text())["findings"][0]
+        self.assertEqual((row["class_name"], row["file"], row["severity"], row["source"]), ("idor", "src/a.py", "HIGH", "origin"))
+
+    def test_single_finding_class_ignores_report_prelude(self):
+        self.report_path.write_text(
+            "Class: prelude-class\nClass: another-prelude-class\nSource: prelude source\n\n"
+            "## [CONFIRMED] Finding\nFile: src/a.py\nClass: finding-class\n"
+            "### Description\nFixture.\n"
+        )
+        errors = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        row = json.loads(ledger.read_text())["findings"][0]
+        self.assertEqual((row["file"], row["class_name"], row["source"]), ("src/a.py", "finding-class", "prelude source"))
+
+    def test_single_finding_does_not_infer_class_from_prelude_or_quoted_code(self):
+        self.report_path.write_text(
+            "Class: ssrf\n\n## [CONFIRMED] Finding\nFile: src/a.py\n"
+            "### Description\nFixture.\n> > ```\n> > Class: ssrf\n> > ```\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        self.assertEqual(json.loads(ledger.read_text())["findings"][0]["class_name"], "unknown")
+
+    def test_structured_multi_finding_persists_beta_metadata_without_guesses(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\nClass: idor\nSeverity: HIGH\nScoring Authority: synthetic owner\nSeverity Rationale: owned rationale\nSource: owned source\nSink: owned sink\n### Description\nActual one description.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\nSeverity: LOW\nSource: other source\nBlocked Reason: synthetic prerequisite\n### Description\nActual two description.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        rows = json.loads(ledger.read_text())["findings"]
+        self.assertEqual(len(rows), 2)
+        for row, expected in zip(rows, [
+            ("idor", "Actual one description.", "owned source", "owned sink", "HIGH", "CONFIRMED"),
+            ("unknown", "Actual two description.", "other source", "", "LOW", "DORMANT_ACTIVE"),
+        ]):
+            cls, description, source, sink, severity, tier = expected
+            self.assertEqual((row["class_name"], row["description"], row["impact"], row["source"], row.get("sink", ""), row["severity"], row["review_tier"]),
+                             (cls, description, description, source, sink, severity, tier))
+            self.assertFalse(row.get("scoring_authority"))
+            self.assertFalse(row.get("severity_rationale"))
+
+    def test_second_finding_tier_conflict_rejects_entire_report_before_writes(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\nClass: idor\n### Description\nFirst.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\nReview Tier: CONFIRMED\n### Description\nSecond.\n"
+        )
+        errors = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        self.assertIn("Conflicting Review Tier", errors.getvalue())
+        for ledger in (self.tmp / "storage-root").rglob("ledger.json"):
+            self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+
+    def test_nested_fenced_class_and_tier_metadata_do_not_override_real_values(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\n- Example:\n    ```\n    Class: ssrf\n    Review Tier: DORMANT_ACTIVE\n    ```\nClass: idor\n### Description\nFirst.\n"
+            "## [DORMANT_ACTIVE] Two\nFile: src/b.py\nClass: unknown\n### Description\nSecond.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        rows = json.loads(ledger.read_text())["findings"]
+        self.assertEqual([(r["class_name"], r["review_tier"]) for r in rows],
+                         [("idor", "CONFIRMED"), ("unknown", "DORMANT_ACTIVE")])
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
@@ -59,6 +175,120 @@ class TestSyncReports(unittest.TestCase):
                 ledgers_root=self.tmp / "ledgers",
             ),
         )
+
+    def test_conflicting_class_is_not_downgraded_by_sync_fallback(self):
+        text = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\nClass: idor\n## Class\ndom-xss\n"
+        self.report_path.write_text(text, encoding="utf-8")
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            _flexible_findings_for_file(hunter, self.report_path, text)
+        errors = io.StringIO()
+        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        write.assert_not_called()
+        self.assertIn("Conflicting Class", errors.getvalue())
+
+    def test_mixed_tiers_do_not_hide_class_conflict_or_write_first_finding(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nReview Tier: CONFIRMED\nClass: idor\n### Description\nOwned first.\n"
+            "## [DORMANT_ACTIVE] Second\nFile: src/second.py\nReview Tier: DORMANT_ACTIVE\nClass: idor\nClass: ssrf\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        errors = io.StringIO()
+        with redirect_stderr(errors), redirect_stdout(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        self.assertIn("Conflicting Class", errors.getvalue())
+        ledgers = list((self.tmp / "storage-root").rglob("ledger.json"))
+        for ledger in ledgers:
+            self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+        self.assertFalse(list((self.tmp / "storage-root").rglob("EVIDENCE.md")))
+
+    def test_separate_report_failure_does_not_roll_back_earlier_report(self):
+        self.report_path.rename(self.source_dir / "a.md")
+        (self.source_dir / "a.md").write_text("Title: First\nFile: src/first.py\nDescription: Owned fixture.\nClass: unknown\n")
+        (self.source_dir / "b.md").write_text("Title: Second\nFile: src/second.py\nDescription: Owned fixture.\nClass: idor\nClass: ssrf\n")
+        errors, output = io.StringIO(), io.StringIO()
+        with redirect_stderr(errors), redirect_stdout(output):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 1)
+        self.assertIn("Conflicting Class", errors.getvalue())
+        ledgers = list((self.tmp / "storage-root").rglob("ledger.json"))
+        self.assertEqual(len(ledgers), 1)
+        rows = json.loads(ledgers[0].read_text())["findings"]
+        self.assertEqual([(r["file"], r["class_name"]) for r in rows], [("src/first.py", "unknown")])
+
+    def test_sync_rejects_fenced_class_example_and_uses_local_block_inference(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\n### Description\nOwned fixture.\n"
+            "```\nClass: ssrf\n```\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: dom-xss\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+        self.assertEqual(candidates[0]["class_name"], "unknown")
+        self.assertEqual(candidates[1]["class_name"], "dom-xss")
+
+    def test_fenced_structured_heading_is_not_a_new_finding(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nClass: idor\n### Description\nOwned fixture.\n"
+            "```md\n## [CONFIRMED] Example\nFile: src/fake.py\nClass: ssrf\n### Description\nExample only.\n```\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: custom\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+        self.assertEqual([(c["file"], c["class_name"]) for c in candidates], [("src/first.py", "idor"), ("src/second.py", "custom")])
+
+    def test_structured_block_preserves_flexible_metadata(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/a.py\nClass: idor\n"
+            "Impact: Synthetic impact.\nRemediation: Synthetic fix.\n### Description\nOwned fixture.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidate = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)[0]
+        self.assertEqual(candidate["impact"], "Synthetic impact.")
+        # Preserve beta's single-finding flexible multiline metadata behavior.
+        self.assertEqual(candidate["remediation"], "Synthetic fix.\n### Description\nOwned fixture.")
+
+    def test_structured_headings_and_unknown_are_preserved_per_finding(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\n### Class\nunknown\n### Description\nOwned DOM XSS fixture.\n"
+            "## [DORMANT_ACTIVE] Second\nFile: src/second.py\n### Class\ncustom-v1\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+        self.assertEqual([c["class_name"] for c in candidates], ["unknown", "custom-v1"])
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0)
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        self.assertEqual([r["class_name"] for r in json.loads(ledger.read_text())["findings"]], ["unknown", "custom-v1"])
+
+    def test_structured_distinct_classes_are_not_a_conflict_across_findings(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nClass: idor\n### Description\nOwned first.\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: dom-xss\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
+        self.assertEqual([c["class_name"] for c in candidates], ["idor", "dom-xss"])
+
+    def test_structured_class_conflict_inside_one_finding_is_rejected(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First\nFile: src/first.py\nClass: idor\n### Description\nOwned first.\n"
+            "## [CONFIRMED] Second\nFile: src/second.py\nClass: dom-xss\n"
+            "## Class\nssrf\n### Description\nOwned second.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("synthetic_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            _candidates_for_file("synthetic_program", "apk", hunter, self.report_path)
 
     def test_ambiguous_tier_is_skipped_without_loose_fallback(self):
         text = (

@@ -614,6 +614,133 @@ def _infer_sink(note: dict[str, Any]) -> str:
     return _derive_title(text, fallback="manual finding")
 
 
+class ClassConflictError(ValueError):
+    """Explicit class values disagree or a heading value is ambiguous."""
+
+
+def _fenced_lines(text: str) -> set[int]:
+    """Identify fenced and indented code, including list and quote fences."""
+    result: set[int] = set()
+    fence: tuple[str, int, int, int] | None = None
+    list_indents: list[int] = []
+    list_quote_depth = 0
+    for index, line in enumerate(text.splitlines()):
+        expanded = line.expandtabs(4)
+        quote_depth = 0
+        while match := re.match(r"^ {0,3}> ?", expanded):
+            quote_depth += 1
+            expanded = expanded[match.end():]
+        if fence and quote_depth < fence[3]:
+            fence = None  # An unclosed fence ends with its quote container.
+        if not fence and quote_depth != list_quote_depth:
+            list_indents.clear()
+            list_quote_depth = quote_depth
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        if fence and fence[2] and expanded.strip() and indent < fence[2]:
+            fence = None  # An unclosed fence ends with its list container.
+        list_item = None
+        if not fence:
+            if expanded.strip():
+                while list_indents and indent < list_indents[-1]:
+                    list_indents.pop()
+            base = list_indents[-1] if list_indents else 0
+            candidate = re.match(r"^ *(?:[-+*]|\d{1,9}[.)]) +", expanded)
+            if candidate and indent - base <= 3:
+                list_item = candidate
+                list_indents.append(candidate.end())
+        content_indent = list_indents[-1] if list_indents else 0
+        marker_offset = list_item.end() if list_item else indent
+        marker = re.match(r"^(`{3,}|~{3,})", expanded[marker_offset:])
+        valid_indent = marker_offset - content_indent <= 3
+        if fence:
+            result.add(index)
+            if (
+                marker and quote_depth == fence[3] and fence[2] <= indent <= fence[2] + 3
+                and marker.group(1)[0] == fence[0]
+                and len(marker.group(1)) >= fence[1]
+                and not expanded[indent + marker.end():].strip()
+            ):
+                fence = None
+        elif marker and valid_indent and (marker.group(1)[0] != "`" or "`" not in expanded[marker_offset + marker.end():]):
+            result.add(index)
+            fence = (marker.group(1)[0], len(marker.group(1)), content_indent, quote_depth)
+        elif indent - content_indent >= 4:
+            result.add(index)
+    return result
+
+
+def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, set[int]]:
+    """Extract class declarations outside fences; return consumed line indexes."""
+    found: str | None = None
+    consumed: set[int] = set()
+    awaiting = False
+    fenced = _fenced_lines(text)
+
+    def add(value: str, *, heading_value: bool = False) -> None:
+        nonlocal found
+        value = value.strip()
+        marked = bool(re.match(r"^[-*+]\s+", value)) or (value.startswith("**") and value.endswith("**"))
+        value = re.sub(r"^[-*+]\s+", "", value)
+        if value.startswith("**") and value.endswith("**") and len(value) >= 4:
+            value = value[2:-2].strip()
+        if heading_value and re.fullmatch(r"`[\w][\w./+-]*`", value):
+            value = value[1:-1]
+        if not value:
+            return
+        pattern = r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*)*" if marked else r"[\w][\w./+-]*"
+        if heading_value and not re.fullmatch(pattern, value):
+            raise ClassConflictError("Ambiguous Class heading value; use an explicit 'Class: <value>' field.")
+        candidate = _normalize_class(value)
+        if found and candidate != found:
+            raise ClassConflictError("Conflicting Class values; supply one consistent explicit Class.")
+        found = candidate
+
+    for index, line in enumerate(text.splitlines()):
+        if index == decision_start:
+            awaiting = False
+        if index in fenced:
+            awaiting = False
+            continue
+        heading = re.match(r"^ {0,3}#{1,6}\s+(?:\*\*)?class(?:\*\*)?(?:\s*:\s*(.*?))?\s*#*\s*$", line, re.I)
+        if heading:
+            consumed.add(index)
+            value = heading.group(1)
+            awaiting = not value
+            if value and index >= decision_start:
+                add(value, heading_value=True)
+            continue
+        field_line = line
+        field = FIELD_RE.match(field_line)
+        if not field:
+            # Broaden only class declarations; other fields retain their parser contract.
+            field_line = re.sub(r"^(\s*)(?:\+|\d{1,9}[.)])\s+", r"\1- ", line)
+            alternate = FIELD_RE.match(field_line)
+            if alternate and alternate.group("label").strip().lower().replace("-", " ") in {"class", "discovered during class pass"}:
+                field = alternate
+        if awaiting:
+            if not line.strip():
+                consumed.add(index)
+                continue
+            awaiting = False
+            if not field and not re.match(r"^\s*#{1,6}\s", line):
+                consumed.add(index)
+                if index >= decision_start:
+                    add(line, heading_value=True)
+                continue
+        if field:
+            label = field.group("label").strip().lower().replace("-", " ")
+            if label in {"class", "discovered during class pass"}:
+                value = field.group("value").strip()
+                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", field_line):
+                    value = value[2:].lstrip()
+                elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", field_line):
+                    value = value[:-2].rstrip()
+                if index >= decision_start:
+                    add(value)
+                consumed.add(index)
+    return found, consumed
+
+
 class ReviewTierDecisionRequired(ValueError):
     """A note must explicitly select a tier before it can be imported."""
 
@@ -780,20 +907,31 @@ class DuplicateCommentStore:
 
 def parse_finding_text(
     raw_text: str, *, source_label: str, family: str, lane: str,
-    source_path: Path | None = None,
+    source_path: Path | None = None, class_decision_start: int = 0,
 ) -> ParsedFinding:
     """Parse and validate a note without initializing storage or a ledger."""
-    text = raw_text.replace("\r\n", "\n").strip()
-    if not text:
+    text = raw_text.replace("\r\n", "\n").strip("\n")
+    if not text.strip():
         raise ValueError("finding note is empty")
 
-    parsed: dict[str, str] = {}
+    explicit_class, consumed = _explicit_class(text, decision_start=class_decision_start)
+    parsed: dict[str, str] = {"class_name": explicit_class} if explicit_class is not None else {}
     narrative_lines: list[str] = []
     current_key: str | None = None
     heading = ""
+    fenced = _fenced_lines(text)
 
-    for raw_line in text.splitlines():
+    for index, raw_line in enumerate(text.splitlines()):
         line = raw_line.rstrip()
+        if index in fenced:
+            if current_key:
+                parsed[current_key] = (parsed.get(current_key, "") + "\n" + line).strip()
+            else:
+                narrative_lines.append(line)
+            continue
+        if index in consumed:
+            current_key = None
+            continue
         if not heading and not current_key and re.match(r"^\s*#\s+\S", line):
             heading = _derive_title(line, first_line_only=True)
         match = FIELD_RE.match(line)
@@ -855,7 +993,7 @@ def parse_finding_text(
     class_name = _normalize_class(parsed.get("class_name"))
     class_inferred = not class_name
     if class_inferred:
-        class_name = _infer_class(text)
+        class_name = _infer_class("\n".join(line for i, line in enumerate(text.splitlines()) if i not in fenced))
         print(
             f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
             "Keyword matching cannot tell an asserted class from a denied one -- state 'Class: <x>' "
@@ -1059,10 +1197,11 @@ class ManualHunter:
 
     def parse_text(
         self, raw_text: str, *, source_label: str, source_path: Path | None = None,
+        class_decision_start: int = 0,
     ) -> ParsedFinding:
         return parse_finding_text(
             raw_text, source_label=source_label, source_path=source_path,
-            family=self.family, lane=self.lane,
+            family=self.family, lane=self.lane, class_decision_start=class_decision_start,
         )
 
     def ingest(self, parsed: ParsedFinding, *, link_duplicate_comment: bool = False) -> int:
@@ -1510,4 +1649,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except ClassConflictError as exc:
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        raise SystemExit(1)

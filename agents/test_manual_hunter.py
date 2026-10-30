@@ -18,6 +18,8 @@ from agents.coverage_store import CoverageStore
 from agents.snapshot_identity import get_snapshot_identity
 from agents.manual_hunter import (
     ManualHunter,
+    _explicit_class,
+    parse_finding_text,
     _build_hunt_context,
     _build_subagent_handoff_bundle,
     main,
@@ -29,6 +31,144 @@ from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
+    def test_list_prefixed_explicit_unknown_overrides_keyword_inference(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: DOM XSS was not observed.\n"
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(base + f"{marker} Class: unknown\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
+
+    def test_list_class_alias_markup_nesting_and_fences(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: DOM XSS was not observed.\n"
+        for marker in ("+", "1.", "2)"):
+            for field in ("**Class:** Broken_Access Control", "**Class: Broken_Access Control**", "**Class**: Broken_Access Control"):
+                with self.subTest(marker=marker, field=field):
+                    text = (base + "- Outer\n    - Inner\n      " + marker + " " + field + "\n"
+                            "      + Discovered During Class Pass: broken-access-control\n"
+                            "      - ```\n        Class: ssrf\n        ```\n")
+                    finding = parse_finding_text(text, source_label="fixture", family="binaries", lane="apk").finding
+                    self.assertEqual(finding["class_name"], "broken-access-control")
+                    self.assertFalse(finding["class_inferred"])
+
+    def test_list_class_conflict_fails_before_direct_report_write(self) -> None:
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker):
+                note = self.tmp / "conflicting-list-class.md"
+                note.write_text("File: src/a.py\nDescription: Owned fixture.\nClass: idor\n" + marker + " Class: ssrf\n")
+                with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+                    main([self.program, "--lane", "apk", "--from-file", str(note)])
+                self.assertFalse(self._ledger_path().exists())
+                self.assertFalse(list(self.home.rglob("EVIDENCE.md")))
+
+    def test_existing_nonclass_field_prefixes_keep_working(self) -> None:
+        note = ("- File: src/a.py\n* **Severity:** HIGH\n- Source: owned source\n"
+                "* Sink: owned sink\n- Review Tier: CONFIRMED\n"
+                "- Description: Owned fixture.\n+ Class: unknown\n")
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual((finding["file"], finding["severity"], finding["source"], finding["sink"], finding["review_tier"], finding["description"]),
+                         ("src/a.py", "HIGH", "owned source", "owned sink", "CONFIRMED", "Owned fixture."))
+
+    def test_fence_opening_on_list_item_does_not_conflict_with_class(self) -> None:
+        note = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Fixture.\n- ```\n  Class: ssrf\n  ```\nClass: idor\n"
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "idor")
+
+    def test_list_continuation_prose_is_not_indented_code(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Fixture.\n"
+        with patch("sys.stderr", new_callable=io.StringIO):
+            finding = parse_finding_text(base + "- Example:\n    SSRF is in this prose.\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "ssrf")
+        finding = parse_finding_text(base + "- Example:\n    Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "idor")
+
+    def test_nested_list_and_quoted_list_fences_close_in_their_container(self) -> None:
+        for code in (
+            "- Outer\n    - ```\n      Class: ssrf\n      ```\n",
+            "> - ```\n>   Class: ssrf\n>   ```\n",
+            "1. ```\n   Class: ssrf\n   ```\n",
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(_explicit_class(code + "Class: idor\n")[0], "idor")
+        nested = "- Outer\n    - ```\n      Class: ssrf\n      ```\n      Class: idor\n"
+        self.assertEqual(_explicit_class(nested)[0], "idor")
+
+    def test_list_fence_mismatch_and_container_end_are_safe(self) -> None:
+        examples = (
+            "- ````\n  Class: ssrf\n  ```\n  SSRF\n  ````\n  Class: idor\n",
+            "> - ~~~\n>   Class: ssrf\n>   ```\nClass: idor\n",
+            "- ```\n  Class: ssrf\nClass: idor\n",
+        )
+        for example in examples:
+            with self.subTest(example=example):
+                self.assertEqual(_explicit_class(example)[0], "idor")
+
+    def test_blockquote_fenced_code_does_not_affect_class(self) -> None:
+        base = "Title: Fixture\nFile: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n"
+        for code in (
+            "> ```\n> SSRF example\n> ```\n",
+            "> > ~~~\n> > Class: ssrf\n> > ~~~\n",
+            "> ```\n> Class: ssrf\n> ```\n",
+        ):
+            with self.subTest(code=code), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(base + code, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                finding = parse_finding_text(base + code + "Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+
+    def test_unclosed_and_mismatched_quote_fences_end_at_container_boundary(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n"
+        examples = (
+            "> ````\n> Class: ssrf\n> ```\n> ssrf\n",
+            "> > ~~~\n> > Class: ssrf\n> > ```\n> > ssrf\n",
+            "> - Example:\n>     ```\n>     Class: ssrf\n>     ssrf\n",
+        )
+        for example in examples:
+            with self.subTest(example=example), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(base + example, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                finding = parse_finding_text(base + example + "Class: idor\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+
+    def test_blockquoted_prose_remains_available_for_class_inference(self) -> None:
+        note = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Safe fixture.\n> SSRF example in prose.\n"
+        with patch("sys.stderr", new_callable=io.StringIO):
+            finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "ssrf")
+
+    def test_class_heading_accepts_single_inline_code_token(self) -> None:
+        self.assertEqual(_explicit_class("## Class\n`idor`\n")[0], "idor")
+        self.assertEqual(_explicit_class("## Class: `custom/v1`\n")[0], "custom/v1")
+        with self.assertRaisesRegex(ValueError, "Ambiguous Class"):
+            _explicit_class("## Class\n`narrative sentence`\n")
+
+    def test_unclosed_list_fence_ends_with_list_container(self) -> None:
+        self.assertEqual(_explicit_class("- Example:\n    ```\n    Class: ssrf\nClass: idor\n")[0], "idor")
+
+    def test_leading_indented_code_not_class_in_direct_note(self) -> None:
+        note = "    Class: ssrf\nTitle: Fixture\nFile: src/a.py\nClass: idor\nDescription: Fixture.\nReview Tier: CONFIRMED\n"
+        parsed = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk")
+        self.assertEqual(parsed.finding["class_name"], "idor")
+
+    def test_ordinary_note_fields_survive_fenced_metadata(self) -> None:
+        note = ("Title: Fixture\nFile: src/a.py\nClass: unknown\nSeverity: LOW\n"
+                "Source: origin\nSink: destination\nReview Tier: CONFIRMED\n"
+                "Description: Plain finding.\n```\nClass: ssrf\nReview Tier: DORMANT_ACTIVE\n```\n")
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual((finding["class_name"], finding["severity"], finding["source"], finding["sink"], finding["review_tier"]),
+                         ("unknown", "LOW", "origin", "destination", "CONFIRMED"))
+
+    def test_class_ignores_indented_and_nested_code(self) -> None:
+        for example in (
+            "    Class: ssrf\n",
+            "\tClass: ssrf\n",
+            "- Example:\n    ```\n    Class: ssrf\n    ```\n",
+            "- Example:\n    ~~~\n  Class: ssrf\n    ~~~\n",
+        ):
+            with self.subTest(example=example):
+                self.assertEqual(_explicit_class(example + "Class: idor\n")[0], "idor")
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
@@ -130,6 +270,149 @@ class ManualHunterTests(unittest.TestCase):
 
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
+
+    def test_class_heading_links_existing_synthetic_finding(self) -> None:
+        note = self.tmp / "synthetic-duplicate.md"
+        common = (
+            "Title: Synthetic record access\nType: Synthetic record access\n"
+            "File: src/access.py\nReview Tier: CONFIRMED\n"
+            "Description: Owned fixture returned a record. DOM XSS was not observed.\n"
+        )
+        note.write_text(common + "Class: broken-access-control\n", encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        note.write_text(common + "## Class\nbroken-access-control\n", encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main([self.program, "--lane", "apk", "--from-file", str(note), "--link-duplicate-comment"])
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("Linked duplicate note to D01", out.getvalue())
+        ledger = json.loads(self._ledger_path().read_text(encoding="utf-8"))
+        self.assertEqual([(f["fid"], f["class_name"]) for f in ledger["findings"]], [("D01", "broken-access-control")])
+        comments = (self._storage().ledgers_root / "manual_comments.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(json.loads(comments[0])["fid"], "D01")
+        self.assertIn("## Class\nbroken-access-control", json.loads(comments[0])["raw_note"])
+
+    def test_conflicting_explicit_class_values_fail_before_storage(self) -> None:
+        note = self.tmp / "conflicting-class.md"
+        common = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\n"
+        for fields in (
+            "Class: idor\nClass: dom-xss\n",
+            "Class: idor\n## Class\ndom-xss\n",
+            "## Class\nidor\nClass: dom-xss\n",
+            "## Class\nidor\n## Class\ndom-xss\n",
+        ):
+            with self.subTest(fields=fields):
+                note.write_text(common + fields, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "[Cc]onflicting.*[Cc]lass.*one"):
+                    main([self.program, "--lane", "apk", "--from-file", str(note)])
+                self.assertFalse(self._ledger_path().exists())
+
+    def test_cli_duplicate_class_heading_uses_real_disposable_ledger(self) -> None:
+        note = self.tmp / "cli-note.md"
+        root = self.tmp / "cli-root"
+        common = "Title: Synthetic access\nType: Synthetic access\nFile: src/a.py\nReview Tier: CONFIRMED\nDescription: Owned fixture DOM XSS not observed.\n"
+        command = [sys.executable, "-m", "agents.manual_hunter", self.program, "--lane", "apk", "--root", str(root), "--from-file", str(note)]
+        note.write_text(common + "Class: custom/v1\n")
+        first = subprocess.run(command, text=True, capture_output=True, check=False)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        note.write_text(common + "## Class\ncustom/v1\n")
+        second = subprocess.run(command + ["--link-duplicate-comment"], text=True, capture_output=True, check=False)
+        self.assertEqual(second.returncode, 1, second.stderr)
+        self.assertIn("Linked duplicate note to D01", second.stdout)
+        ledger = next(root.rglob("ledger.json"))
+        self.assertEqual([f["class_name"] for f in json.loads(ledger.read_text())["findings"]], ["custom/v1"])
+
+    def test_direct_cli_class_conflict_is_actionable_without_traceback(self) -> None:
+        note = self.tmp / "conflict.md"
+        note.write_text("File: src/a.py\nDescription: Owned fixture.\nClass: idor\nClass: ssrf\n")
+        result = subprocess.run(
+            [sys.executable, "-m", "agents.manual_hunter", self.program, "--lane", "apk", "--root", str(self.tmp / "cli-root"), "--from-file", str(note)],
+            text=True, capture_output=True, env=os.environ.copy(), check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Conflicting Class", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(list((self.tmp / "cli-root").rglob("ledger.json")))
+
+    def test_empty_heading_infers_and_class_alias_conflicts_are_detected(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+        common = "Title: Synthetic\nFile: src/a.py\nDescription: Owned DOM XSS fixture.\n"
+        with patch("sys.stderr", new_callable=io.StringIO) as errors:
+            finding = parse_finding_text(common + "## Class\n## Other\n", source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "dom-xss")
+        self.assertTrue(finding["class_inferred"])
+        self.assertIn("inferred", errors.getvalue())
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            parse_finding_text(common + "Discovered During Class Pass: idor\nClass: ssrf\n", source_label="fixture", family="binaries", lane="apk")
+
+    def test_class_markup_fences_and_ambiguous_prose(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+        common = "Title: Synthetic\nFile: src/a.py\nDescription: Owned DOM XSS fixture.\n"
+        for payload in ("## Class: idor\n", "## **Class**\n**idor**\n", "## Class\n- idor\n", "**Class: idor**\n", "```md\nClass: ssrf\n```\nClass: idor\n"):
+            with self.subTest(payload=payload):
+                finding = parse_finding_text(common + payload, source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "idor")
+                self.assertFalse(finding["class_inferred"])
+        with self.assertRaisesRegex(ValueError, "[Aa]mbiguous.*Class"):
+            parse_finding_text(common + "## Class\nThis section intentionally has no classification.\n", source_label="fixture", family="binaries", lane="apk")
+        with self.assertRaisesRegex(ValueError, "[Aa]mbiguous.*Class"):
+            parse_finding_text(common + "## Class\nNot classified\n", source_label="fixture", family="binaries", lane="apk")
+
+    def test_class_heading_and_field_variants_follow_existing_normalization(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        common = "Title: Synthetic access\nFile: src/access.py\nDescription: Owned fixture.\n"
+        for field in (
+            "Class: Broken_Access Control\n", "**Class:** Broken_Access Control\n",
+            "**Class**: Broken_Access Control\n", "- Class: Broken_Access Control\n",
+            "## Class\n**Broken_Access Control**\n", "### CLASS ###\n\n- Broken_Access Control\n",
+            "Class: Broken_Access Control\n## Class\nbroken-access-control\n",
+            "Class: Broken_Access Control\nClass:\n",
+        ):
+            with self.subTest(field=field), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(common + field, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "broken-access-control")
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
+
+    def test_class_heading_consumes_only_one_value_line(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        note = (
+            "Title: Synthetic access\nFile: src/access.py\n"
+            "Description: First line.\nSecond line.\n## Class\nunknown-custom\n"
+            "Follow-up prose is not part of the class.\nImpact: Owned fixture impact.\n"
+        )
+        finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+        self.assertEqual(finding["class_name"], "unknown-custom")
+        self.assertEqual(finding["description"], "First line.\nSecond line.")
+        self.assertIn("Follow-up prose is not part of the class.", finding["review_notes"])
+        self.assertEqual(finding["impact"], "Owned fixture impact.")
+        self.assertFalse(finding["class_inferred"])
+
+    def test_empty_or_malformed_class_heading_preserves_inference_warning(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        for field in ("Class:\n", "## Class\n", "## Class\nFile: src/access.py\n", "## Class\n## Other\n"):
+            with self.subTest(field=field), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                note = "Title: Synthetic access\nFile: src/access.py\nDescription: DOM XSS was not observed.\n" + field
+                finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "dom-xss")
+                self.assertTrue(finding["class_inferred"])
+                self.assertIn("no 'Class:'", warning.getvalue())
+
+    def test_unknown_explicit_class_is_not_rejected_or_inferred(self) -> None:
+        from agents.manual_hunter import parse_finding_text
+
+        for value in ("unknown", "custom/v1", "!? malformed"):
+            with self.subTest(value=value), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                note = "File: src/access.py\nDescription: DOM XSS was not observed.\nClass: " + value
+                finding = parse_finding_text(note, source_label="synthetic", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], value.replace(" ", "-"))
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
 
     def test_from_file_markdown_class_is_stored_without_bold_markers(self) -> None:
         note = self.tmp / "markdown-class.md"

@@ -6,8 +6,8 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-finding-report-provider-pin`
 - **Fetched base:** `28f0fd8644412951d6c719bf08ba28c27b16fd59`
 - **Intended integration target:** `origin/beta` (no merge or push authorized)
-- **Latest immutable recovery checkpoint:** none yet; commit this dossier with the fix
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`
+- **Feature implementation commits:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`
 - **Last updated:** 2026-10-29 (PDT)
 
 ## Intent and contract
@@ -78,7 +78,7 @@ merge, push, stable promotion, runtime activation, or task closure is authorized
 ## Interruption and decision gates
 
 - **Owning feature branch:** `fix/finding-report-provider-pin`
-- **Checkpoint / implementation:** none yet; next commit records fix and dossier.
+- **Checkpoint / implementation:** `1b731d96fd19914ac3b152691abdc3de4c6d3e24`; the later dossier-only handoff commit is the branch tip.
 - **Exact resume point:** review the committed candidate and resolve the unrelated
   dependency test under its own task before considering integration.
 - **Activation / promotion:** separate explicit owner decisions, not this task.

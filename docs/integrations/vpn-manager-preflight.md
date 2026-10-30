@@ -1,0 +1,11 @@
+# VPN manager preflight — blocked checkpoint
+
+- **Owner / branch:** Hermes; `fix/vpn-manager-preflight` in this worktree.
+- **Base / target:** BBH `origin/beta` at `d03e13b`; target `beta`.
+- **Intent:** Before external traffic identify the actual egress manager and preserve the verified path; do not switch managers merely to start work. Unknown/conflicting routes stop external traffic. VPN-manager changes need explicit operator direction and existing recovery safeguards.
+- **Changed contract:** `skills/mullvad/SKILL.md` and `prompts/mullvad-playbook.md` align the specialist guidance. This is an instruction, not network-layer enforcement.
+- **Evidence:** On the authoring host local Tailscale exit and effective IPv4/IPv6 routes were active, standalone Mullvad was disconnected, and a public Mullvad status probe reported a Mullvad exit. No VPN settings were changed.
+- **Universal gate blocker:** A single atomic edit of all three AI Policies `root-context/{AGENTS,CLAUDE,CODEX}.md` templates was blocked because protected-file approval timed out. Do not bypass or retry without a fresh approval path. Templates remained unchanged and identical. Until an approved universal root route exists, this specialist-only branch cannot ensure that agents check before internet use.
+- **Runtime activation blocker:** The active BBH skill projection points to a dirty beta checkout 87 commits behind the fetched remote. Do not reset, discard changes, repoint profiles, or advance that shared checkout without coordination. Review/integrate this branch and safely reconcile the active source before claiming activation.
+- **Deferred verification:** Run policy/skill checks, independent review, fresh agent behavior and root-template route tests after authorized universal gate is implemented. Verify target lane, runtime paths, and each intended provider; no live network switch or failure injection is authorized by this checkpoint.
+- **Next:** Obtain user approval for protected root templates through the supported approval flow; add the universal route atomically and verify parity. Independently review and reconcile the specialist branch, then use the selected beta integration workflow. Record exact implementation and review commits after they exist.

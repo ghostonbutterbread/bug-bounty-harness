@@ -1,6 +1,6 @@
 # Subdomain probe redirects — integration dossier
 
-- **Status:** latest independent-review blockers repaired; fresh independent review and integration pending
+- **Status:** independent review APPROVE for exact `102c0560fe52fe5427f43ce0bee5f1c5b56f9e53`; beta integration gate pending.
 - **Owner:** delegated BBH task `t_f97c6d30`
 - **Branch:** `fix/subdomain-probe-redirect`
 - **Worktree:** `/home/ryushe/worktrees/bbh-subdomain-probe-redirect`
@@ -38,7 +38,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 
 ## Blockers and deferred work
 
-- **Missing evidence:** fresh independent review of committed diff and offline test rerun, current beta reconciliation and integrated-tree checks.
+- **Missing evidence:** current beta freshness and integrated-tree offline checks; independently reviewed exact implementation `102c0560fe52fe5427f43ce0bee5f1c5b56f9e53` is approved within the bounded scope below.
 - **Fixture/environment:** above synthetic tests and inherited network denial; pinned dependency snapshot. For the latest 121-test receipt, use the command in Evidence with `tests/test_subdomain_provider_validation.py` added to pytest's argument list. Trigger: parent agent proceeds with review/integration.
 - **Gate:** blocks integration until review and reconciliation; activation and stable promotion separately unauthorized.
 - **Next step:** parent reviews feature and dossier, fetches beta, reconciles if needed, runs offline checks and decides integration; remove branch dossier on integration under operations policy.
@@ -61,3 +61,4 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Decision record
 
 - 2026-10-29 — isolated feature based on fetched beta; offline repair and evidence prepared for parent review.
+- 2026-10-29 — Independent fresh reviewer `deleg_62d71c8c/task-0` **APPROVE** bounded beta-only implementation `102c0560fe52fe5427f43ce0bee5f1c5b56f9e53` against freshly fetched beta `533e87a28ab684b3206bb1318dfcc1f437dc78fc`: 143 passed + 22 subtests and 59 independent tests under kernel socket/connect denial. Includes stateful denied probe and successful recheck remaining partial. Decision evidence: `/home/ryushe/.hermes/profiles/bugfix/cache/delegation/live/deleg_62d71c8c/task-0.log` (ephemeral). This dossier-only approval follows the reviewed implementation; it does not approve source changes. Remaining gates: fetch exact beta, integrate and rerun suites with provenance and kernel network denial. Redirect-mediated takeover, DNS/proxy/connection/egress safety and real transport are unverified; stable, Hoster, runtime activation and closure are not authorized.

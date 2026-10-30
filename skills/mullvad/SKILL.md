@@ -1,6 +1,6 @@
 ---
 name: mullvad
-description: "Prefer West Coast Mullvad exit nodes through Tailscale; use standalone Mullvad CLI when Tailscale exits are unavailable or not allowed."
+description: "Check VPN egress and preserve the active manager safely."
 ---
 
 # Mullvad Egress: Tailscale First, Standalone Fallback
@@ -18,9 +18,17 @@ If the exception is missing, use an independently tested console/recovery path
 for privileged route or daemon repair; do not restart Tailscale from the only
 working tailnet SSH connection or clear the selected exit to regain access.
 
+## Identify and preserve the current VPN manager
+
+Before external traffic or any VPN action, inspect the actual egress host/path locally: `tailscale get exit-node`, `tailscale status --json`, `mullvad status -v`, and the effective IPv4/IPv6 routes as applicable. A connected tailnet alone is not an internet exit. Account for remote hosts, proxies, and containers; repeat after network changes. A verified absent manager is distinct from an installed manager whose state cannot be inspected; do not infer absence merely from a failed status command. Throughout this skill and the playbook, standalone Mullvad status, disconnect, auto-connect and GUI checks apply only if it is installed; if verified absent, skip them rather than requiring a Disconnected status. If its presence or state is uncertain, stop external traffic and ask Ryushe. Confirm that the selected Tailscale exit is online and routes the relevant traffic, or that standalone Mullvad is connected and routes it. If manager state is unknown or conflicting, stop external traffic and ask Ryushe. If a route or selected exit fails verification, stop ordinary external work; same-manager direct exit rotation remains permitted under the existing safety gates below, but ask Ryushe if recovery cannot be verified or would require a manager switch. Never silently fall back to ISP egress. This preflight is an instruction, not a kill switch.
+
+During recovery, keep ordinary work traffic paused. Only after local manager status and effective routes for the probe's address family and DNS path support the intended VPN route may a bounded, non-sensitive public DNS/egress verification probe be sent; if that cannot be established locally, do not send it and ask Ryushe. This local evidence reduces exposure risk but does not prove fail-closed protection. Resume work only after verification succeeds.
+
+Preserve the verified manager: use the existing Tailscale exit if selected and active, or the existing standalone Mullvad tunnel if connected with no Tailscale exit selected. Do not disconnect, clear an exit, switch managers, or layer them just to start work. A manager transition is a separate, explicitly directed operation; the existing safety and recovery gates below still apply.
+
 ## Choose one VPN manager per host
 
-1. Check `tailscale status`, `tailscale get exit-node`, and `tailscale exit-node list --filter=USA`. If the host is connected to its tailnet, authorized for the Mullvad add-on, and a US West Coast Mullvad node is listed, **prefer Tailscale**. A Tailscale connection alone does not route public internet traffic through Mullvad; the selected exit node does.
+1. When establishing a new managed path with operator direction, check `tailscale status`, `tailscale get exit-node`, and `tailscale exit-node list --filter=USA`. If the host is connected to its tailnet, authorized for the Mullvad add-on, and a US West Coast Mullvad node is listed, **prefer Tailscale** only where that does not displace an existing working manager without an explicitly directed transition. A Tailscale connection alone does not route public internet traffic through Mullvad; the selected exit node does.
 2. If Tailscale is not installed, not connected, not permitted for Mullvad on this host, or has no usable West Coast exit, **use the standalone Mullvad CLI only when no Tailscale exit is already selected** (or after Ryushe explicitly directs a manager switch and clearing the exit). Do not disconnect a working standalone tunnel merely to discover that the Tailscale exit is unavailable.
 3. Keep one active egress owner: on a planned Tailscale handoff, inspect the standalone tunnel, daemon auto-connect (`mullvad auto-connect get`), **independent GUI Auto-connect** (if the app is present), and lockdown setting. Pause target traffic and check active workloads/recovery access; turn **off both standalone Mullvad auto-connect paths** before `mullvad disconnect --wait` and selection of the Tailscale Mullvad exit. If a GUI auto-connect path is present but cannot be disabled and verified, do not claim a persistent handoff. Ryushe approves the mode-specific auto-connect rule, not silent changes to lockdown or disruption of active workloads. For CLI fallback, inspect the Tailscale exit using `tailscale get exit-node`, `tailscale debug prefs`, `tailscale status --json` and effective routes **before** reconnecting Mullvad. If an exit is selected, do not clear it or layer managers: pause traffic and ask Ryushe to explicitly direct a manager switch. If the saved/effective state disagrees or Tailscale is inaccessible, stop for operator recovery. Then set `mullvad auto-connect set on` and verify it. A transition can briefly expose ISP egress or interrupt remote access.
 
@@ -30,7 +38,7 @@ Before a remote handoff, read the playbook's preflight gate: verify `tailscale s
 
 ## Startup follows the selected manager
 
-- **Tailscale-managed Mullvad:** On systemd Linux, check `systemctl is-enabled tailscaled` and `systemctl is-active tailscaled`; if not enabled, inspect the existing service owner before deliberately enabling the installed `tailscaled` service. The Tailscale client must already be authenticated/online, a **specific listed West Coast Mullvad exit** selected, and `tailscale get exit-node` must show that selection. Set `mullvad auto-connect set off`, read it back, and ensure independent GUI Auto-connect (if present) is **off**; leave its daemon available for later fallback, but disconnected. A one-time `tailscale up` or merely active tailnet state is not a startup guarantee. On another OS, check its own Tailscale startup manager.
+- **Tailscale-managed Mullvad:** On systemd Linux, check `systemctl is-enabled tailscaled` and `systemctl is-active tailscaled`; if not enabled, inspect the existing service owner before deliberately enabling the installed `tailscaled` service. The Tailscale client must already be authenticated/online, a **specific listed West Coast Mullvad exit** selected, and `tailscale get exit-node` must show that selection. If standalone Mullvad is installed, set `mullvad auto-connect set off`, read it back, and ensure independent GUI Auto-connect (if present) is **off**; leave its daemon available for later fallback, but disconnected. If verified absent, skip those standalone checks. A one-time `tailscale up` or merely active tailnet state is not a startup guarantee. On another OS, check its own Tailscale startup manager.
 - **Standalone-managed Mullvad:** Leave Tailscale connected for peer traffic if useful, but require that its exit selection is already empty (or that Ryushe explicitly directed clearing it) and read back that state; set `mullvad auto-connect set on` and check `mullvad auto-connect get`. Inspect independent GUI Auto-connect if installed; keep it consistent with the selected manager. Check `mullvad status -v` for the actually connected West Coast relay.
 - **After boot/restart:** Check service/startup state, selected exit or connected relay, and public egress **on the host/path doing the work** before scoped traffic resumes. Enabled startup plus a saved exit preference does not prove the relay is reachable or prevent ISP traffic during boot/failure. If checks fail, stop target traffic and recover a verified VPN path; do not silently proceed over the ISP. Do not reboot an active host merely to test this rule.
 
@@ -44,13 +52,20 @@ tailscale exit-node list --filter=USA
 LAN_ACCESS=true
 tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
 tailscale set --exit-node="$EXIT_NODE"
-mullvad status
+# If standalone Mullvad is installed, inspect its status separately.
 tailscale get exit-node
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
-After the handoff, the standalone tunnel must say **Disconnected**; the chosen Tailscale node must match a listed Mullvad host; the public IP must not be the ordinary ISP IP; and Mullvad's JSON must report `mullvad_exit_ip: true` with `mullvad_exit_ip_hostname` matching that host's short relay name. Rotation repeats `tailscale set --exit-node=<different-listed-west-coast-host>` and the checks, **not** the standalone disconnect. The node's `100.x` tailnet IP is not its public exit IP. Select by the exact name shown in `tailscale exit-node list` or by its listed tailnet IP if the name is not accepted.
+After the handoff, if installed, the standalone tunnel must say **Disconnected**; if verified absent, no status is required. The chosen Tailscale node must match a listed Mullvad host; the public IP must not be the ordinary ISP IP; and Mullvad's JSON must report `mullvad_exit_ip: true` with `mullvad_exit_ip_hostname` matching that host's short relay name. Rotation repeats `tailscale set --exit-node=<different-listed-west-coast-host>` and the checks, **not** the standalone disconnect. The node's `100.x` tailnet IP is not its public exit IP. Select by the exact name shown in `tailscale exit-node list` or by its listed tailnet IP if the name is not accepted.
 
 ## Standalone Mullvad path (fallback)
 
@@ -59,6 +74,13 @@ mullvad relay list             # discover current West Coast relays
 mullvad relay set location us sea  # example: listed Seattle city
 mullvad connect --wait
 mullvad status -v
+ip -4 rule; ip -4 route get 1.1.1.1
+resolvectl status
+```
+
+**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
+
+```bash
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```

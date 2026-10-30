@@ -32,6 +32,38 @@ def _brain_file(sha1: str) -> dict[str, object]:
 
 
 class TestSyncReports(unittest.TestCase):
+    def test_list_class_unknown_and_alias_persist_per_finding(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] One\nFile: src/a.py\n+ **Class:** unknown\n"
+            "1. Discovered During Class Pass: unknown\n### Description\nDOM XSS was not observed.\n"
+            "## [CONFIRMED] Two\nFile: src/b.py\n- Outer\n    2) **Class: Broken_Access Control**\n"
+            "    + Class: broken-access-control\n    - ```\n      Class: ssrf\n      ```\n"
+            "### Description\nOwned fixture.\n"
+        )
+        with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+            rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
+        self.assertEqual(rc, 0, errors.getvalue())
+        rows = json.loads(next((self.tmp / "storage-root").rglob("ledger.json")).read_text())["findings"]
+        self.assertEqual([row["class_name"] for row in rows], ["unknown", "broken-access-control"])
+
+    def test_list_class_conflict_in_second_finding_rejects_before_writes(self):
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker):
+                self.report_path.write_text(
+                    "## [CONFIRMED] First\nFile: src/a.py\nClass: idor\n### Description\nFirst.\n"
+                    "## [CONFIRMED] Second\nFile: src/b.py\nClass: idor\n" + marker + " Class: ssrf\n### Description\nSecond.\n"
+                )
+                root = self.tmp / ("storage-" + marker.replace(".", "dot").replace(")", "paren"))
+                with redirect_stdout(io.StringIO()), redirect_stderr(errors := io.StringIO()):
+                    rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=root)
+                self.assertEqual(rc, 1)
+                self.assertIn("Conflicting Class", errors.getvalue())
+                for ledger in root.rglob("ledger.json"):
+                    self.assertEqual(json.loads(ledger.read_text()).get("findings", []), [])
+                self.assertFalse(list(root.rglob("EVIDENCE.md")))
+                reports = resolve_storage("synthetic_program", family="binaries", lane="apk", root_override=root, create=False).reports_root
+                self.assertFalse(list(reports.rglob("*.md")))
+
     def test_list_item_fence_before_class_imports_synthetic_ledger(self):
         self.report_path.write_text(
             "## [CONFIRMED] Finding\nFile: src/a.py\nSeverity: HIGH\nSource: origin\n"

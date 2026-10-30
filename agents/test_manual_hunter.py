@@ -31,6 +31,45 @@ from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
+    def test_list_prefixed_explicit_unknown_overrides_keyword_inference(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: DOM XSS was not observed.\n"
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(base + f"{marker} Class: unknown\n", source_label="fixture", family="binaries", lane="apk").finding
+                self.assertEqual(finding["class_name"], "unknown")
+                self.assertFalse(finding["class_inferred"])
+                self.assertEqual(warning.getvalue(), "")
+
+    def test_list_class_alias_markup_nesting_and_fences(self) -> None:
+        base = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: DOM XSS was not observed.\n"
+        for marker in ("+", "1.", "2)"):
+            for field in ("**Class:** Broken_Access Control", "**Class: Broken_Access Control**", "**Class**: Broken_Access Control"):
+                with self.subTest(marker=marker, field=field):
+                    text = (base + "- Outer\n    - Inner\n      " + marker + " " + field + "\n"
+                            "      + Discovered During Class Pass: broken-access-control\n"
+                            "      - ```\n        Class: ssrf\n        ```\n")
+                    finding = parse_finding_text(text, source_label="fixture", family="binaries", lane="apk").finding
+                    self.assertEqual(finding["class_name"], "broken-access-control")
+                    self.assertFalse(finding["class_inferred"])
+
+    def test_list_class_conflict_fails_before_direct_report_write(self) -> None:
+        for marker in ("+", "1.", "2)"):
+            with self.subTest(marker=marker):
+                note = self.tmp / "conflicting-list-class.md"
+                note.write_text("File: src/a.py\nDescription: Owned fixture.\nClass: idor\n" + marker + " Class: ssrf\n")
+                with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+                    main([self.program, "--lane", "apk", "--from-file", str(note)])
+                self.assertFalse(self._ledger_path().exists())
+                self.assertFalse(list(self.home.rglob("EVIDENCE.md")))
+
+    def test_existing_nonclass_field_prefixes_keep_working(self) -> None:
+        note = ("- File: src/a.py\n* **Severity:** HIGH\n- Source: owned source\n"
+                "* Sink: owned sink\n- Review Tier: CONFIRMED\n"
+                "- Description: Owned fixture.\n+ Class: unknown\n")
+        finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding
+        self.assertEqual((finding["file"], finding["severity"], finding["source"], finding["sink"], finding["review_tier"], finding["description"]),
+                         ("src/a.py", "HIGH", "owned source", "owned sink", "CONFIRMED", "Owned fixture."))
+
     def test_fence_opening_on_list_item_does_not_conflict_with_class(self) -> None:
         note = "File: src/a.py\nReview Tier: CONFIRMED\nDescription: Fixture.\n- ```\n  Class: ssrf\n  ```\nClass: idor\n"
         finding = parse_finding_text(note, source_label="fixture", family="binaries", lane="apk").finding

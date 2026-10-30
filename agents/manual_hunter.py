@@ -709,7 +709,14 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
             if value and index >= decision_start:
                 add(value, heading_value=True)
             continue
-        field = FIELD_RE.match(line)
+        field_line = line
+        field = FIELD_RE.match(field_line)
+        if not field:
+            # Broaden only class declarations; other fields retain their parser contract.
+            field_line = re.sub(r"^(\s*)(?:\+|\d{1,9}[.)])\s+", r"\1- ", line)
+            alternate = FIELD_RE.match(field_line)
+            if alternate and alternate.group("label").strip().lower().replace("-", " ") in {"class", "discovered during class pass"}:
+                field = alternate
         if awaiting:
             if not line.strip():
                 consumed.add(index)
@@ -724,9 +731,9 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
             label = field.group("label").strip().lower().replace("-", " ")
             if label in {"class", "discovered during class pass"}:
                 value = field.group("value").strip()
-                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", line):
+                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", field_line):
                     value = value[2:].lstrip()
-                elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", line):
+                elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", field_line):
                     value = value[:-2].rstrip()
                 if index >= decision_start:
                     add(value)

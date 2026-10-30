@@ -1,6 +1,6 @@
 # Subdomain probe redirects — integration dossier
 
-- **Status:** review blockers addressed locally; independent review and integration pending
+- **Status:** review blockers repaired; fresh independent review and integration pending
 - **Owner:** delegated BBH task `t_f97c6d30`
 - **Branch:** `fix/subdomain-probe-redirect`
 - **Worktree:** `/home/ryushe/worktrees/bbh-subdomain-probe-redirect`
@@ -8,7 +8,7 @@
 - **Intended integration target:** `beta` (parent agent owns integration)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `6cb885816d9d09751de6c8d556abc7d004e081c3`
+- **Latest immutable recovery checkpoint:** `286ae22713c93829f7ec1a6d2c3cc5cbb57b92ac` (pre-review repair); subsequent implementation commit is branch tip.
 - **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`
 - **Inspiration / canonical references:** independent synthetic reproduction, `agents/subdomain_agent.py`, HTTPX 0.28.1 redirect semantics, `httpx-redirect-observation`.
 
@@ -18,7 +18,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 
 ## Implemented contract
 
-3xx responses are not followed or read; status is retained, title empty, content length zero, and a Location-bearing response records `[redacted]` rather than the Location or final URL. A response hook captures headers per request before HTTPX can parse malformed Location, with no shared hook mutation and request-local state removed after send. The helper rejects a client without the capture hook first before every request; callers must not mutate its hooks in flight. A response of any status prevents scheme fallback even if subsequent parsing or body decoding fails. Failures before headers permit HTTP fallback; errors are not printed. Normal non-3xx title and body length extraction remain. Takeover rechecks explicitly disable following and report observed redirects and recheck errors; summary and CLI label coverage partial, not complete. See `docs/subdomain-probe-redirects.md` for the limitations and wake condition; this is not general non-3xx content or network-egress sanitization.
+3xx responses are not followed or read; status is retained, title empty, content length zero, and a Location-bearing response records `[redacted]` rather than the Location or final URL. A response hook captures headers per request before HTTPX can parse malformed Location, with no shared hook mutation and request-local state removed after send. The helper rejects a client without the capture hook first before every request; callers must not mutate its hooks in flight. A response of any status prevents scheme fallback even if subsequent parsing or body decoding fails. Failures before headers permit HTTP fallback; errors are not printed. Normal non-3xx title and body length extraction remain. Takeover rechecks explicitly disable following and report observed redirects and recheck errors. Provider hostnames are canonicalized and validated before suffix comparison, mutation and dispatch; exclusions and available allow scope are checked on probe URLs, including fallback. Coverage records checked, skipped, deferred and failed counts and distinct statuses. See `docs/subdomain-probe-redirects.md` for limitations; this is not DNS, proxy, connection, or general network-egress containment.
 
 ## Evidence and review
 
@@ -29,7 +29,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 - An earlier exploratory suite invocation using system pytest failed 10 tests due to missing `httpx` and `bounty_core`; its scope-import subprocesses replaced PYTHONPATH, so the Python-level socket guard was not inherited. The final kernel-filtered suite above resolved both issues. All test inputs were synthetic; no target or credential was used.
 - Follow-up synthetic TDD: the plain-client regression failed because no ValueError was raised; a 404 takeover recheck issued 21 requests when its client followed redirects; and the coverage test failed with missing `takeover_coverage`. These now pass. The final same offline suite produced **85 passed, 22 subtests passed, one existing `datetime.utcnow` warning**. Additional tests cover concurrent plain clients, incorrectly ordered hooks, in-flight hook removal, malformed recheck Location, takeover recheck errors, direct fingerprint matching, skipped mode, and probe/recheck redirect deferral.
 - Investigation: scope validation is lexical and does not model redirect routing or DNS; `is_safe_url` accepts hostnames without resolving them. Safe scope/port/path validation plus DNS/connection/proxy binding was not substantiated. Manual per-hop traversal is therefore deferred, not implemented.
-- Independent review: pending. Merge/ancestry: feature branched directly from fetched `origin/beta`; no integration performed. Lowest-owner/stable history is not resolved because `origin/main` is not present locally; stable changes and propagation are explicitly unauthorized in this task.
+- Independent review blocked the earlier tip: takeover coverage was always partial, status-zero counted incorrectly, and provider suffix spoofing could dispatch to an unrelated host (PC-20261030-002207-67d5e107). Synthetic TDD tests reproduced these and exercise collectors, run, exclusions and MockTransport. The pre-fix tests failed for the expected unsafe dispatch/collector and missing coverage fields; later Wayback prefix and takeover URL mismatch tests failed before their fixes. Offline focused suite: **121 passed, 22 subtests passed, one existing `datetime.utcnow` warning**, under the inherited socket-denying seccomp runner and pinned dependency snapshot described above. No real target or credential. Fresh independent review of this repair remains pending. Merge/ancestry: feature branched directly from fetched `origin/beta`; no integration performed. Lowest-owner/stable history is not resolved because `origin/main` is not present locally; stable changes and propagation are explicitly unauthorized in this task.
 
 ## Blockers and deferred work
 
@@ -42,7 +42,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `6cb885816d9d09751de6c8d556abc7d004e081c3`
+- **Latest immutable recovery checkpoint:** `286ae22713c93829f7ec1a6d2c3cc5cbb57b92ac` (pre-review repair); subsequent implementation commit is branch tip.
 - **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`
 - **Exact resume point:** independent review of committed branch and parent-owned integration; no push.
 - **Working-tree state at handoff:** intended clean after checkpoint and dossier update.

@@ -23,15 +23,34 @@ redirects, including when the server changes between the probe and recheck.
 Direct eligible 403/404 rechecks and fingerprint matching remain in place;
 previously followed recheck destinations are no longer checked.
 
-The CLI reports partial coverage and `summary.json` records
-`takeover_coverage.status` (`partial`, `skipped`, or `unknown` during the
-intermediate output). `redirect_deferred_subdomains` lists observed redirects
-from probing and rechecking; `failed_subdomains` lists recheck errors without
-exception text. A malformed recheck Location can appear as a failure rather
-than a known redirect because HTTPX may raise while parsing it. Partial is not
-a claim that all other hosts were checked: the existing orchestrator only
-rechecks selected dead statuses and excludes 200 and no-response results.
-Skip-probe and skip-takeover modes do not provide takeover coverage.
+`summary.json` retains `takeover_coverage` and its existing lists. Status is
+`skipped` when takeover is disabled, `no-eligible` when nothing was eligible,
+`complete` when all eligible direct rechecks finished without failure or
+redirect, and `partial` for deferred redirects, probe/recheck failures, or
+skipped probing of nonempty input. The intermediate output is `unknown`.
+`checked_count`, `deferred_count`, `skipped_count`, `failed_count` and their
+corresponding subdomain lists classify results: checked means a completed direct
+403/404 recheck, deferred means an observed redirect, failed includes status-zero
+probe failures and failed/unexpected-status rechecks, and skipped includes
+noneligible statuses and intentionally skipped operations. In particular,
+`complete` is only complete for eligible direct rechecks, not all discovered
+hosts; 200 and other noneligible statuses are not checked. A malformed recheck
+Location can appear as a failure because HTTPX may raise while parsing it.
+No exception text or redirect destination is included in coverage.
+
+## Provider names and scope
+
+Provider hostname fields are converted using IDNA and validated as hostnames
+before exact/subdomain boundary matching; paths, queries, userinfo, ports,
+controls and malformed labels are rejected without echoing the input. Wayback
+and URLScan URL fields use the URL host, not a suffix-shaped substring. The
+aggregate and prober validate again, including after the optional deduper.
+When scope exists, exclusions are checked even without allow entries; when allow
+entries exist, each probe URL must match them. HTTPS-to-HTTP fallback checks
+scope for each scheme. Local JS fetches also check scope and do not follow
+redirects. These are lexical checks, not DNS, proxy or connection containment;
+name resolution, rebinding, actual connection destinations and provider API
+redirect behavior are outside this change.
 
 **Wake condition:** implement and independently test an explicitly authorized,
 bounded, manual per-hop traversal that validates each resolved destination

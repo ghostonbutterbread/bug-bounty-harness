@@ -93,10 +93,10 @@ is selected, the normal published scope and AI Policies gates below still apply.
    After independent review, register the existing final path with `agents/finding_report.py`;
    registration does not submit. Do not generate a rough `REPORT.md` or a
    competing `SUBMISSION.md` for new findings. Preserve
-   older packet files and every unrequested region in a targeted revision. PoC
-   creation follows `poc-tooling-policy`. Standalone or scripted PoC editing follows `triager-first-poc-authoring`;
-   a simple inline `curl` does not load that authoring skill. Live execution
-   remains governed by the policy chain above.
+   older packet files and every unrequested region in a targeted revision. When reproduction needs a standalone PoC, load `poc-tooling-policy` and
+   `triager-first-poc-authoring` in the same package as the report and finish
+   them together. A simple inline `curl` does not load the PoC authoring skill.
+   Live execution remains governed by the policy chain above.
    When security testing needs a browser, use `/chromium-test` and request it
    through `browser_provisioner.py` on the browser node. Its default `--proxy
    mitm` starts a task-owned listener, imports its CA before Chrome starts, and

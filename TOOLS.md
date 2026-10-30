@@ -300,9 +300,9 @@ it is written from all results rather than hits alone; `hits` still contains
 successes only. `result_error_count` may include deferrals, and `execution_errors` can overlap
 request failures. JSON `hits` contains successes only. Results now have an
 additive `incomplete` boolean (default false). A race with a missing baseline,
-or missing, failed or cancelled burst probes, is incomplete: a non-hit renders
-`[unknown]`, not `[miss]`, even if some HTTP responses were observed. A hit
-based on partial observations remains a hit but is marked `[incomplete]`.
+or missing, failed or cancelled burst probes, is incomplete. The legacy Python
+`to_line()` renders an incomplete non-hit as `[unknown]` and a heuristic hit
+based on partial observations as `[HIT] [incomplete]`; neither is proof.
 Race notes distinguish observed, no-response, cancelled, and unobserved counts;
 the no-response count includes cancellations. The additive JSON
 `incomplete_results` array includes incomplete hits and non-hits (and can
@@ -319,8 +319,10 @@ retain the complete safe derived evidence. This adds fields to the Python
 `success`, `hits`, and `hit_count` denote heuristics, not validated bypasses:
 CORS and race hits are weak observations, race response-variant entries may
 represent the same burst, and incomplete hits are not complete findings. CLI
-labels candidates, weak observations, and incomplete results separately, shows
-validation notes, and counts entries rather than validated bypasses. If the 403 or IDOR baseline is unavailable, successful HTTP probe
+and text reports label candidates, weak observations, and incomplete results
+separately and show validation notes; CLI counts entries rather than validated
+bypasses. Text reports, unlike the legacy Python `to_line()`, do not label
+heuristic positives as `[HIT]`. If the 403 or IDOR baseline is unavailable, successful HTTP probe
 responses are retained but comparison results are incomplete/unknown rather
 than a miss or hit. A wildcard ACAO plus `credentials=true` is recorded as a
 non-hit with derived headers because browsers reject credentialed wildcard CORS;

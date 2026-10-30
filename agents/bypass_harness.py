@@ -1046,11 +1046,10 @@ def _write_report(path: Path, results: list[BypassResult], target: str, vuln_typ
         f.write(f"# Bypass Harness Report\n")
         f.write(f"# Target:    {safe_text(target)}\n")
         f.write(f"# Type:      {vuln_type}\n")
-        f.write(f"# Count:     {len(results)}\n\n")
+        f.write(f"# Count:     {len(results)}\n")
+        f.write("# These are result entries, not validated bypasses; independent validation is required.\n\n")
         for r in results:
-            f.write(r.to_line() + "\n")
-            if r.note:
-                f.write(f"  note: {r.note}\n")
+            f.write(_display_result(r) + "\n")
             if r.evidence:
                 f.write(f"  evidence: {r.evidence!r}\n")
             f.write("\n")

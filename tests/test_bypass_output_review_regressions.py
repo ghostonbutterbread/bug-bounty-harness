@@ -89,6 +89,39 @@ def test_reports_retain_typed_complete_nonhit_race_counts_without_raw_data(tmp_p
     assert marker not in text + json.dumps(data)
 
 
+def test_text_report_matches_cli_for_each_result_and_race_variant(tmp_path):
+    from agents import bypass_harness as h
+    from agents.bypass_types import BypassResult
+    from agents.bypass_types.race import RaceBypass, RACE_COUNT
+
+    secret = 'synthetic-private-body-marker'
+    baseline = {'status': 200, 'hash': 'a', 'text': secret}
+    varied = {'status': 200, 'hash': 'b', 'text': secret}
+    race = RaceBypass()
+    complete = race._analyse('https://app.example.test/', baseline, [baseline] * (RACE_COUNT - 1) + [varied], 'GET')
+    partial = race._analyse('https://app.example.test/', baseline, [baseline, varied, None], 'GET')
+    other = [
+        BypassResult(True, 'cors', 'origin', 'reflection', '', 'https://app.example.test/', 200, secret, 'validate browser access'),
+        BypassResult(True, 'ssti', 'marker', 'candidate', '', 'https://app.example.test/', 200, secret),
+        BypassResult(False, 'ssti', 'marker', 'miss', '', 'https://app.example.test/', 200, secret),
+        BypassResult(True, 'ssti', 'marker', 'no_response', '', 'https://app.example.test/', 0, secret),
+    ]
+    results = complete + partial + other
+    h._write_report(tmp_path / 'report.txt', results, 'https://app.example.test/?q=synthetic-secret', 'sweep')
+    text = (tmp_path / 'report.txt').read_text()
+    assert len(complete) == len(partial) == 3  # aggregate plus two variants
+    assert all(h._display_result(result) in text for result in results)
+    assert all(h._display_result(result).startswith('[WEAK OBSERVATION]') for result in complete)
+    assert all(h._display_result(result).startswith('[INCOMPLETE]') for result in partial)
+    assert [h._display_result(result).split(']', 1)[0] + ']' for result in other] == [
+        '[WEAK OBSERVATION]', '[CANDIDATE]', '[MISS]', '[INCOMPLETE]']
+    assert text.count('validate state changes and dynamic content') == 6
+    assert 'not validated bypasses' in text
+    assert '[HIT]' not in text and secret not in text and 'synthetic-secret' not in text
+    # The legacy Python representation remains unchanged and is not proof.
+    assert partial[0].success and '[HIT]' in partial[0].to_line()
+
+
 def test_race_derived_projection_rejects_untrusted_fields():
     from agents.bypass_redaction import RaceEvidence
     from agents.bypass_types import BypassResult

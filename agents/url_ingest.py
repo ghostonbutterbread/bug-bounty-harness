@@ -953,11 +953,11 @@ def ingest(
 ):
     """
     Ingest URLs from a source file (or stdin) into the DB.
-    Deduplicates by url_hash. By default, repull only in auto filter mode;
+    Deduplicates by url_hash. By default, repull unless filtering is off;
     explicit True requests a pull even when filtering is off.
     """
     if repull_scope is None:
-        repull_scope = scope_filter == "auto"
+        repull_scope = scope_filter != "off"
     init_db(program)
 
     try:

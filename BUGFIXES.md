@@ -1,5 +1,18 @@
 # Known defects awaiting their own task
 
+## Runtime dependency list omits declared idna
+
+**Location:** `tests/test_runtime_dependencies.py`,
+`test_single_manifest_preserves_runtime_and_test_dependencies`.
+
+**Evidence:** unchanged beta `28f0fd8644412951d6c719bf08ba28c27b16fd59`
+contains `idna>=3,<4` in `requirements.txt` (added by `878bcd02`) but the
+asserted complete dependency list omits it. The test fails offline with the
+extra `idna` entry; the Bounty Core pin itself agrees with the manifest.
+
+**Impact:** the runtime dependency suite is red. Reconcile the test under its
+own task; do not remove the runtime dependency for an unrelated report fix.
+
 ## Stack-to-program script index and upload assertion drift
 
 **Location:** `skills/stack-to-program/scripts/README.md:11`, its script record,

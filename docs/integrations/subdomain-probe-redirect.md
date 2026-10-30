@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (parent agent owns integration)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `e603ed17b149bb02f4de967644594317f67894c6` (review repair); subsequent dossier-only commit is branch tip.
-- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`
+- **Latest immutable recovery checkpoint:** `cb9571710b4043dd3c8e0ec17737287eaf58096f` (latest review repair); any subsequent dossier-only commit must also be reviewed.
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`, `cb9571710b4043dd3c8e0ec17737287eaf58096f`
 - **Inspiration / canonical references:** independent synthetic reproduction, `agents/subdomain_agent.py`, HTTPX 0.28.1 redirect semantics, `httpx-redirect-observation`.
 
 ## Intent
@@ -44,8 +44,8 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `e603ed17b149bb02f4de967644594317f67894c6` (review repair); subsequent dossier-only commit is branch tip.
-- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`
+- **Latest immutable recovery checkpoint:** `cb9571710b4043dd3c8e0ec17737287eaf58096f` (latest review repair); any subsequent dossier-only commit must also be reviewed.
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`, `cb9571710b4043dd3c8e0ec17737287eaf58096f`
 - **Exact resume point:** independent review of committed branch and parent-owned integration; no push.
 - **Working-tree state at handoff:** intended clean after checkpoint and dossier update.
 

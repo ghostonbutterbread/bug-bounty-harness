@@ -68,6 +68,61 @@ class TestIngestRoundtrip(unittest.TestCase):
         if self.db_path.exists():
             self.db_path.unlink()
 
+    def test_off_implicitly_never_runs_scope_puller(self):
+        source = TEMP_SHARED / "off-no-pull.txt"
+        source.write_text("https://unknown.example.test/a\n")
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "empty-scopes"), patch.object(
+            M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"
+        ), patch.object(M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")) as run:
+            M.ingest(self.program, source_file=str(source), scope_filter="off")
+        run.assert_not_called()
+        with M.get_conn(self.program) as conn:
+            row = conn.execute(
+                "SELECT urls_accepted, urls_rejected, scope_mode, scope_source "
+                "FROM imports ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(tuple(row), (1, 0, "scope_filter_off", "saved_scope"))
+
+    def test_ingest_repull_options_use_mode_defaults_and_honor_overrides(self):
+        source = TEMP_SHARED / "mode-matrix.txt"
+        source.write_text("https://unknown.example.test/a\n")
+        cases = [
+            ({}, 0, "scope_filter_off", "saved_scope"),
+            ({"scope_filter": "off", "repull_scope": False}, 0, "scope_filter_off", "saved_scope"),
+            ({"scope_filter": "off", "repull_scope": True}, 3, "scope_filter_off", "no_scope_after_pull"),
+            ({"scope_filter": "auto"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "auto", "repull_scope": True}, 3, "no_scope_after_pull", "no_scope_after_pull"),
+            ({"scope_filter": "auto", "repull_scope": False}, 0, "no_saved_scope", "saved_scope"),
+        ]
+        for kwargs, count, mode, origin in cases:
+            with self.subTest(kwargs=kwargs), patch.object(
+                M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "empty-scopes"
+            ), patch.object(M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"), patch.object(
+                M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")
+            ) as run:
+                M.ingest(self.program, source_file=str(source), **kwargs)
+                self.assertEqual(run.call_count, count)
+                if count:
+                    self.assertEqual([call.args[0][-1] for call in run.call_args_list], list(M.PULLSCOPE_PLATFORMS))
+                with M.get_conn(self.program) as conn:
+                    row = conn.execute(
+                        "SELECT urls_accepted, urls_rejected, scope_mode, scope_source "
+                        "FROM imports ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                self.assertEqual(tuple(row), (1, 0, mode, origin))
+
+    def test_ingest_cli_repull_defaults_and_overrides(self):
+        cases = [([], False), (["--scope-filter", "off"], False),
+                 (["--scope-filter", "auto"], True),
+                 (["--scope-filter", "off", "--repull-scope"], True),
+                 (["--scope-filter", "auto", "--no-repull-scope"], False)]
+        for flags, expected in cases:
+            with self.subTest(flags=flags), patch.object(M, "ingest") as ingest, patch.object(
+                sys, "argv", ["url_ingest.py", "ingest", self.program, *flags]
+            ):
+                M.main()
+                self.assertIs(ingest.call_args.kwargs["repull_scope"], expected)
+
     def test_ingest_dedupes(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
             tf.write("https://api.canva.com/api/v2/widgets?limit=10\n")

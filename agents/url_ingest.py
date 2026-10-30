@@ -949,12 +949,15 @@ def ingest(
     run_id: str = None,
     *,
     scope_filter: str = "off",
-    repull_scope: bool = True,
+    repull_scope: bool | None = None,
 ):
     """
     Ingest URLs from a source file (or stdin) into the DB.
-    Deduplicates by url_hash.
+    Deduplicates by url_hash. By default, repull only in auto filter mode;
+    explicit True requests a pull even when filtering is off.
     """
+    if repull_scope is None:
+        repull_scope = scope_filter == "auto"
     init_db(program)
 
     try:
@@ -1795,7 +1798,7 @@ def main():
         "--repull-scope",
         action="store_true",
         default=None,
-        help="For ingest: if saved scope is missing, try public HackerOne/Bugcrowd/Intigriti scope pulls before fallback. Default when --scope-filter auto is used.",
+        help="For ingest: if saved scope is missing, try public scope pulls. Default with auto; explicit use also pulls with off, without filtering.",
     )
     parser.add_argument(
         "--no-repull-scope",

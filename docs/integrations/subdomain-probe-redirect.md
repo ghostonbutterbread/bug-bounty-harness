@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (parent agent owns integration)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `286ae22713c93829f7ec1a6d2c3cc5cbb57b92ac` (pre-review repair); subsequent implementation commit is branch tip.
-- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`
+- **Latest immutable recovery checkpoint:** `e603ed17b149bb02f4de967644594317f67894c6` (review repair); subsequent dossier-only commit is branch tip.
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`
 - **Inspiration / canonical references:** independent synthetic reproduction, `agents/subdomain_agent.py`, HTTPX 0.28.1 redirect semantics, `httpx-redirect-observation`.
 
 ## Intent
@@ -34,7 +34,7 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Blockers and deferred work
 
 - **Missing evidence:** fresh independent review of committed diff and offline test rerun, current beta reconciliation and integrated-tree checks.
-- **Fixture/environment:** above synthetic tests and inherited network denial; pinned dependency snapshot. Trigger: parent agent proceeds with review/integration.
+- **Fixture/environment:** above synthetic tests and inherited network denial; pinned dependency snapshot. For the latest 121-test receipt, use the command in Evidence with `tests/test_subdomain_provider_validation.py` added to pytest's argument list. Trigger: parent agent proceeds with review/integration.
 - **Gate:** blocks integration until review and reconciliation; activation and stable promotion separately unauthorized.
 - **Next step:** parent reviews feature and dossier, fetches beta, reconciles if needed, runs offline checks and decides integration; remove branch dossier on integration under operations policy.
 - **Deferred feature:** redirect-mediated 302→404 takeover eligibility and destination discovery require an authorized, independently tested manual hop-by-hop scope, port, path, DNS/connection and proxy design; see `docs/subdomain-probe-redirects.md`. The wake condition is a verified implementation with synthetic tests proving each hop is authorized before the connection; no redirect targets are persisted here.
@@ -42,8 +42,8 @@ Stop probe-stage automatic redirect following and persistence of sensitive redir
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/subdomain-probe-redirect`
-- **Latest immutable recovery checkpoint:** `286ae22713c93829f7ec1a6d2c3cc5cbb57b92ac` (pre-review repair); subsequent implementation commit is branch tip.
-- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`
+- **Latest immutable recovery checkpoint:** `e603ed17b149bb02f4de967644594317f67894c6` (review repair); subsequent dossier-only commit is branch tip.
+- **Feature implementation commit(s):** `9d133fb0380b6439a05e739df31a0585954cdd4e`, `6cb885816d9d09751de6c8d556abc7d004e081c3`, `e603ed17b149bb02f4de967644594317f67894c6`
 - **Exact resume point:** independent review of committed branch and parent-owned integration; no push.
 - **Working-tree state at handoff:** intended clean after checkpoint and dossier update.
 

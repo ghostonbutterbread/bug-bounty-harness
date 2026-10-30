@@ -50,7 +50,7 @@ tailscale exit-node list --filter=USA
 LAN_ACCESS=true
 tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
 tailscale set --exit-node="$EXIT_NODE"
-mullvad status
+# If standalone Mullvad is installed, inspect its status separately.
 tailscale get exit-node
 ip -4 rule; ip -4 route get 1.1.1.1
 resolvectl status
@@ -63,14 +63,15 @@ curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
-Select a *different* listed host within Seattle, an available Oregon city, Los Angeles, San Jose or San Francisco for a rotation. Check standalone `mullvad status` is disconnected; selected Tailscale host matches the intended exit; the observed public IP is not the normal ISP IP; and the JSON reports `mullvad_exit_ip: true` plus `mullvad_exit_ip_hostname` matching the chosen host's short name. Compare previous/new public IPs rather than assuming they change. If IPv6 is relevant, test `curl -6fsS --max-time 10 https://ip.me`. If an HTTP proxy is in use, verify the egress from the machine/path carrying the target traffic, not an unrelated local proxy.
+Select a *different* listed host within Seattle, an available Oregon city, Los Angeles, San Jose or San Francisco for a rotation. If standalone Mullvad is installed, check `mullvad status` is disconnected; if verified absent, skip that check. Check the selected Tailscale host matches the intended exit; the observed public IP is not the normal ISP IP; and the JSON reports `mullvad_exit_ip: true` plus `mullvad_exit_ip_hostname` matching the chosen host's short name. Compare previous/new public IPs rather than assuming they change. If IPv6 is relevant, test `curl -6fsS --max-time 10 https://ip.me`. If an HTTP proxy is in use, verify the egress from the machine/path carrying the target traffic, not an unrelated local proxy.
 
 Verify routes, resolver, and the remote control path as well as the public IP:
 
 ```bash
 ip -4 rule; ip -4 route; ip -4 route get 1.1.1.1
 resolvectl status
-tailscale get exit-node; mullvad status -v; mullvad auto-connect get
+tailscale get exit-node
+# If standalone Mullvad is installed, inspect its status and auto-connect separately.
 ```
 
 On the independent client, retest SSH/LAN and any required Tailscale access; on the host, check `ip -4 route get <LAN-peer-IP>` and require the LAN interface, plus a tailnet/MagicDNS name and public DNS separately. If public hostname lookup fails, a successful direct-IP HTTPS call does **not** clear the DNS failure. Check IPv6 route and public egress when the host supports it, and review DNS scope/leak behavior instead of treating a `resolvectl` display as conclusive proof. Verify each affected workload from its actual path before resuming it. A selected exit, saved LAN preference, peer ping, or one host-level curl is insufficient on its own.

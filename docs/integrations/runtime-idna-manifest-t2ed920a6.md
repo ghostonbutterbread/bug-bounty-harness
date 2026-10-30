@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (no integration authorized in this task)
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/runtime-idna-manifest-t2ed920a6`
-- **Latest immutable recovery checkpoint:** base until implementation commit; see branch tip
-- **Feature implementation commit(s):** see branch history
+- **Latest immutable recovery checkpoint:** `28c0724a1e1651dca74f8dcacd52affe99be41e2`
+- **Feature implementation commit(s):** `28c0724a1e1651dca74f8dcacd52affe99be41e2`
 - **Inspiration / references:** manifest addition in `878bcd028caccffb774a116c589f0bf2bd441c88`; `tests/test_runtime_dependencies.py`; `agents/scope_validator.py` and `agents/subdomain_agent.py`.
 
 ## Intent and implemented contract
@@ -35,7 +35,8 @@ The beta-owned test's exact expected manifest omitted IDNA after the scope-guard
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/runtime-idna-manifest-t2ed920a6`
-- **Latest immutable recovery checkpoint:** see feature branch history; dossier follow-up may name implementation SHA
+- **Latest immutable recovery checkpoint:** `28c0724a1e1651dca74f8dcacd52affe99be41e2`; verify subsequent dossier-only commit and branch tip
+- **Feature implementation commit(s):** `28c0724a1e1651dca74f8dcacd52affe99be41e2`
 - **Exact resume point:** independent review and beta freshness check; integrate only with separate authorization.
 - **Working-tree state at handoff:** committed feature; verify tip and status.
 

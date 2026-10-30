@@ -43,6 +43,7 @@ Structured sync validates every block's class and tier decision before returning
 
 ## Interruption / decision record
 
+- **Repair checkpoint:** `b6a22fb3cd93c24aa1673e7aacd0535ea50f18da` (the later dossier-only commit, if present, must be reviewed separately). Resume: verify branch tip and `origin/beta`, then request a fresh independent review; do not integrate within this task.
 - Resume on the owning feature branch at its new commit; verify its exact SHA and diff against `178fdfed` and base. The prior commit is a recoverable immutable checkpoint; inspect later feature commits separately.
 - 2026-10-29: Independent review identified blockers. Repair developed with focused red/green tests. No integration attempted. Deferred FID preflight and fresh review remain blockers.
 - 2026-10-29: Repair the next independent review blockers on this same branch; preserve beta structured metadata and no-atomicity caveat. Resume from the new branch commit, inspect its diff against `94cfe7d4`, and request a fresh independent review; do not integrate within this task.

@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,10 +36,11 @@ import socket
 import requests
 
 try:
+    import idna
     if __package__:
-        from .scope_validator import ScopeValidator
+        from .scope_validator import ScopeValidator, _safe_host, _extract_host
     else:
-        from scope_validator import ScopeValidator
+        from scope_validator import ScopeValidator, _safe_host, _extract_host
 except ImportError as exc:
     ScopeValidator = None
     _scope_import_error = exc
@@ -148,7 +150,7 @@ class ProbeResult:
 class SubdomainCollector:
     def __init__(self, target: str, program: str, use_apis: list[str],
                  wordlist: Optional[str], verbose: bool = False):
-        self.target = target
+        self.target = canonical_hostname(target)
         self.program = program
         self.use_apis = use_apis
         self.wordlist = wordlist
@@ -170,10 +172,22 @@ class SubdomainCollector:
         self.limiter = RateLimiter(requests_per_second=int(os.getenv("SUBAGENT_RPS", "5"))) if RateLimiter else None
 
     def is_in_scope(self, url: str) -> bool:
-        """Check if URL is in scope. Skip if no scope loaded."""
+        """Honor exclusions even if no allow entries are available."""
         if not self.scope:
             return True
-        return self.scope.is_in_scope(url)
+        if self.scope.is_out_of_scope(url):
+            return False
+        return self.scope.is_empty() or self.scope.is_in_scope(url)
+
+    def accept_name(self, name: str, *, wildcard: bool = False) -> str:
+        if wildcard and isinstance(name, str) and name.startswith('*.'):
+            name = name[2:]
+        try:
+            host = canonical_hostname(name)
+        except ValueError:
+            self.log('rejected invalid provider hostname')
+            return ''
+        return host if is_target_host(host, self.target) else ''
 
     def log(self, msg: str) -> None:
         if self.verbose:
@@ -195,9 +209,9 @@ class SubdomainCollector:
                 for entry in r.json():
                     names = entry.get("name_value", "")
                     for name in names.split("\n"):
-                        name = name.strip().lstrip("*.")
-                        if name.endswith(f".{self.target}") or name == self.target:
-                            subs.add(name.lower())
+                        host = self.accept_name(name, wildcard=True)
+                        if host:
+                            subs.add(host)
             self.log(f"crt.sh → {len(subs)} subs")
         except Exception as e:
             print(f"  [warn] crt.sh failed: {e}")
@@ -225,8 +239,8 @@ class SubdomainCollector:
                 if not records:
                     break
                 for rec in records:
-                    hostname = rec.get("hostname", "").lower().lstrip("*.")
-                    if hostname.endswith(f".{self.target}") or hostname == self.target:
+                    hostname = self.accept_name(rec.get("hostname", ""), wildcard=True)
+                    if hostname:
                         subs.add(hostname)
                 if not data.get("has_next"):
                     break
@@ -253,8 +267,8 @@ class SubdomainCollector:
                 data = r.json()
                 for record in data.get("FDNS_A", []) + data.get("RDNS", []):
                     parts = record.split(",")
-                    hostname = parts[-1].strip().rstrip(".").lower()
-                    if hostname.endswith(f".{self.target}") or hostname == self.target:
+                    hostname = self.accept_name(parts[-1])
+                    if hostname:
                         subs.add(hostname)
             self.log(f"Bufferover → {len(subs)} subs")
         except Exception as e:
@@ -278,12 +292,12 @@ class SubdomainCollector:
                     task = result.get("task", {})
                     page = result.get("page", {})
                     for key in ("domain", "apex"):
-                        val = page.get(key, "").lower()
-                        if val.endswith(f".{self.target}") or val == self.target:
+                        val = self.accept_name(page.get(key, ""))
+                        if val:
                             subs.add(val)
-                    sub = urlparse(task.get("url", "")).hostname or ""
-                    if sub and (sub.endswith(f".{self.target}") or sub == self.target):
-                        subs.add(sub.lower())
+                    sub = self.accept_name(_urlscan_task_host(task.get("url", "")))
+                    if sub:
+                        subs.add(sub)
             self.log(f"URLScan → {len(subs)} subs")
         except Exception as e:
             print(f"  [warn] URLScan failed: {e}")
@@ -306,8 +320,8 @@ class SubdomainCollector:
                 data = r.json()
                 # Sometimes related subdomains show up in nameserver entries
                 for ns in data.get("nameservers", []):
-                    ldhName = ns.get("ldhName", "").lower().rstrip(".")
-                    if ldhName.endswith(f".{self.target}"):
+                    ldhName = self.accept_name(ns.get("ldhName", ""))
+                    if ldhName and ldhName != self.target:
                         subs.add(ldhName)
             self.log(f"RDAP → {len(subs)} subs")
         except Exception as e:
@@ -335,8 +349,8 @@ class SubdomainCollector:
                 # Whoxy returns JSON with search results — mine domain names
                 data = r.json()
                 for entry in data.get("search_result", []):
-                    domain = entry.get("domain_name", "").lower()
-                    if domain.endswith(f".{self.target}") or domain == self.target:
+                    domain = self.accept_name(entry.get("domain_name", ""))
+                    if domain:
                         subs.add(domain)
             self.log(f"Whoxy → {len(subs)} subs")
         except Exception as e:
@@ -400,16 +414,18 @@ class SubdomainCollector:
             with open(js_list) as f:
                 js_urls = [line.strip() for line in f if line.strip()]
             for js_url in js_urls[:100]:  # cap: fetch only first 100
-                host = (urlparse(js_url).hostname or "").lower()
-                if not is_safe_url(js_url) or not is_target_host(host, self.target):
+                host = _extract_host(js_url)
+                if not is_safe_url(js_url) or not is_target_host(host, self.target) or not self.is_in_scope(js_url):
                     continue
                 try:
-                    r = self.session.get(js_url, timeout=10)
+                    r = self.session.get(js_url, timeout=10, allow_redirects=False)
                     for m in pattern.finditer(r.text):
                         subs.add(m.group(1).lower())
                 except Exception:
                     pass
             self.log(f"JS extraction → {len(subs)} subs")
+        except OSError:
+            raise
         except Exception as e:
             print(f"  [warn] JS extraction failed: {e}")
         return subs
@@ -458,15 +474,11 @@ class SubdomainCollector:
                 if not isinstance(data, list):
                     self.log(f"Wayback returned error: {data}")
                     return subs
-                pattern = re.compile(
-                    r'(?:https?://)?([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*\.'
-                    + re.escape(self.target) + r')'
-                )
                 for row in data[1:]:  # skip header
                     url = row[0] if row else ""
-                    m = pattern.match(url)
-                    if m:
-                        subs.add(m.group(1).lower())
+                    host = self.accept_name(_extract_host(url))
+                    if host:
+                        subs.add(host)
             self.log(f"Wayback → {len(subs)} subs")
         except Exception as e:
             print(f"  [warn] Wayback failed: {e}")
@@ -503,10 +515,55 @@ def is_safe_url(url: str) -> bool:
     )
 
 
+def _urlscan_task_host(url: str) -> str:
+    """Extract a structurally unambiguous HTTP URL authority for validation."""
+    if (not isinstance(url, str) or not re.match(r'^https?://', url, re.IGNORECASE)
+            or '\\' in url or any(unicodedata.category(c).startswith('C') for c in url)):
+        return ''
+    try:
+        parsed = urlparse(url)
+        authority = parsed.netloc
+        if (not authority or any(c.isspace() or c in '@%[]' for c in authority)
+                or authority.count(':') > 1):
+            return ''
+        host, separator, port = authority.partition(':')
+        # The parser's port property validates the numeric range.
+        if separator and (not port.isascii() or not port.isdigit() or parsed.port is None):
+            return ''
+        return host
+    except ValueError:
+        return ''
+
+
+def canonical_hostname(host: str) -> str:
+    """Canonicalize a hostname, never an authority or URL; errors omit input."""
+    if ScopeValidator is None:
+        raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
+    if not isinstance(host, str) or not host or any(c.isspace() or unicodedata.category(c).startswith('C') for c in host):
+        raise ValueError('invalid hostname')
+    if any(c in host for c in '/\\@?#:%[]'):
+        raise ValueError('invalid hostname')
+    try:
+        ascii_host = idna.encode(host, uts46=True, std3_rules=True).decode('ascii').lower()
+    except (idna.IDNAError, UnicodeError):
+        raise ValueError('invalid hostname') from None
+    normalized = _safe_host(ascii_host)
+    if not normalized:
+        raise ValueError('invalid hostname')
+    try:
+        ipaddress.ip_address(normalized)
+    except ValueError:
+        return normalized
+    raise ValueError('invalid hostname')
+
+
 def is_target_host(host: str, target: str) -> bool:
     """Return True when host is the target domain or a real subdomain."""
-    host = (host or "").strip().lower().rstrip(".")
-    target = (target or "").strip().lower().rstrip(".")
+    try:
+        host = canonical_hostname(host)
+        target = canonical_hostname(target)
+    except ValueError:
+        return False
     return bool(host and target and (host == target or host.endswith("." + target)))
 
 
@@ -514,37 +571,79 @@ def is_target_host(host: str, target: str) -> bool:
 # Async HTTP prober
 # ---------------------------------------------------------------------------
 
+async def _capture_probe_response(response):
+    # HTTPX may parse Location before send() returns, even when not following.
+    # Capture headers before that and before any response body is decoded.
+    state = response.request.extensions.get("subdomain_probe_response")
+    if state is not None:
+        state.append(response)
+
+
 async def probe_subdomain(subdomain: str, sem: asyncio.Semaphore,
-                          client, timeout: int = 10) -> Optional[ProbeResult]:
-    """Probe a subdomain with httpx async. Returns None on total failure."""
+                          client, timeout: int = 10, scope_check=None) -> Optional[ProbeResult]:
+    """Probe once per scheme; retry HTTP only if HTTPS yielded no response.
+
+    The client must keep _capture_probe_response as its first response hook for
+    the whole operation. Callers must not mutate hooks while requests are live.
+    """
+    subdomain = canonical_hostname(subdomain)
+    attempted = False
     for scheme in ("https", "http"):
         url = f"{scheme}://{subdomain}"
-        try:
-            async with sem:
-                resp = await client.get(url)
+        if scope_check is not None and not scope_check(url):
+            continue
+        attempted = True
+        captured = []
+        resp = None
+        async with sem:
+            # The first response hook must capture headers even if a later hook
+            # or HTTPX's Location parsing fails. Never mutate a shared client.
+            hooks = client.event_hooks.get("response", [])
+            if not hooks or hooks[0] is not _capture_probe_response:
+                raise ValueError("probe client requires the capture hook first")
+            try:
+                request = client.build_request("GET", url)
+                request.extensions["subdomain_probe_response"] = captured
+                try:
+                    resp = await client.send(request, stream=True, follow_redirects=False)
+                finally:
+                    request.extensions.pop("subdomain_probe_response", None)
+            except Exception:
+                # Exception messages can contain request URLs or Location values.
+                if captured:
+                    resp = captured[0]
+                else:
+                    continue
+            try:
                 title = ""
-                m = re.search(r"<title[^>]*>([^<]{1,200})</title>",
-                              resp.text, re.IGNORECASE)
-                if m:
-                    title = m.group(1).strip()
+                content_length = 0
+                redirect_url = ""
+                if 300 <= resp.status_code < 400:
+                    if "location" in resp.headers:
+                        redirect_url = "[redacted]"
+                else:
+                    try:
+                        await resp.aread()
+                        content_length = len(resp.content)
+                        m = re.search(r"<title[^>]*>([^<]{1,200})</title>",
+                                      resp.text, re.IGNORECASE)
+                        if m:
+                            title = m.group(1).strip()
+                    except Exception:
+                        # Headers arrived: preserve status and never retry.
+                        pass
                 ip = ""
                 try:
                     ip = socket.getaddrinfo(subdomain, None)[0][4][0]
                 except Exception:
-                    ip = ""
-                redirect_url = str(resp.url) if str(resp.url) != url else ""
-                return ProbeResult(
-                    subdomain=subdomain,
-                    url=url,
-                    status=resp.status_code,
-                    title=title,
-                    content_length=len(resp.content),
-                    ip=ip,
-                    redirect_url=redirect_url,
-                    source="httpx",
-                )
-        except Exception:
-            continue
+                    pass
+                return ProbeResult(subdomain, url, resp.status_code, title,
+                                   content_length, ip, redirect_url, "httpx")
+            finally:
+                try:
+                    await resp.aclose()
+                except Exception:
+                    pass
     return ProbeResult(
         subdomain=subdomain,
         url=f"https://{subdomain}",
@@ -553,12 +652,12 @@ async def probe_subdomain(subdomain: str, sem: asyncio.Semaphore,
         content_length=0,
         ip="",
         redirect_url="",
-        source="httpx",
+        source="httpx" if attempted else "skipped",
     )
 
 
 async def probe_all(subdomains: list[str], threads: int = 20,
-                    timeout: int = 10) -> list[ProbeResult]:
+                    timeout: int = 10, scope_check=None) -> list[ProbeResult]:
     try:
         import httpx as _httpx
     except ImportError:
@@ -567,21 +666,32 @@ async def probe_all(subdomains: list[str], threads: int = 20,
     sem = asyncio.Semaphore(threads)
     async with _httpx.AsyncClient(
         verify=False,
-        follow_redirects=True,
+        follow_redirects=False,
         timeout=timeout,
+        event_hooks={"response": [_capture_probe_response]},
         limits=_httpx.Limits(max_keepalive_connections=20, max_connections=100),
     ) as client:
-        tasks = [probe_subdomain(sub, sem, client, timeout) for sub in subdomains]
+        tasks = [probe_subdomain(sub, sem, client, timeout, scope_check) for sub in subdomains]
         results = []
         total = len(tasks)
-        done = 0
+        done = attempted = responded = failed_count = skipped_count = 0
         for coro in asyncio.as_completed(tasks):
             result = await coro
             if result:
                 results.append(result)
+                if result.source == 'skipped':
+                    skipped_count += 1
+                else:
+                    attempted += 1
+                    if result.status:
+                        responded += 1
+                    else:
+                        failed_count += 1
             done += 1
             if done % 50 == 0 or done == total:
-                print(f"  [probe] {done}/{total} probed", end="\r", flush=True)
+                print(f"  [probe] {done}/{total} processed: {attempted} attempted, "
+                      f"{responded} responded, {failed_count} failed, "
+                      f"{skipped_count} skipped", end="\r", flush=True)
         print()
         return results
 
@@ -592,13 +702,32 @@ async def probe_all(subdomains: list[str], threads: int = 20,
 # ---------------------------------------------------------------------------
 
 async def check_takeover_async(result: ProbeResult, semaphore: asyncio.Semaphore,
-                               client) -> Optional[dict]:
+                               client, redirect_deferred: Optional[set[str]] = None,
+                               failed: Optional[set[str]] = None) -> Optional[dict]:
     """Async takeover check. Returns candidate dict or None."""
     if result.status not in (200, 404, 403):
         return None
+    try:
+        host = canonical_hostname(result.subdomain)
+    except ValueError:
+        if failed is not None:
+            failed.add('[invalid hostname]')
+        return None
+    if result.url not in (f'http://{host}', f'https://{host}'):
+        if failed is not None:
+            failed.add(host)
+        return None
     async with semaphore:
         try:
-            r = await client.get(result.url, timeout=10)
+            r = await client.get(result.url, timeout=10, follow_redirects=False)
+            if 300 <= r.status_code < 400:
+                if redirect_deferred is not None:
+                    redirect_deferred.add(result.subdomain)
+                return None
+            if r.status_code not in (200, 403, 404):
+                if failed is not None:
+                    failed.add(result.subdomain)
+                return None
             body = r.text
             for service, patterns in TAKEOVER_FINGERPRINTS.items():
                 for pat in patterns:
@@ -610,31 +739,48 @@ async def check_takeover_async(result: ProbeResult, semaphore: asyncio.Semaphore
                             "service": service,
                         }
         except Exception:
-            pass
+            if failed is not None:
+                failed.add(result.subdomain)
     return None
 
 
 async def _run_takeover_checks(dead_results: list[ProbeResult],
-                                threads: int) -> list[dict]:
+                                threads: int, redirect_deferred: set[str],
+                                failed: set[str]) -> list[dict]:
     try:
         import httpx as _httpx
-    except ImportError:
-        return []
+    except ImportError as exc:
+        raise RuntimeError("httpx is required for takeover checks") from exc
     sem = asyncio.Semaphore(threads)
-    async with _httpx.AsyncClient(verify=False, follow_redirects=True,
+    async with _httpx.AsyncClient(verify=False, follow_redirects=False,
                                    timeout=10) as client:
-        tasks = [check_takeover_async(r, sem, client) for r in dead_results]
+        async def check_one(probe_result):
+            local_deferred, local_failed = set(), set()
+            candidate = await check_takeover_async(
+                probe_result, sem, client, local_deferred, local_failed)
+            return candidate, local_deferred, local_failed
+
+        tasks = [check_one(r) for r in dead_results]
         candidates: list[dict] = []
         total = len(tasks)
-        done = 0
+        done = checked_count = deferred_count = failed_count = 0
         for coro in asyncio.as_completed(tasks):
-            result = await coro
+            result, local_deferred, local_failed = await coro
+            redirect_deferred.update(local_deferred)
+            failed.update(local_failed)
+            if local_deferred:
+                deferred_count += 1
+            elif local_failed:
+                failed_count += 1
+            else:
+                checked_count += 1
             if result:
                 candidates.append(result)
             done += 1
-            if done % 10 == 0:
-                print(f"  [takeover] {done}/{total} checked",
-                      end="\r", flush=True)
+            if done % 10 == 0 or done == total:
+                print(f"  [takeover] {done}/{total} attempts completed: "
+                      f"{checked_count} checked, {deferred_count} deferred, "
+                      f"{failed_count} failed", end="\r", flush=True)
         if dead_results:
             print()
         return candidates
@@ -694,7 +840,8 @@ def write_outputs(program: str, target: str,
                   all_subs: list[str],
                   probe_results: list[ProbeResult],
                   takeover_candidates: list[dict],
-                  sources_used: Optional[dict] = None) -> Path:
+                  sources_used: Optional[dict] = None,
+                  takeover_coverage: Optional[dict] = None) -> Path:
     out_dir = RECON_BASE / program / "ghost" / "subdomain"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -739,10 +886,11 @@ def write_outputs(program: str, target: str,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "total_raw": len(raw_subs),
         "total_deduped": len(all_subs),
-        "total_probed": len(probe_results),
+        "total_probed": sum(1 for r in probe_results if r.source != 'skipped'),
         "alive": len(alive),
         "dead": len(dead),
         "takeover_candidates": len(takeover_candidates),
+        "takeover_coverage": takeover_coverage or {"status": "unknown"},
         "sources": sources_used or {},
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -762,6 +910,7 @@ def run(target: str, program: str, use_apis: list[str],
     if ".." in program or "/" in program or "\\" in program:
         raise ValueError(f"Invalid program name: {program}")
 
+    target = canonical_hostname(target)
     print(f"\n[*] Target  : {target}")
     print(f"[*] Program : {program}")
     print(f"[*] APIs    : {', '.join(use_apis) if use_apis else 'none'}")
@@ -796,24 +945,35 @@ def run(target: str, program: str, use_apis: list[str],
     subs = collector.from_js_files(); sources_used["js_files"] = len(subs); raw_subs |= subs
     subs = collector.from_local_urls(); sources_used["local_urls"] = len(subs); raw_subs |= subs
 
+    # Validate before mutation as well as after it: source data is untrusted.
+    def valid_names(names):
+        accepted = set()
+        rejected = 0
+        for name in names:
+            try:
+                host = canonical_hostname(name)
+            except ValueError:
+                rejected += 1
+                continue
+            if is_target_host(host, target):
+                accepted.add(host)
+        if rejected:
+            print(f"  [warn] Rejected {rejected} invalid hostname(s)")
+        return accepted
+
+    raw_subs = valid_names(raw_subs)
     # Mutations on what we've found so far
     raw_subs |= collector.from_mutations(raw_subs)
-
-    # Filter: keep only subdomains of target (no wildcards, no IPs)
-    ip_re = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
-    raw_subs = {
-        s for s in raw_subs
-        if (s.endswith(f".{target}") or s == target)
-        and not ip_re.match(s)
-        and " " not in s
-        and s  # not empty
-    }
+    raw_subs = valid_names(raw_subs)
 
     print(f"  [+] Raw collected : {len(raw_subs)}")
 
     # ---- Phase 2: AGGREGATE & DEDUPE ----
     print("\n[Phase 2] Deduplicating ...")
-    all_subs = dedup_with_anew(raw_subs)
+    scope_check = getattr(collector, 'is_in_scope', None)
+    all_subs = sorted(valid_names(dedup_with_anew(raw_subs)))
+    if scope_check is not None:
+        all_subs = [s for s in all_subs if any(scope_check(f'{scheme}://{s}') for scheme in ('https', 'http'))]
     # Skip uro normalization — subdomains are not URLs; uro rejects them
     # all_subs = normalize_with_uro(all_subs)
     print(f"  [+] Deduped       : {len(all_subs)}")
@@ -825,10 +985,15 @@ def run(target: str, program: str, use_apis: list[str],
         import warnings
         import urllib3
         urllib3.disable_warnings()
-        probe_results = asyncio.run(probe_all(all_subs, threads=threads))
+        if scope_check is None:
+            probe_results = asyncio.run(probe_all(all_subs, threads=threads))
+        else:
+            probe_results = asyncio.run(probe_all(all_subs, threads=threads, scope_check=scope_check))
         alive_count = sum(1 for r in probe_results if r.status in range(200, 400))
+        skipped_count = sum(1 for r in probe_results if r.source == 'skipped')
         print(f"  [+] Alive         : {alive_count}")
-        print(f"  [+] Dead/No-resp  : {len(probe_results) - alive_count}")
+        print(f"  [+] Dead/No-resp  : {len(probe_results) - alive_count - skipped_count}")
+        print(f"  [+] Skipped       : {skipped_count}")
     else:
         print("\n[Phase 3] Probe skipped.")
         # Create stub results for all subs so output files are populated
@@ -845,22 +1010,39 @@ def run(target: str, program: str, use_apis: list[str],
 
     # ---- Phase 5: TAKEOVER CHECK ----
     takeover_candidates: list[dict] = []
+    redirect_deferred = {r.subdomain for r in probe_results if 300 <= r.status < 400} if not skip_takeover else set()
+    takeover_failed = {r.subdomain for r in probe_results if r.status == 0 and r.source != 'skipped'} if not skip_takeover else set()
+    skipped = {r.subdomain for r in probe_results if skip_takeover or r.source == 'skipped' or (r.status != 0 and r.status not in (403, 404) and not 300 <= r.status < 400)}
+    eligible = [r for r in probe_results if r.status in (403, 404) and not skip_takeover]
     if not skip_takeover:
         print("\n[Phase 5] Checking takeover candidates ...")
-        dead_results = [r for r in probe_results
-                        if r.status not in range(200, 400)]
         takeover_candidates = asyncio.run(
-            _run_takeover_checks(dead_results, threads)
+            _run_takeover_checks(eligible, threads, redirect_deferred, takeover_failed)
         )
         for c in takeover_candidates:
             print(f"  [!] TAKEOVER CANDIDATE: {c['subdomain']} [{c['service']}]")
         print(f"  [+] Candidates    : {len(takeover_candidates)}")
+
     else:
         print("\n[Phase 5] Takeover check skipped.")
 
+    checked = {r.subdomain for r in eligible} - redirect_deferred - takeover_failed
+    status = ('skipped' if skip_takeover else 'partial' if redirect_deferred or takeover_failed or any(r.source == 'skipped' for r in probe_results) else 'complete' if checked else 'no-eligible')
+    coverage = {
+        "status": status,
+        "checked_count": len(checked),
+        "deferred_count": len(redirect_deferred),
+        "skipped_count": len(skipped),
+        "failed_count": len(takeover_failed),
+        "checked_subdomains": sorted(checked),
+        "skipped_subdomains": sorted(skipped),
+        "redirect_deferred_subdomains": sorted(redirect_deferred),
+        "failed_subdomains": sorted(takeover_failed),
+    }
+    print(f"  [+] Takeover coverage {status}: {len(checked)} checked, {len(redirect_deferred)} deferred, {len(skipped)} skipped, {len(takeover_failed)} failed")
     # Re-write outputs with takeover data
     write_outputs(program, target, raw_subs, all_subs,
-                  probe_results, takeover_candidates, sources_used)
+                  probe_results, takeover_candidates, sources_used, coverage)
     if record_recon_artifacts is not None:
         manifest_path = record_recon_artifacts(
             program=program,
@@ -925,7 +1107,7 @@ if __name__ == "__main__":
     args = parse_args()
     use_apis = [a.strip().lower() for a in args.use_apis.split(",") if a.strip()]
     run(
-        target=args.target.lower().strip(),
+        target=args.target,
         program=args.program,
         use_apis=use_apis,
         wordlist=args.wordlist,

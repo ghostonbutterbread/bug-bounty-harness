@@ -47,6 +47,7 @@ import logging
 import random
 import re
 import string
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +55,10 @@ from typing import Any, Optional, Union
 from urllib.parse import urljoin, urlparse, urlsplit, parse_qs, urlencode, urlunparse
 
 import httpx
+
+# Also support the legacy top-level import from the agents directory.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agents.bypass_redaction import safe_payload, safe_text
 
 try:

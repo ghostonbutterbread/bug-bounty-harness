@@ -293,10 +293,11 @@ cancellation propagates and closes owned clients. An individually cancelled
 not an observed response; race reports cancelled burst probes as an aggregate.
 Cancellation of a client call after invocation remains included in attempts,
 but not in responses or `unknown_failures`; transport state is unknown.
-`KeyboardInterrupt` and `SystemExit` are not handled as probe failures. `total` retains the prior
-client-call-attempt meaning when counts are supplied (not a result count or a
-claim of tested requests); `result_count` is the number of result entries,
-`result_error_count` may include deferrals, and `execution_errors` can overlap
+`KeyboardInterrupt` and `SystemExit` are not handled as probe failures. `total`
+and the additive `result_count` count supplied result entries, not tested requests
+or client calls. The summary now includes non-hit entries in that count because
+it is written from all results rather than hits alone; `hits` still contains
+successes only. `result_error_count` may include deferrals, and `execution_errors` can overlap
 request failures. JSON `hits` contains successes only. Results now have an
 additive `incomplete` boolean (default false). A race with a missing baseline,
 or missing, failed or cancelled burst probes, is incomplete: a non-hit renders

@@ -401,7 +401,8 @@ def test_report_counts_transport_not_result_entries(scanner, monkeypatch, tmp_pa
     assert counts['skipped_scope'] > 0
     assert counts['deferred'] > 0
     assert counts['errors'] == 0
-    assert summary['total'] == len(calls)
+    assert summary['total'] == summary['result_count']
+    assert summary['total'] != len(calls)
     assert f"Client-call attempts {len(calls)}" in capsys.readouterr().out
 
 

@@ -1054,7 +1054,7 @@ def _write_json(path: Path, results: list[BypassResult], target: str, vuln_type:
         "timestamp": datetime.utcnow().isoformat(),
         "hits":      [asdict(r) for r in results if r.success],
         "incomplete_results": [asdict(r) for r in results if r.incomplete],
-        "total":     request_counts['client_call_attempts'] if counts is not None else len(results),
+        "total":     len(results),
         "result_count": len(results),
         "result_error_count": _result_error_count(results),
         "request_counts": request_counts,

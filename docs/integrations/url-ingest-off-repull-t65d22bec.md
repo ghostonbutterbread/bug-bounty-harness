@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-29
 - **Owning feature branch/ref:** `fix/url-ingest-off-repull-t65d22bec`
-- **Latest immutable recovery checkpoint:** none yet; will be filled after implementation checkpoint
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `44ee6803a4354959c506a649633915e5626f7271`
+- **Feature implementation commit(s):** `44ee6803a4354959c506a649633915e5626f7271`
 - **Inspiration:** `9bea5aceec1183eb0165f0b06ab4bd4efafb3cd1` in the divergent scope-consumer branch; only the analogous ingest default-resolution change was ported, not the branch or its other changes.
 
 ## Intent and implemented contract
@@ -33,10 +33,10 @@
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/url-ingest-off-repull-t65d22bec`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `44ee6803a4354959c506a649633915e5626f7271`
+- **Feature implementation commit(s):** `44ee6803a4354959c506a649633915e5626f7271`
 - **Exact resume point:** review the feature diff and guarded test evidence; parent handles review and integration.
-- **Working-tree state at handoff:** see Git status and later checkpoint update.
+- **Working-tree state at handoff:** clean after the dossier checkpoint commit; verify with `git status`.
 
 ## Decision gates
 

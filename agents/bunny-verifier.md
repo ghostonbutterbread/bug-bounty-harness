@@ -1,5 +1,6 @@
 ---
 name: bunny-verifier
+advertise: true
 description: Independently verify one Bunny candidate in a clean owned context.
 ---
 

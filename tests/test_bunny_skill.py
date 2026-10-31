@@ -48,7 +48,7 @@ class BunnySkillTests(unittest.TestCase):
             "do not silently spawn on the wrong model",
         ):
             self.assertIn(phrase, router)
-        self.assertIn("no per-worker model/provider argument", collaborative)
+        self.assertIn("ordinary subagent tools", collaborative)
         self.assertIn("--model", router)
         self.assertIn("--provider", router)
         self.assertIn("interactive worker route in `bunny`", collaborative)
@@ -104,7 +104,7 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("name: bunny-collaborative\n", text)
         self.assertIn("Both the coordinator and every collaborative worker load", text)
         self.assertIn("Load bunny-collaborative before acting", text)
-        self.assertIn("native subagent facility", text)
+        self.assertIn("ordinary subagent tools", text)
         for role in ("hunter", "recon", "verifier", "reporter"):
             name = f"bunny-{role}"
             self.assertIn(f"`{name}`", text)
@@ -121,7 +121,7 @@ class BunnySkillTests(unittest.TestCase):
             "successive bounded segments",
             "periodic stall check is a backstop",
             "3–5 coordinator feedback turns",
-            "There is a vulnerability here. You might have to get creative to find it.",
+            "Hey, there’s a vulnerability here. Find it.",
             "Research the observed technology",
             "creative in-scope tricks",
             "Stop the challenge early on direct disproof",

@@ -17,14 +17,38 @@ When Bunny is invoked with the explicit `multi` parameter (with or without `/goa
 
 ## Coordinator and worker contract
 
-Use the harness's native subagent facility when it can enforce the selected worker model/provider. Hermes's current model-facing `delegate_task` has no per-worker model/provider argument; for a requested different model, use the interactive worker route in `bunny` rather than putting the model in the goal or changing global delegation settings. Confirm the worker's actual route and that it is running before admitting target actions. An interactive worker keeps the checkpoint/steering contract; if a worker transport only returns at completion, use successive bounded segments as described below, but do not use approval-bypassing one-shot for live work. Name recon, hunter/steward, verifier, and reporter workers `bunny-recon`, `bunny-hunter`, `bunny-verifier`, and `bunny-reporter` when native names are supported; otherwise put the name in the task title and scoped packet. The role is not a harness-specific agent type. The bundled [`../bunny/agents/`](../bunny/agents/) files are portable role instructions, not a prerequisite to spawn.
+Use the current harness's ordinary subagent tools. Follow the `bunny` skill's `references/dispatch.md`: spawn `bunny-recon` and `bunny-hunter` with their role instructions and scoped packets. Spawn `bunny-verifier` for a credible candidate and `bunny-reporter` after verified evidence is ready for reporting. Use the interactive worker route in `bunny` when the selected worker model requires it. Do not substitute a generic implementation worker, and do not use approval-bypassing one-shot for live work.
 
 For an interactive CLI worker, send one bounded turn at a time through the same owned PTY, read its checkpoint and run status, choose the next decision, then send the next steer there—not `delegate_task` steer/stop, which cannot control that process. A pending approval is a pause for the operator through that worker's approval channel; do not auto-approve, bypass it, or count silence as a checkpoint. Track each process ID and confirmed exit alongside native subagent IDs in the campaign record; if the PTY is lost, account for the still-running worker before admitting another or re-leasing its surface.
 
-- **Hunter/steward:** own one surface and nearby mechanism-distinct lenses while warm/hot. Drive the application, record deliberate attempts in the canonical Attempts path, and checkpoint observations, interpretation, evidence pointers, next discriminator, and deferred hypotheses before declaring coverage exhausted. Do not allocate peers.
-- **Recon:** map a distinct current coverage gap without duplicating the hunter's tests or exceeding the aggregate budget; return observed routes, consumers, roles, and evidence.
+- **Hunter/steward:** own one surface and nearby mechanism-distinct lenses while warm/hot. Drive the application, record deliberate attempts in the canonical Attempts path, and checkpoint observations, interpretation, evidence pointers, next discriminator, and deferred hypotheses before declaring coverage exhausted. Ask Bunny for direction or operational help, and exchange relevant observations and questions with recon. Do not allocate peers.
+- **Recon:** map a distinct current coverage gap without duplicating the hunter's tests or exceeding the aggregate budget. Ask Bunny where else to look, send the hunter relevant discoveries, and answer the hunter's mapping questions. Return observed routes, consumers, roles, and evidence.
 - **Verifier:** independently reconstruct a credible candidate from a clean owned context and return reproduced, not reproduced, inconclusive, or blocked with concrete evidence. The motivational nudge is not proof.
 - **Reporter:** load the standalone `bunny-report-and-triage` skill directly after the finding owner has populated FID `EVIDENCE.md` with cited proof; create only its FID-named final report and applicable PoC. Request missing proof rather than inventing it, and return the file for independent review and path registration. External submission is separate.
+
+### Coordinator-owned operational support
+
+The coordinator owns productive conditions: dependency ordering, resource
+placement, browser/proxy provisioning, login recovery, and collision resolution
+through the existing owning skills. A worker reports the concrete prerequisite
+and a non-secret identity alias; it does not become its own provisioning agent.
+For compatible work, share one team browser by default, with one active controller at a time.
+The browser's owner remains its driver; other workers ask that owner for browser
+actions and receive observations. Bunny coordinates these requests through the
+existing worker channels; a parent-owned endpoint is not automatically a child
+lease. If it is busy or a separate identity or concurrent work needs isolation,
+provision another browser under the appropriate identity when policy and
+capacity permit; otherwise queue the work. Keep ownership and cleanup explicit,
+and pass private references rather than raw credentials.
+
+Inspect a conflicting resource's owner before acting. Do not take over another
+worker's controller, account session, port, or live process; allocate an isolated
+alternative or keep the affected slice blocked with a named wake condition.
+Keep unrelated productive work moving while a prerequisite is resolved. Record
+the resource owner and next decision in the existing campaign record, not a
+new evidence store. Re-admit changed scope, account, location, rate, or ownership
+before the hunter continues; operational support does not expand authority or
+prescribe the hunter's theory.
 
 ### Worker-owned writes; parent-owned reconciliation
 
@@ -49,6 +73,50 @@ a catalog does not mandate payload-testing every row. “Reflection ≠ executio
 means proof is still needed, not that the reflected path is closed. Reconcile
 which catalog groups were tested and which remain open at the next checkpoint;
 do not create a duplicate evidence store just for this queue.
+
+### Investigator continuity and runtime limits
+
+A new question normally goes to the current surface owner, not a new worker.
+Keep the same investigator and private branch while its chain is productive;
+spawn for real parallel capacity, a distinct responsibility, or independent
+verification. The hunter chooses and revises the investigative theory; the
+coordinator supplies goals, operational support, and evidence-grounded feedback.
+
+Use the native live reply/steer channel when available. After normal completion,
+resume the retained session when supported, recording its source identity and
+new segment ID/process rather than claiming the old process remained alive.
+A successor segment inherits the exact evidence/decision pointers and the same
+investigator's Attempt stream; it is not a fresh breadth assignment. Recheck
+leases, scope and remaining budgets before continuation.
+
+Distinguish voluntary finish, parent stop, harness deadline, and provider/process failure
+from native lifecycle evidence. Set a mission-appropriate runtime explicitly;
+a short validation-trial deadline is not a productive hunt's default. Where a
+harness imposes a deadline, checkpoint before it and preserve the retained
+session/owner for an admitted continuation. Do not infer a negative result from
+a timeout or reset a binding budget by repeatedly spawning replacements.
+
+### Pointer handoffs
+
+Use the existing stores: MapStore for reusable app facts, the assigned Attempts
+stream for probes, Hypothesis Ledger for private reasoning, and the finding
+owner's FID evidence for proof. A producer writes and performs read-back under
+its own identity; do not copy its evidence into parent-authored summaries or a
+new handoff database.
+
+Notify the intended recipient with the exact store ID/path, program/family/lane,
+why it matters, prerequisite, and current owner. The recipient acknowledges only
+after opening that exact reference and checking relevance and access; an ACK
+names the pointer and the next discriminator, not the full evidence. A missing,
+stale, inaccessible, or mismatched reference is a blocker, not a picked-up task.
+Recon and hunter send these messages directly. If direct messaging is unavailable,
+Bunny relays the unchanged message; a relay is not direct communication. A send is
+not a delivery receipt. Evidence authorship stays with the producer after
+pickup; receiving facts is not an implicit surface-lease transfer. The hunter
+keeps investigative ownership unless the coordinator explicitly reassigns it.
+For an actual unfinished-task transfer, retain the named current owner until the
+assigned recipient acknowledges; evidence authorship is unchanged. Credentials
+and broad private hypothesis histories never belong in these notifications.
 
 ### XSS chain cards at the handoff boundary
 
@@ -79,7 +147,12 @@ again before a new worker segment; no card automatically authorizes traffic.
 
 ## Negative-result challenge
 
-When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“There is a vulnerability here. You might have to get creative to find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
+When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
+
+Keep the challenge terse: that sentence, then a short evidence-grounded
+pushback if useful. Do not append a motivational disclaimer or reassurance
+paragraph to each steer. The distinction below is an internal evidence rule,
+not wording to repeat to the hunter on every turn.
 
 The assertion is a **motivational search stance, never a factual finding** or invented observation. Stop the challenge early on direct disproof of the required chain link, a real blocker, or a candidate ready for independent verification. After 3–5 turns decide from evidence whether to continue the warm chain, defer an unresolved hypothesis, or close it; do not manufacture a finding or closure to satisfy the count.
 

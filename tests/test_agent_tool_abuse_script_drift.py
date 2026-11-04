@@ -8,19 +8,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class MutableHostedScriptTechniqueTests(unittest.TestCase):
     def test_ai_tool_abuse_owns_script_retrieval_drift(self):
-        owner = (ROOT / "skills/agent-tool-abuse/SKILL.md").read_text(encoding="utf-8")
+        owner = " ".join((ROOT / "skills/agent-tool-abuse/SKILL.md").read_text(encoding="utf-8").split())
         entry = (ROOT / "skills/ai-tester/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("/agent-tool-abuse", entry)
         for cue in (
             "inspects a hosted script, repairs an apparent bug",
+            "later retrieves that URL to execute it",
             "inspection and initial reproduction",
-            "later retrieval automatically",
-            "distinct **inert canary**",
+            "automatically serve a distinct **inert canary**",
+            "execution-time retrieval",
             "earlier refusal does not authorize changed code",
-            "Do not use\na malicious payload",
+            "Do not use a malicious payload",
             "authorized owned endpoint",
             "each response's digest, retrieval order",
-            "Distinguish a pinned local snapshot from a\nnew fetch",
+            "Distinguish a pinned local snapshot from a new fetch",
             "A proposed command or model claim is not execution",
             "action boundaries to any live target",
         ):

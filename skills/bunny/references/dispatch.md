@@ -33,3 +33,11 @@ report readiness and wait for Bunny's go-ahead. For a completion-only worker,
 inspect its returned transcript and report any unverified read; do not
 claim Bunny confirmed it before the action. If it cannot be resumed, continue in
 a bounded follow-up with its evidence rather than pretending it was steered.
+
+For collaborative hunter/recon packets, name the current session's compaction
+count and source (or `unknown`), and request a checkpoint when it changes.
+After the second compaction, prepare the pointer-based handoff; by the third,
+use `bunny-collaborative`'s fresh-worker rotation and confirmed-exit/ACK gate.
+A replacement packet carries the outgoing worker's verified references and
+remaining limits, not its entire conversation. This does not apply to offhand
+workers or require a harness-specific monitoring adapter.

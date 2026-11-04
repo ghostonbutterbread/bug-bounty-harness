@@ -82,12 +82,70 @@ spawn for real parallel capacity, a distinct responsibility, or independent
 verification. The hunter chooses and revises the investigative theory; the
 coordinator supplies goals, operational support, and evidence-grounded feedback.
 
+**Context rotation for hunter and recon:** The coordinator tracks observed native
+compaction events for each worker's session across revivals; a new job, resumed
+segment, or parent compaction does not reset or increment this count. Check
+native status/trace at checkpoints and ask the worker for its count and source
+when the harness does not expose it to the coordinator. Treat missing compaction
+telemetry as unknown, not zero or an excuse to declare a fresh context. At the
+second observed compaction, prepare an evidence-backed handoff; at the third
+observed compaction, rotate to a **fresh hunter or recon worker** of the same
+role at the next safe checkpoint rather than issuing another investigative
+turn to the old session. Do not interrupt an in-flight test or approval to meet
+the threshold. A newly spawned session has a verified fresh starting context;
+reviving that session does not make it fresh again. If later compaction events
+cannot be observed, pause the affected worker at the next checkpoint, diagnose
+its native telemetry or obtain a supported bounded continuation decision from
+the owner; do not repeatedly rotate unmeasured replacements or claim the
+threshold was met. Keep other work moving. A normal new surface before that
+threshold stays with its owner.
+
+The outgoing worker writes and reads back its own established facts and tests
+through the existing stores, then reports exact Attempt/MapStore/Coverage IDs,
+the unresolved question and observed versus inferred boundary, blockers and
+wake conditions, and any unverified/missing records. The coordinator must read
+back the exact pointers, retain the pending lease and next decision in the
+existing campaign record, and preserve any private branch via its owner's
+explicit handoff mechanism rather than copying private hypotheses into a
+public packet. Preassign the successor's agent/run identity so the outgoing
+owner can delegate one selected private branch before exit; untransferred
+branches remain private to their original owner, not silently reassigned.
+The successor opens the delegated branch through its own exact ledger identity
+and ACKs its branch ID in the private channel; a public evidence-pointer ACK
+alone does not verify private pickup. A successful `delegate` immediately
+changes the ledger owner to the successor, even before the ACK. If pickup fails,
+mark the branch **delegated but unacknowledged** under that successor identity
+and block any continuation that depends on its private context; never call it
+untransferred or assume the prior owner can read it back. A responsive successor
+may delegate it back under the ledger's owner rules; otherwise wait for the
+owner to become stale and use the ledger's authorized reclaim path. Do not
+impersonate either worker or silently disclose private content to a replacement.
+Carry forward the remaining aggregate budget, browser/account
+ownership, and negative-challenge feedback count; rotation does not reset any
+of them. Record old and new worker/session IDs and why the change occurred.
+Before the old browser driver exits, identify its controller and arrange the
+owning provisioner's supported transfer or release/re-provision with verified
+lease state. If another team driver remains, the successor asks that owner for
+browser actions instead; surface ACK alone never transfers browser control.
+If neither route is available, the browser-dependent slice stays blocked.
+Confirm the old worker's exit or stop before admitting its replacement, then
+spawn a fresh same-role session with the original scope/rules and checked
+model/provider/approval gate, a **separate Attempt stream**, and only the
+verified pointers and next question. The successor opens the references and
+acknowledges its exact surface and limits before the coordinator transfers
+ownership; there remains one active controller per browser. A failed write,
+missing pointer, unconfirmed exit, or absent ACK blocks that slice's transfer,
+not unrelated work. This is a new worker with new context, **not** a revival or
+a duplicate parent-authored evidence record.
+
 Use the native live reply/steer channel when available. After normal completion,
 resume the retained session when supported, recording its source identity and
 new segment ID/process rather than claiming the old process remained alive.
 A successor segment inherits the exact evidence/decision pointers and the same
 investigator's Attempt stream; it is not a fresh breadth assignment. Recheck
 leases, scope and remaining budgets before continuation.
+This same-session continuation applies only before the rotation boundary above;
+after rotation, the fresh worker uses its own stream and cites predecessor IDs.
 
 Distinguish voluntary finish, parent stop, harness deadline, and provider/process failure
 from native lifecycle evidence. Set a mission-appropriate runtime explicitly;
@@ -147,7 +205,7 @@ again before a new worker segment; no card automatically authorizes traffic.
 
 ## Negative-result challenge
 
-When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
+When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns** (or continue the remaining turns with its context-rotated successor, preserving the count). In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
 
 Keep the challenge terse: that sentence, then a short evidence-grounded
 pushback if useful. Do not append a motivational disclaimer or reassurance

@@ -122,6 +122,12 @@ def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
         "does not reset", "missing compaction telemetry",
         "Preassign the successor's agent/run identity",
         "untransferred branches remain private",
+        "ACKs its branch ID in the private channel",
+        "public evidence-pointer ACK alone does not verify private pickup",
+        "supported transfer or release/re-provision",
+        "surface ACK alone never transfers browser control",
+        "do not repeatedly rotate unmeasured replacements",
+        "context-rotated successor, preserving the count",
     ):
         assert phrase in text
     assert "compaction count and source" in dispatch

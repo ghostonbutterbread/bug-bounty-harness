@@ -25,7 +25,7 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 - Structural check: `git diff --check` passed; frontmatter and dispatch link inspected.
 - Installed beta venv's Bounty Core revision matches `requirements.txt` pin `6c36ee88a60073e1b687ec32deeade24ffafdd4f`; feature imports resolve from its worktree.
 - Full suite attempt: root `pytest -q` fails collection on `test_catalog.py` (`bac_checks` absent); `pytest -q agents tests` timed out after 300s with unrelated early failures; `pytest -q -x agents tests` identifies baseline `agents/test_agent_context_routing.py::test_root_instructions_point_to_compact_agent_entry_card` expecting `/hypothesis-ledger` in unchanged `agents/index.md` (44 passed then failure). None is a passing full-suite receipt.
-- Independent review: pending.
+- Independent review: first read-only pass found private-branch ACK, browser-controller handoff, unknown-telemetry churn, and challenge-continuity gaps. This branch now requires exact private pickup ACK, provisioner-owned browser transfer or blocked slice, a telemetry diagnostic/pause instead of repeat rotation, and preserved challenge turns. Re-review pending.
 - Replay/cohort/fixture: not yet exercised with fresh agents; policy-text tests do not prove automatic runtime enforcement.
 - Merge/ancestry: branch created from fetched `origin/beta` above; not yet integrated.
 
@@ -42,8 +42,8 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
 - **Latest immutable recovery checkpoint:** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
 - **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
-- **Exact resume point:** run independent review and reconcile findings before beta integration.
-- **Working-tree state at handoff:** dossier-only checkpoint pointer update awaiting review/commit.
+- **Exact resume point:** commit review corrections, rerun focused tests, and get independent re-review before beta integration.
+- **Working-tree state at handoff:** first review complete; review corrections in progress on this branch.
 
 ## Decision gates
 
@@ -54,3 +54,4 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 ## Decision record
 
 - 2026-11-04 — created a feature-branch guidance contract following a Trello audit; no runtime activation yet.
+- 2026-11-04 — first independent review identified three medium and two low issues; revised the skill to address the ownership/telemetry/continuity gaps. Awaiting re-review.

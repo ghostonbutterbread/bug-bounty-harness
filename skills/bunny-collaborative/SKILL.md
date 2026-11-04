@@ -92,9 +92,13 @@ second observed compaction, prepare an evidence-backed handoff; at the third
 observed compaction, rotate to a **fresh hunter or recon worker** of the same
 role at the next safe checkpoint rather than issuing another investigative
 turn to the old session. Do not interrupt an in-flight test or approval to meet
-the threshold. If the count cannot be established, arrange a conservative
-handoff at the next checkpoint rather than repeatedly reviving an unmeasured
-session. A normal new surface before that threshold stays with its owner.
+the threshold. A newly spawned session has a verified fresh starting context;
+reviving that session does not make it fresh again. If later compaction events
+cannot be observed, pause the affected worker at the next checkpoint, diagnose
+its native telemetry or obtain a supported bounded continuation decision from
+the owner; do not repeatedly rotate unmeasured replacements or claim the
+threshold was met. Keep other work moving. A normal new surface before that
+threshold stays with its owner.
 
 The outgoing worker writes and reads back its own established facts and tests
 through the existing stores, then reports exact Attempt/MapStore/Coverage IDs,
@@ -106,9 +110,18 @@ explicit handoff mechanism rather than copying private hypotheses into a
 public packet. Preassign the successor's agent/run identity so the outgoing
 owner can delegate one selected private branch before exit; untransferred
 branches remain private to their original owner, not silently reassigned.
+The successor opens the delegated branch through its own exact ledger identity
+and ACKs its branch ID in the private channel; a public evidence-pointer ACK
+alone does not verify private pickup. If pickup fails, retain that branch as
+untransferred and block any continuation that depends on its private context.
 Carry forward the remaining aggregate budget, browser/account
 ownership, and negative-challenge feedback count; rotation does not reset any
 of them. Record old and new worker/session IDs and why the change occurred.
+Before the old browser driver exits, identify its controller and arrange the
+owning provisioner's supported transfer or release/re-provision with verified
+lease state. If another team driver remains, the successor asks that owner for
+browser actions instead; surface ACK alone never transfers browser control.
+If neither route is available, the browser-dependent slice stays blocked.
 Confirm the old worker's exit or stop before admitting its replacement, then
 spawn a fresh same-role session with the original scope/rules and checked
 model/provider/approval gate, a **separate Attempt stream**, and only the
@@ -186,7 +199,7 @@ again before a new worker segment; no card automatically authorizes traffic.
 
 ## Negative-result challenge
 
-When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns**. In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
+When a hunter proposes `coverage_exhausted` or “no vuln” on a warm surface without direct disproof of the relevant chain, retain that steward for **3–5 coordinator feedback turns** (or continue the remaining turns with its context-rotated successor, preserving the count). In **each** turn say: **“Hey, there’s a vulnerability here. Find it.”** Then ground the next direction in the latest evidence and ask for a *different* discriminator: actor, object, trust boundary, state transition, consumer, or other mechanism-distinct lens. Research the observed technology, documentation, patch history, or analogous mechanisms when that can yield a new test idea; try creative in-scope tricks rather than repeating a payload. Read the next checkpoint and adapt the next turn. Count feedback turns, not tests or requests; there is no payload cap or required positive result.
 
 Keep the challenge terse: that sentence, then a short evidence-grounded
 pushback if useful. Do not append a motivational disclaimer or reassurance

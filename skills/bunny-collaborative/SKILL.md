@@ -112,8 +112,14 @@ owner can delegate one selected private branch before exit; untransferred
 branches remain private to their original owner, not silently reassigned.
 The successor opens the delegated branch through its own exact ledger identity
 and ACKs its branch ID in the private channel; a public evidence-pointer ACK
-alone does not verify private pickup. If pickup fails, retain that branch as
-untransferred and block any continuation that depends on its private context.
+alone does not verify private pickup. A successful `delegate` immediately
+changes the ledger owner to the successor, even before the ACK. If pickup fails,
+mark the branch **delegated but unacknowledged** under that successor identity
+and block any continuation that depends on its private context; never call it
+untransferred or assume the prior owner can read it back. A responsive successor
+may delegate it back under the ledger's owner rules; otherwise wait for the
+owner to become stale and use the ledger's authorized reclaim path. Do not
+impersonate either worker or silently disclose private content to a replacement.
 Carry forward the remaining aggregate budget, browser/account
 ownership, and negative-challenge feedback count; rotation does not reset any
 of them. Record old and new worker/session IDs and why the change occurred.

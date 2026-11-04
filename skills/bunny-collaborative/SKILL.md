@@ -82,12 +82,51 @@ spawn for real parallel capacity, a distinct responsibility, or independent
 verification. The hunter chooses and revises the investigative theory; the
 coordinator supplies goals, operational support, and evidence-grounded feedback.
 
+**Context rotation for hunter and recon:** The coordinator tracks observed native
+compaction events for each worker's session across revivals; a new job, resumed
+segment, or parent compaction does not reset or increment this count. Check
+native status/trace at checkpoints and ask the worker for its count and source
+when the harness does not expose it to the coordinator. Treat missing compaction
+telemetry as unknown, not zero or an excuse to declare a fresh context. At the
+second observed compaction, prepare an evidence-backed handoff; at the third
+observed compaction, rotate to a **fresh hunter or recon worker** of the same
+role at the next safe checkpoint rather than issuing another investigative
+turn to the old session. Do not interrupt an in-flight test or approval to meet
+the threshold. If the count cannot be established, arrange a conservative
+handoff at the next checkpoint rather than repeatedly reviving an unmeasured
+session. A normal new surface before that threshold stays with its owner.
+
+The outgoing worker writes and reads back its own established facts and tests
+through the existing stores, then reports exact Attempt/MapStore/Coverage IDs,
+the unresolved question and observed versus inferred boundary, blockers and
+wake conditions, and any unverified/missing records. The coordinator must read
+back the exact pointers, retain the pending lease and next decision in the
+existing campaign record, and preserve any private branch via its owner's
+explicit handoff mechanism rather than copying private hypotheses into a
+public packet. Preassign the successor's agent/run identity so the outgoing
+owner can delegate one selected private branch before exit; untransferred
+branches remain private to their original owner, not silently reassigned.
+Carry forward the remaining aggregate budget, browser/account
+ownership, and negative-challenge feedback count; rotation does not reset any
+of them. Record old and new worker/session IDs and why the change occurred.
+Confirm the old worker's exit or stop before admitting its replacement, then
+spawn a fresh same-role session with the original scope/rules and checked
+model/provider/approval gate, a **separate Attempt stream**, and only the
+verified pointers and next question. The successor opens the references and
+acknowledges its exact surface and limits before the coordinator transfers
+ownership; there remains one active controller per browser. A failed write,
+missing pointer, unconfirmed exit, or absent ACK blocks that slice's transfer,
+not unrelated work. This is a new worker with new context, **not** a revival or
+a duplicate parent-authored evidence record.
+
 Use the native live reply/steer channel when available. After normal completion,
 resume the retained session when supported, recording its source identity and
 new segment ID/process rather than claiming the old process remained alive.
 A successor segment inherits the exact evidence/decision pointers and the same
 investigator's Attempt stream; it is not a fresh breadth assignment. Recheck
 leases, scope and remaining budgets before continuation.
+This same-session continuation applies only before the rotation boundary above;
+after rotation, the fresh worker uses its own stream and cites predecessor IDs.
 
 Distinguish voluntary finish, parent stop, harness deadline, and provider/process failure
 from native lifecycle evidence. Set a mission-appropriate runtime explicitly;

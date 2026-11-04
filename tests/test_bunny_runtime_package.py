@@ -111,6 +111,23 @@ def test_continuity_keeps_the_investigator_and_distinguishes_stop_causes():
     assert "choose and revise your investigative theory" in role
 
 
+def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
+    text = " ".join((ROOT / "skills/bunny-collaborative/SKILL.md").read_text().split())
+    dispatch = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().split())
+    for phrase in (
+        "second observed compaction", "third observed compaction",
+        "fresh hunter or recon worker", "across revivals",
+        "separate Attempt stream", "read back the exact pointers",
+        "acknowledges", "confirmed exit", "one active controller",
+        "does not reset", "missing compaction telemetry",
+        "Preassign the successor's agent/run identity",
+        "untransferred branches remain private",
+    ):
+        assert phrase in text
+    assert "compaction count and source" in dispatch
+    assert "offhand" in dispatch
+
+
 def test_blunt_challenge_is_not_followed_by_motivational_disclaimers():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     assert "Do not append a motivational disclaimer" in text

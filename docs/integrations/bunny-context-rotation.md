@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-04 UTC
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** `3ee424e7217f352e6cfff19db519a0469968e75d`
-- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`
+- **Latest immutable recovery checkpoint:** `bcdb4b54e7543460fba07ea8729a4358de254562`
+- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`, `bcdb4b54e7543460fba07ea8729a4358de254562`
 - **Inspiration / canonical references:** Trello Bunny worker observed seven compactions across revived sessions; `skills/bunny-collaborative/SKILL.md`, `skills/bunny/references/dispatch.md`, `skills/hypothesis-ledger/SKILL.md`.
 
 ## Intent
@@ -40,10 +40,10 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** `3ee424e7217f352e6cfff19db519a0469968e75d`
-- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`
-- **Exact resume point:** commit ledger ownership correction, rerun focused tests, and obtain final review before beta integration.
-- **Working-tree state at handoff:** second review complete; ledger correction in progress on this branch.
+- **Latest immutable recovery checkpoint:** `bcdb4b54e7543460fba07ea8729a4358de254562`
+- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`, `bcdb4b54e7543460fba07ea8729a4358de254562`
+- **Exact resume point:** obtain final independent review, reconcile its findings, then decide beta integration.
+- **Working-tree state at handoff:** clean after the dossier-only pointer commit.
 
 ## Decision gates
 

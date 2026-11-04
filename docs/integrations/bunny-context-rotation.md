@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-04 UTC
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
+- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
 - **Inspiration / canonical references:** Trello Bunny worker observed seven compactions across revived sessions; `skills/bunny-collaborative/SKILL.md`, `skills/bunny/references/dispatch.md`, `skills/hypothesis-ledger/SKILL.md`.
 
 ## Intent
@@ -40,10 +40,10 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
+- **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`
 - **Exact resume point:** run independent review and reconcile findings before beta integration.
-- **Working-tree state at handoff:** intentionally uncommitted until first checkpoint commit.
+- **Working-tree state at handoff:** dossier-only checkpoint pointer update awaiting review/commit.
 
 ## Decision gates
 

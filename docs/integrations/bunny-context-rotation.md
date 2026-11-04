@@ -7,7 +7,7 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-04 UTC
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** `bcdb4b54e7543460fba07ea8729a4358de254562`
+- **Latest immutable recovery checkpoint:** `f7e718f2a1fb774479ffcc74aac6c53d2b4a9e92`
 - **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`, `bcdb4b54e7543460fba07ea8729a4358de254562`
 - **Inspiration / canonical references:** Trello Bunny worker observed seven compactions across revived sessions; `skills/bunny-collaborative/SKILL.md`, `skills/bunny/references/dispatch.md`, `skills/hypothesis-ledger/SKILL.md`.
 
@@ -21,29 +21,29 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 
 ## Evidence and review
 
-- Focused tests: `UV_CACHE_DIR=<profile scratch>/uv-cache uv run --no-project --with pytest python -m pytest -q tests/test_bunny_runtime_package.py tests/test_bunny_skill.py tests/test_bunny_agent_sources.py` → 31 passed, 16 subtests passed.
+- Focused tests: the selected beta-worktree venv ran `python -m pytest -q tests/test_bunny_runtime_package.py tests/test_bunny_skill.py tests/test_bunny_agent_sources.py tests/test_security_reporting_skill.py` → 35 passed, 46 subtests passed. Independent reviewer reran the first three → 31 passed, 16 subtests; ledger tests → 10 passed.
 - Structural check: `git diff --check` passed; frontmatter and dispatch link inspected.
-- Installed beta venv's Bounty Core revision matches `requirements.txt` pin `6c36ee88a60073e1b687ec32deeade24ffafdd4f`; feature imports resolve from its worktree.
+- Test interpreter `/home/ryushe/worktrees/bbh-beta-integration-offline/.venv/bin/python` resolves the feature's `agents` package and installed Bounty Core revision `6c36ee88a60073e1b687ec32deeade24ffafdd4f`, matching this checkout's pin. A different venv at `~/projects/bug_bounty_harness/bbh-beta-integration/.venv` reports `9968eeb58ca902549097d8941875b0e01cfe0af2`; it was not the selected test interpreter. No dependency change is part of this feature.
 - Full suite attempt: root `pytest -q` fails collection on `test_catalog.py` (`bac_checks` absent); `pytest -q agents tests` timed out after 300s with unrelated early failures; `pytest -q -x agents tests` identifies baseline `agents/test_agent_context_routing.py::test_root_instructions_point_to_compact_agent_entry_card` expecting `/hypothesis-ledger` in unchanged `agents/index.md` (44 passed then failure). None is a passing full-suite receipt.
-- Independent review: first read-only pass found private-branch ACK, browser-controller handoff, unknown-telemetry churn, and challenge-continuity gaps; those corrections are committed. Second pass found that `delegate` immediately transfers ledger ownership even without pickup ACK; corrected the recovery state and failure path. Final review pending.
-- Replay/cohort/fixture: not yet exercised with fresh agents; policy-text tests do not prove automatic runtime enforcement.
+- Independent review: first read-only pass found private-branch ACK, browser-controller handoff, unknown-telemetry churn, and challenge-continuity gaps; those corrections are committed. Second pass found that `delegate` immediately transfers ledger ownership even without pickup ACK; corrected the recovery state and failure path. Final independent pass found no material behavior issues; clarified the venv provenance above.
+- Replay/cohort/fixture: a fresh-agent offline policy-comprehension trial correctly distinguished the second/third compaction, private ACK failure, browser ownership, confirmed exit, separate stream, and missing telemetry. It did not create native workers or exercise actual runtime compaction; policy-text tests and the trial do not prove automatic enforcement.
 - Merge/ancestry: branch created from fetched `origin/beta` above; not yet integrated.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** fresh-agent read/compaction→handoff→replacement behavior in an isolated non-target trial; full suite baseline failures.
-- **Command / fixture / environment needed:** use an isolated harness trial with synthetic events/owned no-network data; establish a suite baseline on `beta` for unrelated routing assertion.
-- **Trigger to run it:** before claiming active behavior or stable promotion; after independent review for integration decision.
-- **Why it blocks integration, activation, or promotion:** no automatic enforcement claim is warranted from skill text alone; broad-suite failure is not attributable to this change but must be disclosed.
-- **Next completion step / successor reference:** independent review of this branch and its evidence; beta integration only if review accepts the narrow policy contract, then provider-resolution verification.
+- **Missing test or evidence:** real native compaction→handoff→replacement run with no target traffic, plus a passing full-suite baseline.
+- **Command / fixture / environment needed:** an isolated native runner that emits synthetic compaction events and can safely spawn/stop fresh workers; baseline suite setup for unrelated routing assertion.
+- **Trigger to run it:** before claiming runtime-enforced rotation or stable promotion, and when a native fixture is available.
+- **Why it blocks integration, activation, or promotion:** does not block this reviewed guidance from beta integration; it blocks claims of automatic enforcement and stable promotion. Broad-suite failure is unrelated to the changed files but must be disclosed.
+- **Next completion step / successor reference:** integrate reviewed guidance to beta, verify provider resolution, then exercise a native fixture before calling worker replacement automatic.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-context-rotation`
-- **Latest immutable recovery checkpoint:** `bcdb4b54e7543460fba07ea8729a4358de254562`
+- **Latest immutable recovery checkpoint:** `f7e718f2a1fb774479ffcc74aac6c53d2b4a9e92`
 - **Feature implementation commit(s):** `d81553e76a0aefcc1c364f7af98ed2ec2ab278b8`, `3ee424e7217f352e6cfff19db519a0469968e75d`, `bcdb4b54e7543460fba07ea8729a4358de254562`
-- **Exact resume point:** obtain final independent review, reconcile its findings, then decide beta integration.
-- **Working-tree state at handoff:** clean after the dossier-only pointer commit.
+- **Exact resume point:** record final decision, integrate this reviewed guidance into beta, then verify provider resolution.
+- **Working-tree state at handoff:** dossier-only review receipt pending commit; policy/test tree clean.
 
 ## Decision gates
 
@@ -56,3 +56,4 @@ At the second observed compaction, prepare a handoff; at the third, finish the c
 - 2026-11-04 — created a feature-branch guidance contract following a Trello audit; no runtime activation yet.
 - 2026-11-04 — first independent review identified three medium and two low issues; revised the skill to address the ownership/telemetry/continuity gaps. Awaiting re-review.
 - 2026-11-04 — second review identified immediate ledger ownership transfer on `delegate`; corrected the unacknowledged-pickup state and recovery condition. Awaiting final review.
+- 2026-11-04 — final independent review found no material behavior issue. Clarified the exact selected test interpreter and bounded offline-trial limitations; accepted for beta guidance integration, not runtime auto-enforcement or stable promotion.

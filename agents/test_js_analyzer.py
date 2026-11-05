@@ -144,6 +144,158 @@ def test_artifact_root_env_routes_inventory_and_observe(monkeypatch, tmp_path: P
     assert integrations == program_root / "intel" / "integrations"
 
 
+def test_inventory_refuses_nested_content_symlink_before_derived_write(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    body = b"const nested = true;"
+    digest = hashlib.sha256(body).hexdigest()
+    chunks = tmp_path / "lib" / "chunks"
+    chunks.mkdir(parents=True)
+    (chunks / digest).symlink_to("/mnt/bounty/unavailable")
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.com/app.js\n")
+    with patch.object(J, "http_get", return_value=(body, 200, "application/javascript")):
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main(["inventory", "demo", "--source-maps", "off", "--input", str(source),
+                    "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+                    "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "intel")])
+
+
+def test_inventory_reports_configured_shared_bulk_conflict_before_writes(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    selected = tmp_path / "local"
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(selected))
+    shared = tmp_path / "home" / "Shared" / "demo"
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"programs": {"demo": {"program_root": str(shared)}}}))
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", (config,))
+    with patch.object(J, "collect_from_page") as fetch:
+        with pytest.raises(SystemExit) as error:
+            J.main(["inventory", "demo", "--page", "https://example.com", "--target-host", "example.com"])
+    assert str(selected) in str(error.value)
+    assert str(shared) in str(error.value)
+    assert str(config) in str(error.value)
+    fetch.assert_not_called()
+    assert not shared.exists() and not selected.exists()
+
+
+@pytest.mark.parametrize("setting", ["shared_web_base", "program_root", "js_root", "output_base", "library_root"])
+def test_shared_config_conflict_checks_each_implicit_bulk_destination(monkeypatch, tmp_path: Path, setting: str):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    shared = tmp_path / "home" / "Shared" / "old"
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {setting: str(shared)}}))
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", (config,))
+    args = Namespace(program="demo", config=None, output_root=None, library_root=None,
+                     integration_index_root=str(tmp_path / "intel"))
+    with pytest.raises(SystemExit, match="conflicts with configured Shared bulk"):
+        J.resolve_inventory_paths(args, "run")
+    args.output_root, args.library_root = str(tmp_path / "out"), str(shared / "existing-library")
+    assert J.resolve_inventory_paths(args, "run")[:2] == (Path(args.output_root), Path(args.library_root))
+    assert J.resolve_library_root(args)[0] == Path(args.library_root)
+
+
+def test_shared_config_observe_keeps_existing_ledger_and_unset_env_keeps_precedence(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    shared = tmp_path / "home" / "Shared" / "old"
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {"program_root": str(shared)}}))
+    args = Namespace(program="demo", config=str(config), output_root=None, library_root=None, integration_index_root=None)
+    assert J.resolve_library_root(args)[0] == shared / "web/recon/js/_library"
+    monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT")
+    assert J.resolve_inventory_paths(args, "run")[1] == shared / "web/recon/js/_library"
+
+
+def test_shared_alias_conflict_is_per_destination_and_does_not_relocate_index(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    shared = tmp_path / "home" / "Shared"
+    shared.mkdir(parents=True)
+    alias = tmp_path / "alias"
+    alias.symlink_to(shared, target_is_directory=True)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {"program_root": str(alias / "demo")}}))
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", (config,))
+    args = Namespace(program="demo", config=None, output_root=str(tmp_path / "out"), library_root=None, integration_index_root=None)
+    with pytest.raises(SystemExit, match="--library-root"):
+        J.resolve_inventory_paths(args, "run")
+    args.library_root = str(tmp_path / "library")
+    assert J.resolve_inventory_paths(args, "run")[2] == alias / "demo/web/intel/integrations"
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(shared / "explicit"))
+    args.output_root = args.library_root = None
+    assert J.resolve_inventory_paths(args, "run")[1] == alias / "demo/web/recon/js/_library"
+
+
+def test_inventory_stops_on_mount_loss_and_resumes_without_duplicate_rows(monkeypatch, tmp_path: Path):
+    from agents import artifact_root
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    monkeypatch.setattr(artifact_root, "LEGACY_ARTIFACT_ROOT", mount)
+    available = [True]
+    monkeypatch.setattr(os.path, "ismount", lambda path: available[0])
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.com/app.js\n")
+    root, library = mount / "out", mount / "lib"
+    argv = ["inventory", "demo", "--source-maps", "off", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(root), "--library-root", str(library), "--integration-index-root", str(tmp_path / "intel"), "--run-id", "run"]
+
+    def lose_mount(*args, **kwargs):
+        available[0] = False
+        return b"const safe = true;", 200, "application/javascript"
+
+    with patch.object(J, "http_get", side_effect=lose_mount):
+        with pytest.raises(SystemExit, match="not mounted"):
+            J.main(argv)
+    assert not list((library / "downloads").iterdir())
+    assert json.loads((root / "checkpoint.json").read_text())["succeeded"] == []
+    available[0] = True
+    with patch.object(J, "http_get", return_value=(b"const safe = true;", 200, "application/javascript")):
+        assert J.main(argv + ["--resume"]) == 0
+        assert J.main(argv + ["--resume"]) == 0
+    assert len(J.read_jsonl(library / "metadata.jsonl")) == 1
+    assert len(J.read_jsonl(library / "provenance.jsonl")) == 1
+
+
+def test_inventory_accepts_real_safe_nested_content_symlink(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    body = b"const safe = true;"
+    digest = hashlib.sha256(body).hexdigest()
+    chunks = tmp_path / "lib" / "chunks"
+    chunks.mkdir(parents=True)
+    target = tmp_path / "local-chunks"
+    target.mkdir()
+    (chunks / digest).symlink_to(target, target_is_directory=True)
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.com/app.js\n")
+    with patch.object(J, "http_get", return_value=(body, 200, "application/javascript")):
+        assert J.main(["inventory", "demo", "--source-maps", "off", "--input", str(source), "--target-host", "example.com",
+                       "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"),
+                       "--integration-index-root", str(tmp_path / "intel")]) == 0
+    assert list(target.rglob("*.js"))
+
+
+@pytest.mark.parametrize("writer", ["bytes", "text", "jsonl", "append", "ledger", "sqlite"])
+def test_concrete_leaf_symlink_is_checked_before_any_writer_mutation(monkeypatch, tmp_path: Path, writer: str):
+    from agents import artifact_root
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    monkeypatch.setattr(artifact_root, "LEGACY_ARTIFACT_ROOT", mount)
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    victim = mount / "victim"
+    victim.write_text("preserve me\n")
+    destination = tmp_path / "destination"
+    destination.symlink_to(victim)
+    operations = {
+        "bytes": lambda: J.write_bytes_checked(destination, b"new"),
+        "text": lambda: J.write_text_atomic(destination, "new"),
+        "jsonl": lambda: J.write_jsonl(destination, [{"new": True}]),
+        "append": lambda: J.append_jsonl(destination, [{"new": True}]),
+        "ledger": lambda: J.save_ledger(destination, {}),
+        "sqlite": lambda: J.write_observations_table(destination, []),
+    }
+    with pytest.raises(SystemExit, match="not mounted"):
+        operations[writer]()
+    assert victim.read_text() == "preserve me\n"
+
+
 @pytest.mark.parametrize("unsafe_flag", ["--output-root", "--library-root", "--integration-index-root"])
 def test_inventory_rejects_each_unmounted_destination_before_any_write_or_network(monkeypatch, tmp_path: Path, unsafe_flag: str):
     monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT", raising=False)

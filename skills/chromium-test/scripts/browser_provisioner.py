@@ -2498,8 +2498,8 @@ def start(args):
         instance = automatic_instance(c, args, alias, auth_domain,
                                       allow_takeover=single or adm["status"] != "admitted")
     row = selected_browser(c, args.program, alias, auth_domain, instance)
-    if row and row['state'] == 'running' and not profiles.safe_profile_path(Path(row['profile_dir'])):
-        emit({'status': 'profile-unavailable', 'next': 'The recorded running profile is on an unsafe or unavailable filesystem; preserve it and inspect its backing.'}, 2)
+    if row and row['state'] == 'running':
+        require_safe_running_profile(row)
     reusable = None
     replacing = None
     source_profile_lost = False

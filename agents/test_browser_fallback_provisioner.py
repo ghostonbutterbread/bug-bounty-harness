@@ -50,3 +50,24 @@ def test_start_refuses_running_profile_on_unsafe_backing(monkeypatch, tmp_path, 
     result = json.loads(capsys.readouterr().out)
     assert result['status'] == 'profile-unavailable'
     assert c.execute('SELECT state FROM browsers WHERE lease_id=?', (row['lease_id'],)).fetchone()[0] == 'running'
+
+
+def test_start_refuses_missing_running_profile_without_stopping(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, None)
+    c.execute('UPDATE browsers SET profile_dir=? WHERE lease_id=?',
+              (str(tmp_path / 'missing-profile'), row['lease_id']))
+    c.commit()
+    request = recovery_args()
+    request.agent_id, request.run_id = row['agent_id'], row['run_id']
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'cleanup_unused', lambda *a: [])
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'automatic_instance', lambda *a, **k: '')
+    monkeypatch.setattr(profiles, 'safe_profile_path', lambda _: True)
+    monkeypatch.setattr(m, 'retire', lambda *a: pytest.fail('must not stop'))
+    with pytest.raises(SystemExit) as exc:
+        m.start(request)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
+    assert c.execute('SELECT state FROM browsers WHERE lease_id=?', (row['lease_id'],)).fetchone()[0] == 'running'

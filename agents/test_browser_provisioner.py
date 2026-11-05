@@ -393,6 +393,7 @@ def test_capacity_rejection_never_leases_or_starts_a_browser(monkeypatch, tmp_pa
 def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     import browser_profile_lease as profiles
+    monkeypatch.setattr(profiles, 'local_filesystem', lambda _: True)
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], [])); monkeypatch.setattr(m, "admission", lambda *_: {"status":"admitted"})
     args = start_args(); args.account = 'anon'
     acquired = {}

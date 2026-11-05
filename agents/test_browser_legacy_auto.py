@@ -93,6 +93,25 @@ def test_stopped_pre_domain_inherits_only_exact_manager_history(monkeypatch, tmp
     assert peer['status'] == 'leased' and peer['lease']['profile_dir'] != str(pre_domain)
 
 
+def test_stopped_legacy_profile_survives_root_change(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        original = Path(db.execute('SELECT profile_dir FROM browser_profile_leases WHERE lease_id=?',
+                                   (row['lease_id'],)).fetchone()[0])
+        original.mkdir(parents=True, exist_ok=True)
+        db.execute("UPDATE browser_profile_leases SET status='released',released_at=1,profile_health='healthy' WHERE lease_id=?", (row['lease_id'],))
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'new-root'))
+    request = argparse.Namespace(**vars(owner))
+    request.agent_id = request.run_id = 'first'
+    request.stopped_legacy_lease_id = row['lease_id']
+    request.stopped_legacy_profile_dir = str(original)
+    request.stopped_legacy_agent_id = owner.agent_id
+    request.stopped_legacy_run_id = owner.run_id
+    got = profiles.cmd_acquire(request)
+    assert got['status'] == 'leased'
+    assert got['lease']['profile_dir'] == str(original)
+
+
 @pytest.mark.parametrize('prior_status,prior_manager,expected', [
     ('released', None, 'leased'), ('expired', None, 'leased'),
     ('active', None, 'locked'), ('released', 'foreign', 'locked'),
@@ -587,6 +606,7 @@ def test_running_migration_blocks_nonquiescent_stopped_history(monkeypatch, tmp_
         receipt.write_text(json.dumps(info))
     monkeypatch.setattr(m, 'unit_active', lambda unit: unit == 'older-unit' and
                         observable in ('active-unit', 'missing-receipt-active-unit'))
+    monkeypatch.setattr(m, 'unit_inactive', lambda unit: not m.unit_active(unit))
     monkeypatch.setattr(m, 'healthy', lambda _: True)
     assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
     with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
@@ -706,3 +726,32 @@ def test_migration_marker_idempotent_and_stopped_legacy_with_active_auto(monkeyp
     c.execute("UPDATE browsers SET state='stopped' WHERE browser_id='peer-browser'")
     c.commit()
     assert m.automatic_instance(c, a, 'anon', 'legacy-global', allow_migration=True) == ''
+
+
+def test_running_legacy_parallel_selection_uses_recorded_path_after_root_change(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'new-root'))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    peer = take(owner, key, 'second', manager)
+    assert peer['status'] == 'leased'
+    assert peer['lease']['profile_dir'] != row['profile_dir']
+
+
+def test_stopped_inherited_shared_profile_is_not_leased(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    shared = tmp_path / 'shared' / 'demo/web/browser-profiles/legacy-global/anon'
+    shared.mkdir(parents=True)
+    c.execute("UPDATE browsers SET profile_dir=?,state='stopped' WHERE lease_id=?", (str(shared), row['lease_id']))
+    c.commit()
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released',released_at=1,profile_health='healthy' WHERE lease_id=?", (str(shared), row['lease_id']))
+    request = argparse.Namespace(**vars(owner))
+    request.agent_id = request.run_id = 'first'
+    request.stopped_legacy_lease_id = row['lease_id']
+    request.stopped_legacy_profile_dir = str(shared)
+    request.stopped_legacy_agent_id = owner.agent_id
+    request.stopped_legacy_run_id = owner.run_id
+    assert profiles.cmd_acquire(request)['status'] == 'profile-unavailable'
+    assert shared.is_dir()

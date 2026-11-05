@@ -1855,7 +1855,6 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
                 for r in unkeyed) or
                 any(r['lease_id'] != legacy['lease_id'] and
                     (r['state'] != 'stopped' or not stopped(r)) for r in (shared or [])) or
-                Path(legacy['profile_dir']) not in legacy_paths or
                 not profiles.register_legacy_auto(lease_db, slug(args.program), slug(alias), domain,
                                                   legacy['profile_dir'], manager, legacy['lease_id'],
                                                   legacy['agent_id'], legacy['run_id'],
@@ -2096,6 +2095,7 @@ def resume(args):
         if not row or row["agent_id"] != args.agent_id or row["run_id"] != args.run_id:
             emit({"status": "not-owner"}, 2)
         if row["state"] == "running":
+            require_safe_running_profile(row)
             resume_running(c, row, args)
         if row["state"] != "stopped" or not canonical_owner(row, active=False) or not stopped(row):
             emit({"status": "recovery-blocked", "reason": "stop-or-ownership-unverified"}, 2)
@@ -2159,6 +2159,7 @@ def resume(args):
                         proxy_server=recipe["proxy_server"],
                         proxy_cert_mode=recipe["proxy_cert_mode"],
                         mitm_ca_cert=recipe["mitm_ca_cert"]), successor)):
+                require_safe_running_profile(successor)
                 emit({"status": "already-running", **safe(successor),
                       "replaces_browser_id": row["browser_id"],
                       "state_lost": successor_info["resumed_state_lost"],
@@ -2210,9 +2211,17 @@ def resume(args):
                             current_info.get("launch_recipe", {}).get("physical_profile"))
         if not verified:
             emit({"status": "recovery-blocked", "reason": "replacement-publication-unverified"}, 2)
+        require_safe_running_profile(current)
         result["state_lost"] = current_info["resumed_state_lost"]
         result["authentication"] = "browser-native-check-required"
     emit(result, p.returncode)
+
+
+def require_safe_running_profile(row):
+    import browser_profile_lease as profiles
+    path = Path(row['profile_dir'])
+    if not path.is_dir() or not profiles.safe_profile_path(path):
+        emit({'status': 'profile-unavailable', 'next': 'The recorded running profile is on an unsafe or unavailable filesystem; preserve it and inspect its backing.'}, 2)
 
 
 def resume_running(c, row, args):
@@ -2472,6 +2481,8 @@ def start(args):
         instance = automatic_instance(c, args, alias, auth_domain)
         automatic = bool(instance)
     row = selected_browser(c, args.program, alias, auth_domain, instance)
+    if row and row['state'] == 'running':
+        require_safe_running_profile(row)
     if (row and row["state"] == "running"
             and row["agent_id"] == args.agent_id and row["run_id"] == args.run_id
             and getattr(args, "driving_mode", None) is not None
@@ -2489,6 +2500,8 @@ def start(args):
         instance = automatic_instance(c, args, alias, auth_domain,
                                       allow_takeover=single or adm["status"] != "admitted")
     row = selected_browser(c, args.program, alias, auth_domain, instance)
+    if row and row['state'] == 'running':
+        require_safe_running_profile(row)
     reusable = None
     replacing = None
     source_profile_lost = False

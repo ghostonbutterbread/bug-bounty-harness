@@ -241,11 +241,39 @@ falling back to system Python. Do not substitute a stable-lane `bbh` for beta.
 
 ### Profile filesystem preflight on the browser node
 
-Before requesting a browser, check the filesystem that will hold its **live
-profile**, not just the spelling of the artifact path:
+Let the provisioner select the profile location: a fresh profile falls back to
+the private local browser-runtime root when `/mnt/bounty` is unavailable or
+network-backed. Do not stop just because the artifact root is SMB. Existing
+identities retain their recorded paths and unsafe ones are refused, not moved.
+Request `--url about:blank` first. Before target traffic, check the **selected
+profile path** from the private owner record on the browser node:
 
 ```bash
-profile_probe="${CHROMIUM_PROFILE_PROBE:-${HARNESS_BOUNTY_ARTIFACT_ROOT:-/mnt/bounty}}"
+profile_probe="${CHROMIUM_PROFILE_PROBE:?Set CHROMIUM_PROFILE_PROBE to the selected profile path}"
+shared_base="${HARNESS_SHARED_BASE-"$HOME/Shared/web_bounty"}"
+case "$shared_base" in
+  '~') shared_base="$HOME" ;;
+  '~/'*) shared_base="$HOME/${shared_base#\~/}" ;;
+esac
+lexical_profile="$(realpath -ms -- "$profile_probe")" || exit 1
+resolved_profile="$(realpath -m -- "$profile_probe")" || exit 1
+for shared_root in "$HOME/Shared" "$shared_base"; do
+  lexical_shared="$(realpath -ms -- "$shared_root")" || exit 1
+  resolved_shared="$(realpath -m -- "$shared_root")" || exit 1
+  for pair in lexical resolved; do
+    if [ "$pair" = lexical ]; then
+      candidate="$lexical_profile"; root="$lexical_shared"
+    else
+      candidate="$resolved_profile"; root="$resolved_shared"
+    fi
+    case "$candidate" in
+      "$root"|"${root%/}"/*)
+        printf 'FAIL: profile path is under Shared: %s\n' "$profile_probe" >&2
+        exit 1
+        ;;
+    esac
+  done
+done
 while [ ! -e "$profile_probe" ]; do
   if [ -L "$profile_probe" ]; then
     printf 'FAIL: unresolved profile symlink: %s\n' "$profile_probe" >&2
@@ -262,6 +290,14 @@ resolved_probe="$(realpath -e -- "$profile_probe")" || {
   printf 'FAIL: cannot resolve profile path: %s\n' "$profile_probe" >&2
   exit 1
 }
+case "$resolved_probe" in
+  /mnt/bounty|/mnt/bounty/*)
+    mountpoint -q /mnt/bounty || {
+      printf 'FAIL: /mnt/bounty is not mounted; do not use this profile\n' >&2
+      exit 1
+    }
+    ;;
+esac
 profile_fstype="$(findmnt -T "$resolved_probe" -o FSTYPE -n)" || {
   printf 'FAIL: cannot identify profile filesystem: %s\n' "$resolved_probe" >&2
   exit 1
@@ -279,14 +315,16 @@ esac
 ```
 
 Run this on the **browser node** (Hoster for a Hoster browser, not the Hermes
-control node). A nonzero exit, including CIFS/SMB, unknown filesystem, failed
-resolution, or failed mount lookup, is a stop: do not request or use that
-profile. The allowlist is deliberately conservative; inspect an unrecognized
+control node). Paths lexically under or resolving into `$HOME/Shared` or the
+configured `HARNESS_SHARED_BASE` are refused even on a local filesystem. A
+nonzero exit, including CIFS/SMB, unknown filesystem, failed
+resolution, or failed mount lookup, is a stop: do not use that profile for
+target traffic. The allowlist is deliberately conservative; inspect an unrecognized
 local filesystem before adding support rather than treating it as local.
 
 For an existing named profile, inspect its exact leased profile directory with
-`CHROMIUM_PROFILE_PROBE="$profile_dir"` **before** the request as well as the
-artifact root; a root PASS cannot override an exact-path FAIL. Do not infer the
+`CHROMIUM_PROFILE_PROBE="$profile_dir"` before the request if its recorded path
+is known; a root PASS cannot override an exact-path FAIL. Do not infer the
 profile path from a color alone: use the provisioner/lease's recorded path.
 The initial check uses the nearest existing ancestor when a new profile root
 does not exist yet; a PASS there is provisional, not proof that a deeper path
@@ -508,9 +546,9 @@ only in implementation tests.
 
 ## Required Preflight
 
-The node-local profile filesystem check in **Invocation** is mandatory before
-the provisioner request. A FAIL stops the request on that node; do not use a
-different profile path to bypass a named account's lease.
+The node-local profile filesystem check in **Invocation** is mandatory on the
+chosen path before target traffic. Request `about:blank` first when the chosen
+path is not yet known; do not use a different path to bypass a named lease.
 
 1. Read program scope/rules and the interpreted rate limit before live interaction.
 2. Read `prompts/chromium-test-playbook.md`.
@@ -578,8 +616,9 @@ different profile path to bypass a named account's lease.
 
 ## Workflow
 
-0. On the browser node, run the profile filesystem preflight above and stop on
-   FAIL. For every bug-bounty browser engagement, request the browser through
+0. On the browser node, check the exact recorded path when known; otherwise let
+   the provisioner choose and check its resulting path before target traffic.
+   Stop on FAIL. For every bug-bounty browser engagement, request the browser through
    the provisioner. If it requires a durable named account profile (for example a
    color used across a multi-agent owned-account test), first run
    `browser_profile_lease.py status <program> --account <color> --auth-domain <auth-host>`, then acquire

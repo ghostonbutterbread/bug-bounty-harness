@@ -89,6 +89,8 @@ def test_color_selector_leases_one_persistent_program_account_profile(monkeypatc
     state = tmp_path / "state"
     write_inventory(shared)
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, 'default_mount_available', lambda: True)
+    monkeypatch.setattr(module.os, 'access', lambda path, mode: True)
 
     result = module.cmd_acquire(
         args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="auth-map")
@@ -103,6 +105,117 @@ def test_color_selector_leases_one_persistent_program_account_profile(monkeypatc
     assert result["lease"]["profile_dir"].endswith("demo/web/browser-profiles/legacy-global/green-owner")
     assert result["lease"]["profile_dir"].startswith("/mnt/bounty/")
     assert result["launch"]["account"] == "green-owner"
+
+
+def test_recorded_default_profile_refuses_unmounted_shadow(monkeypatch, tmp_path):
+    module = load_module()
+    state = tmp_path / "state"
+    monkeypatch.setenv("HARNESS_BOUNTY_ARTIFACT_ROOT", str(tmp_path / "custom"))
+    acquire = args(module, state, "acquire", account="anon", agent_id="a", run_id="one", purpose="test")
+    first = module.cmd_acquire(acquire)
+    module.cmd_release(args(module, state, "release", lease_id=first["lease"]["lease_id"],
+                            agent_id="a", disposition="completed", profile_health="healthy"))
+    with module.connect(state / "browser_profile_leases.sqlite") as conn:
+        conn.execute("UPDATE browser_profile_leases SET profile_dir=?", ("/mnt/bounty/demo/web/browser-profiles/legacy-global/anon",))
+    monkeypatch.setattr(module.os.path, "ismount", lambda path: False)
+    result = module.cmd_acquire(args(module, state, "acquire", account="anon", agent_id="b", run_id="two", purpose="test"))
+    assert result["status"] == "profile-unavailable"
+    assert "/mnt/bounty" in result["next"]
+
+
+def test_new_profile_uses_private_local_fallback_when_default_unmounted(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('HARNESS_BOUNTY_ARTIFACT_ROOT', raising=False)
+    monkeypatch.setattr(module, 'default_mount_available', lambda: False)
+    result = module.cmd_acquire(args(module, tmp_path / 'state', 'acquire', account='anon',
+                                     agent_id='a', run_id='one', purpose='test'))
+    assert result['status'] == 'leased'
+    path = Path(result['lease']['profile_dir'])
+    root = tmp_path / '.local/share/ghost/browser-runtime'
+    assert path.is_relative_to(root / 'demo')
+    assert root.stat().st_mode & 0o777 == 0o700
+
+
+def test_released_profile_reuses_recorded_custom_root_after_configuration_change(monkeypatch, tmp_path):
+    module = load_module()
+    state = tmp_path / 'state'
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'first'))
+    first = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='a', run_id='one', purpose='test'))
+    module.cmd_release(args(module, state, 'release', lease_id=first['lease']['lease_id'],
+                            agent_id='a', disposition='completed', profile_health='healthy'))
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'second'))
+    second = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test'))
+    assert second['status'] == 'leased'
+    assert second['lease']['profile_dir'] == first['lease']['profile_dir']
+
+
+def test_fallback_identity_stays_on_fallback_after_mount_returns(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('HARNESS_BOUNTY_ARTIFACT_ROOT', raising=False)
+    monkeypatch.setattr(module, 'default_mount_available', lambda: False)
+    state = tmp_path / 'state'
+    first = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='a', run_id='one', purpose='test', instance_key='slot'))
+    module.cmd_release(args(module, state, 'release', lease_id=first['lease']['lease_id'],
+                            agent_id='a', disposition='completed', profile_health='healthy'))
+    monkeypatch.setattr(module, 'default_mount_available', lambda: True)
+    monkeypatch.setattr(module.os, 'access', lambda path, mode: True)
+    second = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test', instance_key='slot'))
+    assert second['status'] == 'leased'
+    assert second['lease']['profile_dir'] == first['lease']['profile_dir']
+
+
+def test_network_or_unmounted_default_mount_is_not_usable(monkeypatch):
+    module = load_module()
+    monkeypatch.setattr(module.os.path, 'ismount', lambda path: True)
+    monkeypatch.setattr(module, 'local_filesystem', lambda path: False)
+    assert not module.default_mount_available()
+    monkeypatch.setattr(module.os.path, 'ismount', lambda path: False)
+    monkeypatch.setattr(module, 'local_filesystem', lambda path: True)
+    assert not module.default_mount_available()
+
+
+def test_new_profile_falls_back_from_shared_custom_root(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('HARNESS_SHARED_BASE', str(tmp_path / 'shared'))
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'shared' / 'artifacts'))
+    result = module.cmd_acquire(args(module, tmp_path / 'state', 'acquire', account='anon',
+                                     agent_id='a', run_id='one', purpose='test'))
+    assert result['status'] == 'leased'
+    assert Path(result['lease']['profile_dir']).is_relative_to(module.fallback_base())
+
+
+def test_unprivate_fallback_directory_is_not_used(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('HARNESS_BOUNTY_ARTIFACT_ROOT', raising=False)
+    monkeypatch.setattr(module, 'default_mount_available', lambda: False)
+    root = module.fallback_base()
+    root.mkdir(parents=True, mode=0o755)
+    root.chmod(0o755)
+    result = module.cmd_acquire(args(module, tmp_path / 'state', 'acquire', account='anon',
+                                     agent_id='a', run_id='one', purpose='test'))
+    assert result['status'] == 'profile-unavailable'
+    assert root.stat().st_mode & 0o777 == 0o755
+
+
+def test_recorded_default_profile_reused_when_mount_is_local(monkeypatch, tmp_path):
+    module = load_module()
+    state = tmp_path / 'state'
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'custom'))
+    first = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='a', run_id='one', purpose='test'))
+    module.cmd_release(args(module, state, 'release', lease_id=first['lease']['lease_id'],
+                            agent_id='a', disposition='completed', profile_health='healthy'))
+    recorded = '/mnt/bounty/demo/web/browser-profiles/legacy-global/anon'
+    with module.connect(state / 'browser_profile_leases.sqlite') as conn:
+        conn.execute('UPDATE browser_profile_leases SET profile_dir=?', (recorded,))
+    monkeypatch.setattr(module, 'default_mount_available', lambda: True)
+    monkeypatch.setattr(module, 'local_filesystem', lambda path: True)
+    second = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test'))
+    assert second['status'] == 'leased'
+    assert second['lease']['profile_dir'] == recorded
 
 
 def test_shared_base_defaults_to_canonical_web_bounty(monkeypatch):
@@ -499,3 +612,20 @@ def test_register_browser_rejects_non_loopback_cdp(monkeypatch, tmp_path):
         raise AssertionError("non-loopback CDP endpoint was accepted")
 
     assert lease["status"] == "leased"
+
+
+def test_recorded_shared_profile_is_never_relocated_or_leased(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setattr(module, 'local_filesystem', lambda path: True)
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(tmp_path / 'local'))
+    state = tmp_path / 'state'
+    first = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='a', run_id='one', purpose='test'))
+    module.cmd_release(args(module, state, 'release', lease_id=first['lease']['lease_id'], agent_id='a', disposition='completed', profile_health='healthy'))
+    recorded = str(tmp_path / 'Shared/demo/profile')
+    with module.connect(state / 'browser_profile_leases.sqlite') as conn:
+        conn.execute('UPDATE browser_profile_leases SET profile_dir=?', (recorded,))
+    result = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test'))
+    assert result['status'] == 'profile-unavailable'
+    with module.connect(state / 'browser_profile_leases.sqlite') as conn:
+        assert conn.execute('SELECT profile_dir FROM browser_profile_leases').fetchone()[0] == recorded

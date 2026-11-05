@@ -1,0 +1,8 @@
+# Bounty artifact routing release handoff
+
+- Intent: keep compact truth in Shared, route bulk artifacts to the program artifact tier, and keep active browser state restricted and node-local.
+- Branch/worktree: `fix/bounty-artifact-routing-release`, `/home/ryushe/worktrees/bbh-bounty-routing-release`; base `fa7f1b927e8a470a7d871b0b5d242f42b6f966a3`, target `beta`.
+- Contract: initializer and JS analyzer honor an explicit bulk root, reject unmounted default destinations, preserve existing program artifacts and curated maps, and provide host-qualified handoffs. A root change for an initialized program requires coordinated pointer reconciliation; no automatic fallback or distributed initialization lock is claimed. Browser and Bunny instructions separate sensitive profiles from Shared.
+- Evidence: portable staged code and guidance diff was verified byte-identical to the independently reviewed feature diff, excluding its private, task-specific integration dossier. The prior broad suite passed 719 tests before the last initializer-only correction; the final correction passed independent re-review. This checkout installed its own dependencies with `bash setup.sh --install-python-deps` and its focused suite passed 42 tests. Independent equivalence/release review remains open.
+- Blockers/deferred: do not claim seamless fallback for an already-initialized root, protection against mount loss during a run, or automatic migration/indexing of historical corpora. Final release review, integrated tests, publication, and remote runtime activation remain open.
+- Activation boundary: isolated feature worktree only. Next: verify portable diff, tests and review; merge to beta without carrying this branch-local dossier, then separately evaluate runtime activation.

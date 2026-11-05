@@ -122,8 +122,11 @@ Preferred heavy outputs in mounted bounty artifact storage:
 - scraped HTML/page bodies
 - screenshots and videos at scale
 - proxy flow dumps
-- browser profiles and CDP traces
+- CDP traces
 - large chunk stores and repeated parser output
+
+Active browser profiles instead use restricted node-local storage on the browser
+host at the lease-recorded path, never Shared or an SMB-mounted live profile.
 
 If `/mnt/bounty` or another bounty artifact mount is unavailable, use the
 current run host's artifact directory and export a manifest into `~/Shared` that

@@ -33,14 +33,13 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 if __package__:
+    from .artifact_root import preflight_artifact_paths, resolve_artifact_root
     from .xss_sink_sites import scan_sink_sites
     from .xss_source_sites import scan_source_sites
 else:
+    from artifact_root import preflight_artifact_paths, resolve_artifact_root
     from xss_sink_sites import scan_sink_sites
     from xss_source_sites import scan_source_sites
-
-
-SHARED_WEB_BASE = Path("/mnt/bounty")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATHS = (
     REPO_ROOT / "config" / "js_analyzer.json",
@@ -465,28 +464,45 @@ def configured_path(value: object) -> Path | None:
 def resolve_inventory_paths(args: argparse.Namespace, run_id: str) -> tuple[Path, Path, Path, dict]:
     config = load_config(getattr(args, "config", None))
     program_settings = program_config(config, args.program)
-    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base")) or SHARED_WEB_BASE
-    program_root = configured_path(program_settings.get("program_root")) or shared_base / args.program
-    js_root = configured_path(program_settings.get("js_root")) or program_root / "web" / "recon" / "js"
-
-    output_base = configured_path(program_settings.get("output_base")) or js_root
-    root = Path(args.output_root).expanduser() if args.output_root else output_base / run_id
-    library_root = (
-        Path(args.library_root).expanduser()
-        if args.library_root
-        else configured_path(program_settings.get("library_root")) or js_root / "_library"
-    )
-    integration_index_root = (
-        Path(args.integration_index_root).expanduser()
-        if args.integration_index_root
-        else configured_path(program_settings.get("integration_index_root"))
-        or program_root / "web" / "intel" / "integrations"
-    )
+    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base"))
+    program_root = configured_path(program_settings.get("program_root"))
+    js_root = configured_path(program_settings.get("js_root"))
+    output_base = configured_path(program_settings.get("output_base"))
+    configured_library = configured_path(program_settings.get("library_root")) if not args.library_root else None
+    configured_integration = configured_path(program_settings.get("integration_index_root")) if not args.integration_index_root else None
+    needs_js_root = not (args.output_root or output_base) or not (args.library_root or configured_library)
+    needs_program_root = (needs_js_root and not js_root) or not (args.integration_index_root or configured_integration)
+    needs_shared_base = needs_program_root and not program_root
+    artifact_env = os.environ.get("BOUNTY_ARTIFACT_ROOT")
+    if shared_base is None and (needs_shared_base or artifact_env is None or artifact_env.strip()):
+        shared_base = resolve_artifact_root()
+    program_root = program_root or (shared_base / args.program if shared_base else None)
+    js_root = js_root or (program_root / "web" / "recon" / "js" if program_root else None)
+    if args.output_root:
+        root = Path(args.output_root).expanduser()
+    else:
+        selected_output_base = output_base or js_root
+        assert selected_output_base
+        root = selected_output_base / run_id
+    if args.library_root:
+        library_root = Path(args.library_root).expanduser()
+    elif configured_library:
+        library_root = configured_library
+    else:
+        assert js_root
+        library_root = js_root / "_library"
+    if args.integration_index_root:
+        integration_index_root = Path(args.integration_index_root).expanduser()
+    elif configured_integration:
+        integration_index_root = configured_integration
+    else:
+        assert program_root
+        integration_index_root = program_root / "web" / "intel" / "integrations"
     config_summary = {
         "config_path": config.get("_config_path", ""),
-        "shared_web_base": str(shared_base),
-        "program_root": str(program_root),
-        "js_root": str(js_root),
+        "shared_web_base": str(shared_base) if shared_base else "",
+        "program_root": str(program_root) if program_root else "",
+        "js_root": str(js_root) if js_root else "",
     }
     return root, library_root, integration_index_root, config_summary
 
@@ -494,19 +510,24 @@ def resolve_inventory_paths(args: argparse.Namespace, run_id: str) -> tuple[Path
 def resolve_library_root(args: argparse.Namespace) -> tuple[Path, dict]:
     config = load_config(getattr(args, "config", None))
     program_settings = program_config(config, args.program)
-    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base")) or SHARED_WEB_BASE
-    program_root = configured_path(program_settings.get("program_root")) or shared_base / args.program
-    js_root = configured_path(program_settings.get("js_root")) or program_root / "web" / "recon" / "js"
-    library_root = (
-        Path(args.library_root).expanduser()
-        if args.library_root
-        else configured_path(program_settings.get("library_root")) or js_root / "_library"
-    )
+    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base"))
+    program_root = configured_path(program_settings.get("program_root"))
+    js_root = configured_path(program_settings.get("js_root"))
+    library_root = Path(args.library_root).expanduser() if args.library_root else configured_path(program_settings.get("library_root"))
+    needs_shared_base = not (library_root or js_root or program_root)
+    artifact_env = os.environ.get("BOUNTY_ARTIFACT_ROOT")
+    if shared_base is None and (needs_shared_base or artifact_env is None or artifact_env.strip()):
+        shared_base = resolve_artifact_root()
+    program_root = program_root or (shared_base / args.program if shared_base else None)
+    js_root = js_root or (program_root / "web" / "recon" / "js" if program_root else None)
+    if not library_root:
+        assert js_root
+        library_root = js_root / "_library"
     return library_root, {
         "config_path": config.get("_config_path", ""),
-        "shared_web_base": str(shared_base),
-        "program_root": str(program_root),
-        "js_root": str(js_root),
+        "shared_web_base": str(shared_base) if shared_base else "",
+        "program_root": str(program_root) if program_root else "",
+        "js_root": str(js_root) if js_root else "",
     }
 
 
@@ -2353,6 +2374,15 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
     return "\n".join(lines)
 
 
+def preflight_library_paths(library_root: Path, *, inventory: bool = False) -> None:
+    names = ["observations.jsonl", "js_info.sqlite", "js_info.sqlite-journal",
+             "js_info.sqlite-wal", "js_info.sqlite-shm"]
+    if inventory:
+        names += ["downloads", "sourcemaps", "chunks", "ledger.json", "ledger.json.tmp",
+                  "metadata.jsonl", "provenance.jsonl"]
+    preflight_artifact_paths(library_root, *(library_root / name for name in names))
+
+
 def command_inventory(args: argparse.Namespace) -> int:
     if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
@@ -2373,6 +2403,16 @@ def command_inventory(args: argparse.Namespace) -> int:
         raise SystemExit(f"invalid --header: {exc}")
     run_id = args.run_id or f"js-{utc_stamp()}"
     root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
+    preflight_library_paths(library_root, inventory=True)
+    preflight_artifact_paths(
+        root, integration_index_root,
+        *(root / name for name in (
+            "packets", "source_map_packets", "checkpoint.json", "manifest.json",
+            "metadata.jsonl", "packets.jsonl", "source_map_modules.jsonl", "page_context.jsonl",
+            "js_provenance.jsonl", "external_integrations.jsonl", "pending_urls.txt",
+        )),
+        *(integration_index_root / name for name in ("external_urls.jsonl", "external_hosts.json")),
+    )
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
     source_maps_dir = library_root / "sourcemaps"
@@ -3011,6 +3051,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
 def command_observe(args: argparse.Namespace) -> int:
     library_root, config_summary = resolve_library_root(args)
+    preflight_library_paths(library_root)
     observations_path = library_root / "observations.jsonl"
     js_info_db_path = library_root / "js_info.sqlite"
     input_path = Path(args.input).expanduser()

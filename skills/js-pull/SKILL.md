@@ -47,6 +47,17 @@ contracts); do not create a second downloader or copy bundles into prompts.
 
 ## Inventory
 
+For a non-default artifact tier, export `BOUNTY_ARTIFACT_ROOT` consistently for
+initialization and every later inventory/observe process. Explicit analyzer
+root flags and analyzer config override the environment. A one-off initializer
+`--artifact-root` does not persist configuration: pass its handoff's explicit
+inventory roots and the same `--library-root` to observe. The default
+`/mnt/bounty` must be mounted before a write; otherwise choose an explicit
+host-local artifact root and record its actual host and path in Shared. The
+startup preflight does not guarantee the mount remains available during a run;
+stop if it disappears. Never silently use Shared as bulk fallback or switch a
+running corpus between roots.
+
 For a scoped page, use `terminal(command="bbh agents/js_analyzer.py inventory
 <program> --page '<scoped-page-url>' --page-context '<flow>' --target-host
 '<approved-host>'")`. For an existing file list, use

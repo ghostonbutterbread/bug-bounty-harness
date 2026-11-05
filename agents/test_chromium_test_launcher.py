@@ -62,6 +62,14 @@ def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
     assert "Ryushe explicitly approves that exception" not in policy
 
 
+def test_chromium_skill_does_not_advertise_shared_profiles():
+    root = Path(__file__).resolve().parents[1]
+    policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
+    assert '$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>' not in policy
+    assert '$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/' not in policy
+    assert "lease-recorded profile path" in policy
+
+
 def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
     policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()

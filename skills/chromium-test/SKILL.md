@@ -470,15 +470,10 @@ Default behavior:
 - `--proxy-cert-mode ignore`: explicit disposable debugging mode.
 - `--proxy-cert-mode none`: attach the proxy without CA setup or ignore flags.
 
-Standalone profile preparation:
-
-```bash
-bbh skills/chromium-test/scripts/install.sh
-bbh skills/chromium-test/scripts/mitm_chromium_profile.py \
-  --profile-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>" \
-  --home-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>/home" \
-  --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
-```
+Standalone CA preparation is implementation/recovery only. Use the exact
+lease-recorded profile path on the browser node; never create profiles in
+Shared or guess a named account's profile directory. Normal tasks use the
+provisioner, which imports its task CA before launch.
 
 Legacy standalone Hoster proxy tooling (implementation/recovery only, not the
 agent's security-browser route):
@@ -570,7 +565,7 @@ different profile path to bypass a named account's lease.
 - Launcher: `skills/chromium-test/scripts/chromium_test.py`
 - Persistent profile lease/status: `skills/chromium-test/scripts/browser_profile_lease.py`
 - Script walkthrough: `skills/chromium-test/scripts/README.md`
-- Profiles: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/`
+- Profiles: the provisioner's lease-recorded profile path on the browser node
 - MITM profile helper: `skills/chromium-test/scripts/mitm_chromium_profile.py`
 - MITM lane helper: `skills/chromium-test/scripts/mitm_lane.py`
 - Hoster lane helper: `skills/chromium-test/scripts/hoster_mitm_lane.py`

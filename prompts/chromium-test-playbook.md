@@ -273,15 +273,10 @@ Legacy Hoster proxy tools (not the security-browser default):
 - On Ryushe's PC (`abommie`/`ryushespc`), prefer the local MITM proxy lane
   unless the task explicitly asks for Hoster.
 
-Profile certificate bootstrap:
-
-```bash
-bbh skills/chromium-test/scripts/install.sh
-bbh skills/chromium-test/scripts/mitm_chromium_profile.py \
-  --profile-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>" \
-  --home-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>/home" \
-  --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
-```
+Profile certificate bootstrap is implementation/recovery only. The normal
+provisioner imports the task CA before launch. If recovery requires the helper,
+use the exact lease-recorded profile and home paths on the browser node; do not
+guess a profile directory or place a live profile in Shared or an SMB mount.
 
 For leased mitmproxy lane smoke tests, keep the proxy lifecycle script-owned:
 
@@ -352,10 +347,12 @@ Do not send target traffic until scope, account, and proxy expectations are clea
    - `profile-settings`: account/profile update workflow
    - other tasks: interpret from the current hunt context and scope
 7. Observe traffic and state transitions through the MITM proxy workflow if configured.
-8. Save evidence under:
+8. Save a sanitized summary and compact artifact pointers under:
    ```text
    $HARNESS_SHARED_BASE/{program}/ghost/chromium-test/
    ```
+   Keep large non-secret evidence in the resolved program artifact root and
+   sensitive account state only in restricted node-local storage.
 
 ## Evidence Standard
 

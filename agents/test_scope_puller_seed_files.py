@@ -6,10 +6,122 @@ from pathlib import Path
 from agents import scope_puller
 import program_config
 import pytest
+from agents.scope_validator import ScopeValidator
 
 
 def test_scope_puller_imports_as_package() -> None:
     assert scope_puller.canonical_program_slug("https://bugcrowd.com/engagements/demo") == "demo"
+
+
+def test_bugcrowd_descriptive_web_apps_grant_is_written(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    raw = {"data": {"scope": [{"name": "in", "inScope": True, "targets": [
+        {"name": "*.example.test Web Apps", "uri": ""},
+    ]}]}}
+    monkeypatch.setattr(scope_puller, "fetch_json", lambda _: raw)
+    html = '<div data-api-endpoints="{&quot;engagementBriefApi&quot;:{&quot;getBriefVersionDocument&quot;:&quot;/brief&quot;}}"></div>'
+    parsed = scope_puller.parse_bugcrowd_public_engagement("demo", html)
+    scope_puller.save_scope("demo", parsed)
+    assert (tmp_path / "Shared/scopes/demo/in-scope.txt").read_text().splitlines()[-1] == "*.example.test"
+
+
+def test_bugcrowd_descriptive_exclusion_overrides_wildcard(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    data = {
+        "platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(),
+        "out_of_scope": [{"name": "private.example.test Web Apps", "uri": ""}],
+    }
+    scope_puller.save_scope("demo", data)
+    assert (tmp_path / "Shared/scopes/demo/out-of-scope.txt").read_text() == "private.example.test\n"
+    assert (tmp_path / "Shared/bounty_recon/demo/scope/out-of-scope.txt").read_text() == "private.example.test\n"
+    validator = ScopeValidator("demo", scopes_base=tmp_path / "Shared/scopes")
+    assert validator.is_in_scope("https://public.example.test/")
+    assert not validator.is_in_scope("https://private.example.test/")
+
+
+@pytest.mark.parametrize("name", [
+    "Not private.example.test Web Apps",
+    "private.example.test and admin.example.test Web Apps",
+    "private.example.test Web Apps except admin.example.test",
+    "Private applications",
+])
+def test_bugcrowd_ambiguous_exclusion_refuses_all_writes(monkeypatch, tmp_path: Path, name: str) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    path = tmp_path / "Shared/scopes/demo/in-scope.txt"
+    path.parent.mkdir(parents=True)
+    path.write_text("previous scope\n")
+    data = {
+        "platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(),
+        "out_of_scope": [{"name": name, "uri": ""}],
+    }
+    with pytest.raises(RuntimeError, match="unresolved Bugcrowd exclusion"):
+        scope_puller.save_scope("demo", data)
+    assert path.read_text() == "previous scope\n"
+    assert not (path.parent / "out-of-scope.txt").exists()
+
+
+def test_bugcrowd_exclusion_with_uri_and_ambiguous_name_is_blocked(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    data = {"platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(),
+            "out_of_scope": [{"name": "All other applications", "uri": "https://private.example.test/"}]}
+    with pytest.raises(RuntimeError, match="unresolved Bugcrowd exclusion"):
+        scope_puller.save_scope("demo", data)
+    assert not (tmp_path / "Shared/scopes/demo/in-scope.txt").exists()
+
+
+def test_bugcrowd_exclusion_keeps_both_uri_and_different_host_name(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    data = {"platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(),
+            "out_of_scope": [{"name": "admin.example.test", "uri": "https://private.example.test/path"}]}
+    scope_puller.save_scope("demo", data)
+    validator = ScopeValidator("demo", scopes_base=tmp_path / "Shared/scopes")
+    assert not validator.is_in_scope("https://private.example.test/other")
+    assert not validator.is_in_scope("https://admin.example.test/")
+    assert validator.is_in_scope("https://public.example.test/")
+
+
+@pytest.mark.parametrize("name", [
+    "Not private.example.test Web Apps",
+    "private.example.test and admin.example.test Web Apps",
+    "private.example.test Web Apps except admin.example.test",
+    "private.example.test Web Apps (not in scope)",
+    "https://private.example.test and admin.example.test Web Apps",
+    "https://private.example.test/path not in scope",
+])
+def test_bugcrowd_ambiguous_names_do_not_grant(name: str) -> None:
+    domains, urls = set(), set()
+    scope_puller.add_bugcrowd_target_to_scope(domains, urls, name=name, uri="")
+    assert domains == set()
+    assert urls == set()
+
+
+@pytest.mark.parametrize("name,uri,extra_urls", [
+    ("*.example.test", "https://example.test/private", set()),
+    ("*.example.test", "https://different.example.test/", set()),
+    ("*.example.test", "https://example.test/", {"https://*.example.test/"}),
+    ("*.example.test Web Apps", "https://example.test/private", set()),
+])
+def test_bugcrowd_uri_does_not_gain_unrelated_or_path_wide_wildcard(name, uri, extra_urls) -> None:
+    domains, urls = set(), set()
+    scope_puller.add_bugcrowd_target_to_scope(domains, urls, name=name, uri=uri)
+    assert domains == set()
+    assert urls == {uri} | extra_urls
+
+
+def test_bugcrowd_wildcard_uri_keeps_its_path() -> None:
+    domains, urls = set(), set()
+    uri = "https://*.example.test/private"
+    scope_puller.add_bugcrowd_target_to_scope(domains, urls, name="", uri=uri)
+    assert domains == set()
+    assert urls == {uri}
+
+
+def test_bugcrowd_explicit_uri_precedes_descriptive_name() -> None:
+    domains, urls = set(), set()
+    uri = "https://api.example.test/private path"
+    scope_puller.add_bugcrowd_target_to_scope(domains, urls, name="*.example.test Web Apps", uri=uri)
+    assert domains == set()
+    assert urls == {uri}
 
 
 def test_bugcrowd_scope_preserves_wildcard_name_when_uri_is_root_url(monkeypatch) -> None:
@@ -49,8 +161,9 @@ def test_bugcrowd_scope_preserves_wildcard_name_when_uri_is_root_url(monkeypatch
     )
     parsed = scope_puller.parse_bugcrowd_public_engagement("demo", html)
 
-    assert "*.flourish.studio" in parsed["domains"]
-    assert "*.xyzbmojn.net" in parsed["domains"]
+    assert not parsed["domains"]
+    assert "https://*.flourish.studio/" in parsed["urls"]
+    assert "https://*.xyzbmojn.net/" in parsed["urls"]
     assert "https://flourish.studio/" in parsed["urls"]
     assert "https://xyzbmojn.net/" in parsed["urls"]
 

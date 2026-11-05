@@ -6,6 +6,7 @@ import html
 import ipaddress
 import json
 import re
+import unicodedata
 import urllib.request
 from html.parser import HTMLParser
 from textwrap import dedent
@@ -13,9 +14,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 try:
-    from scope_seed_files import write_recon_seed_files
+    from scope_seed_files import recon_seed_lines
 except ModuleNotFoundError:
-    from agents.scope_seed_files import write_recon_seed_files
+    from agents.scope_seed_files import recon_seed_lines
 
 PLATFORMS = {
     "hackerone": "https://hackerone.com/{program}",
@@ -340,22 +341,47 @@ def parse_hackerone_scope(team: dict) -> dict:
     return {"domains": domains, "urls": urls, "assets": assets, "out_of_scope": out_of_scope}
 
 
+def bugcrowd_descriptive_host(name: str) -> str | None:
+    """Recognize only the unambiguous '<host> Web Apps' label, not prose."""
+    match = re.fullmatch(r"(\S+)\s+Web\s+Apps", name.strip(), re.IGNORECASE)
+    if match and SCOPE_DOMAIN_PATTERN.fullmatch(match.group(1)):
+        return match.group(1).lower()
+    return None
+
+
 def add_bugcrowd_target_to_scope(domains: set[str], urls: set[str], *, name: str, uri: str) -> None:
     """Normalize a Bugcrowd target into scope sets without losing wildcard semantics."""
+    if uri and has_scope_control(uri):
+        raise ValueError("control character in scope URI")
+    if not uri and has_scope_control(name):
+        return
     value = uri or name
     if not value:
         return
 
+    if not uri and (host := bugcrowd_descriptive_host(name)):
+        domains.add(host)
+        return
+
+    # Without a URI, a URL-shaped label containing whitespace may be prose
+    # qualifying the target rather than part of a URL. Do not turn it into
+    # permission. Explicit URI values retain their existing path semantics.
+    if not uri and any(char.isspace() for char in name):
+        return
+
     if value.startswith("http"):
-        host = urlparse(value).netloc
-        if "*" in host:
-            domains.add(host)
-        else:
-            urls.add(value)
-            # Bugcrowd sometimes uses a wildcard name with a root URI.
-            # Preserve the wildcard target so scope validation can match subdomains.
-            if name.startswith("*."):
-                domains.add(name)
+        # Validate the original authority before deriving any permission from it.
+        if not routable_scope_entry(value):
+            return
+        parsed = urlparse(value)
+        urls.add(value)
+        # A wildcard name paired with its root URI grants subdomains only at
+        # that URI's scheme and port, not an unrestricted hostname wildcard.
+        if (name.startswith("*.") and SCOPE_DOMAIN_PATTERN.fullmatch(name)
+                and parsed.hostname and name[2:].lower() == parsed.hostname.lower()
+                and parsed.path in ("", "/") and not parsed.query and not parsed.fragment):
+            netloc = f"{name}:{parsed.port}" if parsed.port is not None else name
+            urls.add(parsed._replace(netloc=netloc).geturl())
         return
 
     if "." in value and " " not in value:
@@ -394,8 +420,12 @@ def parse_bugcrowd_public_engagement(program: str, html_content: str) -> dict:
             "targets": [],
         }
         for target in group.get("targets") or []:
-            uri = (target.get("uri") or "").strip()
-            name = (target.get("name") or "").strip()
+            uri = target.get("uri") or ""
+            name = target.get("name") or ""
+            if has_scope_control(uri) or (not group.get("inScope") and has_scope_control(name)):
+                raise ValueError("control character in Bugcrowd scope target")
+            uri = uri.strip()
+            name = name.strip()
             target_entry = {
                 "id": target.get("id"),
                 "name": name,
@@ -550,21 +580,46 @@ SCOPE_DOMAIN_PATTERN = re.compile(
 )
 
 
+def has_scope_control(value: str) -> bool:
+    """Scope entries must remain one physical line through every consumer."""
+    return any(unicodedata.category(char) in {"Cc", "Zl", "Zp"} for char in value)
+
+
 def routable_scope_entry(value: str, *, url_to_host: bool = False) -> str | None:
     """Return a strict scope entry, dropping non-routable platform metadata.
 
     Preserve an in-scope HTTP(S) URL exactly so a path-scoped grant never widens.
     Out-of-scope callers may conservatively reduce a path URL to its host.
     """
+    if has_scope_control(value):
+        return None
     candidate = value.strip()
     if not candidate:
         return None
-    parsed = urlparse(candidate)
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return None
     if parsed.scheme.lower() in {"http", "https"}:
-        if not parsed.hostname:
+        try:
+            host = parsed.hostname
+            parsed.port  # Forces validation, including range checking.
+        except ValueError:
             return None
+        authority = parsed.netloc
+        if (not host or "\\" in candidate or any(char in authority for char in "@%")
+                or any(char.isspace() for char in authority) or authority.endswith(":")):
+            return None
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "[" in authority or "]" in authority or not SCOPE_DOMAIN_PATTERN.fullmatch(host):
+                return None
+        else:
+            if ("[" in authority or "]" in authority) and address.version != 6:
+                return None
         if url_to_host:
-            return parsed.hostname
+            return host
         return candidate
     candidate = re.sub(r"\.\s+", ".", candidate)
     if candidate.endswith("/*") and SCOPE_DOMAIN_PATTERN.fullmatch(candidate[:-2]):
@@ -581,6 +636,32 @@ def routable_scope_entry(value: str, *, url_to_host: bool = False) -> str | None
     except ValueError:
         pass
     return candidate.lower() if SCOPE_DOMAIN_PATTERN.fullmatch(candidate) else None
+
+
+def bugcrowd_exclusion_entries(target: dict) -> set[str]:
+    """Resolve both fields conservatively; never publish an ambiguous exclusion."""
+    uri = str(target.get("uri") or "")
+    name = str(target.get("name") or "")
+    if has_scope_control(uri) or has_scope_control(name):
+        raise RuntimeError("unresolved Bugcrowd exclusion; review scope before saving")
+    uri = uri.strip()
+    name = name.strip()
+    entries: set[str] = set()
+    for field, value in (("uri", uri), ("name", name)):
+        if not value:
+            continue
+        entry = bugcrowd_descriptive_host(value) if field == "name" else None
+        if not entry and not any(char.isspace() for char in value):
+            entry = routable_scope_entry(value, url_to_host=True)
+            if entry and not routable_scope_entry(entry, url_to_host=True):
+                entry = None
+        if entry:
+            entries.add(entry)
+        else:
+            raise RuntimeError("unresolved Bugcrowd exclusion; review scope before saving")
+    if not entries:
+        raise RuntimeError("unresolved Bugcrowd exclusion; review scope before saving")
+    return entries
 
 
 def render_program_policy(scope_data: dict) -> str:
@@ -624,6 +705,11 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
             f"Parsed 0 in-scope network assets for '{slug}'; refusing to overwrite scope files. "
             "Check the program handle, platform response, and current program scope."
         )
+    if any(has_scope_control(str(value)) for value in [*scope_data.get("domains", []), *scope_data.get("urls", [])]):
+        raise ValueError("control character in scope entry; refusing to save")
+    if any(has_scope_control(str(target.get(field) or ""))
+           for target in scope_data.get("out_of_scope", []) for field in ("name", "uri")):
+        raise ValueError("control character in scope exclusion; refusing to save")
     base = Path.home() / "Shared" / "scopes" / slug
     raw_base = base / "raw"
 
@@ -637,42 +723,50 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
         in_scope += f"{entry}\n"
 
     out_of_scope = ""
-    strict_out_of_scope = {
-        entry
-        for target in scope_data.get("out_of_scope", [])
-        if (entry := routable_scope_entry(str(target.get("uri") or target.get("name") or ""), url_to_host=True))
-    }
+    if scope_data.get("platform") == "bugcrowd":
+        strict_out_of_scope = set().union(*(
+            bugcrowd_exclusion_entries(target) for target in scope_data.get("out_of_scope", [])
+        ))
+    else:
+        strict_out_of_scope = {
+            entry
+            for target in scope_data.get("out_of_scope", [])
+            if (entry := routable_scope_entry(str(target.get("uri") or target.get("name") or ""), url_to_host=True))
+        }
     for entry in sorted(strict_out_of_scope):
         out_of_scope += f"{entry}\n"
 
-    changed = [
-        write_if_changed(base / "in-scope.txt", in_scope),
-        write_if_changed(base / "out-of-scope.txt", out_of_scope),
-        write_if_changed(base / "out-of-scope.json", json.dumps(scope_data.get("out_of_scope", []), indent=2, sort_keys=True) + "\n"),
-        write_if_changed(base / "assets.json", json.dumps(scope_data.get("assets", []), indent=2, sort_keys=True) + "\n"),
-        write_if_changed(base / "rules-of-engagement.json", json.dumps(scope_data.get("rules", {}), indent=2, sort_keys=True) + "\n"),
-        write_if_changed(base / "program-policy.md", render_program_policy(scope_data)),
+    # Build every body and expand seeds before touching either scope tree.
+    files = [
+        (base / "in-scope.txt", in_scope),
+        (base / "out-of-scope.txt", out_of_scope),
+        (base / "out-of-scope.json", json.dumps(scope_data.get("out_of_scope", []), indent=2, sort_keys=True) + "\n"),
+        (base / "assets.json", json.dumps(scope_data.get("assets", []), indent=2, sort_keys=True) + "\n"),
+        (base / "rules-of-engagement.json", json.dumps(scope_data.get("rules", {}), indent=2, sort_keys=True) + "\n"),
+        (base / "program-policy.md", render_program_policy(scope_data)),
     ]
     if scope_data.get("raw"):
         raw = scope_data["raw"]
         if isinstance(raw, str):
-            changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-page.html", raw))
+            files.append((raw_base / f"{scope_data.get('platform', 'source')}-page.html", raw))
         else:
-            changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-brief.json", json.dumps(raw, indent=2, sort_keys=True) + "\n"))
+            files.append((raw_base / f"{scope_data.get('platform', 'source')}-brief.json", json.dumps(raw, indent=2, sort_keys=True) + "\n"))
 
     if legacy:
         legacy_program_base = Path.home() / "Shared" / "bounty_recon" / slug
         legacy_base = legacy_program_base / "scope"
-        write_if_changed(legacy_base / "in-scope.txt", in_scope)
-        write_if_changed(legacy_base / "out-of-scope.txt", out_of_scope)
-        seed_counts = write_recon_seed_files(
-            legacy_program_base,
-            scope_data.get("domains", set()),
-            scope_data.get("urls", set()),
-        )
+        url_lines, wild_lines = recon_seed_lines(scope_data.get("domains", set()), scope_data.get("urls", set()))
+        seed_counts = {"urls": len(url_lines), "wildcards": len(wild_lines)}
+        files.extend([
+            (legacy_base / "in-scope.txt", in_scope),
+            (legacy_base / "out-of-scope.txt", out_of_scope),
+            (legacy_program_base / "urls.txt", "\n".join(url_lines) + ("\n" if url_lines else "")),
+            (legacy_program_base / "wild.txt", "\n".join(wild_lines) + ("\n" if wild_lines else "")),
+        ])
     else:
         seed_counts = {"urls": 0, "wildcards": 0}
 
+    changed = [write_if_changed(path, body) for path, body in files]
     print(f"[+] Saved scope to: {base}")
     print(f"    Changed: {'yes' if any(changed) else 'no'}")
     print(f"    Domains: {len(scope_data.get('domains', []))}")

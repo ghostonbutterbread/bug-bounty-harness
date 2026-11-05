@@ -96,8 +96,16 @@ def writable_ancestor(path: Path) -> bool:
     return path.is_dir() and os.access(path, os.W_OK | os.X_OK)
 
 
+def configured_artifact_base() -> Path:
+    raw = os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT', '')
+    configured = Path(raw if raw.strip() else str(DEFAULT_BOUNTY_ROOT)).expanduser()
+    if not configured.is_absolute():
+        raise ValueError('HARNESS_BOUNTY_ARTIFACT_ROOT must be an absolute path (or unset)')
+    return configured
+
+
 def artifact_base() -> Path:
-    configured = Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT', str(DEFAULT_BOUNTY_ROOT))).expanduser()
+    configured = configured_artifact_base()
     if configured == DEFAULT_BOUNTY_ROOT:
         return configured if default_mount_available() and os.access(configured, os.W_OK) else fallback_base()
     if not safe_profile_path(configured):
@@ -1370,6 +1378,8 @@ def main(argv: list[str] | None = None) -> int:
         args.selection_proof = sys.stdin.readline().strip()
     try:
         instance_key(args)
+        if args.command in ('status', 'acquire'):
+            configured_artifact_base()
         if args.command == "set-program-browser-policy":
             policy_metadata(args.source, PROGRAM_POLICY_SOURCES, "source")
             policy_metadata(args.evidence, PROGRAM_POLICY_EVIDENCE, "evidence")

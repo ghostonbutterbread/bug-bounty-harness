@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import sqlite3
+import subprocess
 import sys
 import time
 import uuid
@@ -44,8 +45,64 @@ def now() -> float:
     return time.time()
 
 
+DEFAULT_BOUNTY_ROOT = Path('/mnt/bounty')
+LOCAL_FILESYSTEMS = {'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'zfs'}
+
+
+def local_filesystem(path: Path) -> bool:
+    """Use the same conservative filesystem types as the browser preflight."""
+    path = path.expanduser().resolve()
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    try:
+        result = subprocess.run(['findmnt', '-n', '-T', str(path), '-o', 'FSTYPE'],
+                                capture_output=True, text=True, timeout=5, check=False)
+        return result.returncode == 0 and result.stdout.strip() in LOCAL_FILESYSTEMS
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def default_mount_available() -> bool:
+    return os.path.ismount(DEFAULT_BOUNTY_ROOT) and local_filesystem(DEFAULT_BOUNTY_ROOT)
+
+
+def fallback_base() -> Path:
+    return Path.home() / '.local' / 'share' / 'ghost' / 'browser-runtime'
+
+
+def safe_profile_path(path: Path) -> bool:
+    try:
+        lexical = Path(os.path.abspath(path.expanduser()))
+        resolved = path.expanduser().resolve()
+        shared_paths = (Path.home() / 'Shared', shared_base())
+        shared_lexical = tuple(Path(os.path.abspath(p.expanduser())) for p in shared_paths)
+        shared_resolved = tuple(p.resolve() for p in shared_paths)
+        mount = DEFAULT_BOUNTY_ROOT.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if any(candidate == shared or shared in candidate.parents
+           for candidate, roots in ((lexical, shared_lexical), (resolved, shared_resolved))
+           for shared in roots):
+        return False
+    if ((path == DEFAULT_BOUNTY_ROOT or DEFAULT_BOUNTY_ROOT in path.parents or
+         resolved == mount or mount in resolved.parents) and not default_mount_available()):
+        return False
+    return local_filesystem(resolved)
+
+
+def writable_ancestor(path: Path) -> bool:
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    return path.is_dir() and os.access(path, os.W_OK | os.X_OK)
+
+
 def artifact_base() -> Path:
-    return Path(os.environ.get("HARNESS_BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")).expanduser()
+    configured = Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT', str(DEFAULT_BOUNTY_ROOT))).expanduser()
+    if configured == DEFAULT_BOUNTY_ROOT:
+        return configured if default_mount_available() and os.access(configured, os.W_OK) else fallback_base()
+    if not safe_profile_path(configured):
+        return fallback_base()
+    return configured
 
 
 def slug(value: str) -> str:
@@ -219,8 +276,12 @@ def stopped_legacy_profile(conn, args, alias, domain, key):
         (slug(args.program), slug(alias), domain),
     ).fetchall()
     source = next((r for r in rows if r['lease_id'] == old_id), None)
-    pre_domain = artifact_base() / program_key(args.program) / 'web' / 'browser-profiles' / slug(alias)
-    allowed = (str(pre_domain), str(profile_dir(args.program, domain, alias)))
+    # A stopped profile may have been recorded under a formerly configured root.
+    # Its shape and exact manager/lease history still constrain inheritance.
+    parts = Path(old_path).parts
+    scoped = (program_key(args.program), 'web', 'browser-profiles', slug(domain), slug(alias))
+    pre_domain = (program_key(args.program), 'web', 'browser-profiles', slug(alias))
+    allowed = tuple(parts[-len(suffix):] == suffix for suffix in (scoped, pre_domain))
     identity = physical_profile(old_path)
     # The selected alias is not the ownership boundary: another account or
     # program may have leased this same directory through a symlink.
@@ -242,7 +303,7 @@ def stopped_legacy_profile(conn, args, alias, domain, key):
         return (row['manager_id'] is None and row['status'] in ('released', 'expired')
                 and row['browser_status'] == 'stopped' and row['cdp_url'] is None)
 
-    if (not source or old_path not in allowed or not identity or foreign_profile
+    if (not source or not any(allowed) or not identity or foreign_profile
             or source['profile_dir'] != old_path
             or source['auth_domain'] != domain or source['manager_id'] != manager
             or source['owner_agent_id'] != getattr(args, 'stopped_legacy_agent_id', None)
@@ -999,6 +1060,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
                 return {'status': 'managed-by-provisioner'}
             if same_owner:
+                if not safe_profile_path(Path(existing['profile_dir'])):
+                    return {'status': 'profile-unavailable', 'next': 'Recorded profile is on Shared, a network/unverified filesystem, or an unavailable /mnt/bounty mount; inspect it without relocating.'}
                 expires_at = timestamp + args.ttl_seconds
                 conn.execute(
                     "UPDATE browser_profile_leases SET heartbeat_at=?, expires_at=? WHERE lease_id=?",
@@ -1022,6 +1085,17 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "color_availability": color_availability(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "do not attach to or replace this browser; choose an explicitly approved alternative account or wait",
             }
+        history = conn.execute(
+            "SELECT DISTINCT profile_dir FROM browser_profile_leases WHERE program=? AND account_alias=? "
+            "AND (auth_domain=? OR (auth_domain IS NULL AND ?=?)) AND instance_key=?",
+            (slug(args.program), slug(alias), auth_domain, auth_domain, DEFAULT_LEGACY_AUTH_DOMAIN, key),
+        ).fetchall()
+        recorded = {row['profile_dir'] for row in history}
+        if len(recorded) > 1:
+            if getattr(args, 'stopped_legacy_lease_id', None):
+                return {'status': 'locked', 'reason': 'legacy-profile-history-mismatch'}
+            return {'status': 'profile-unavailable', 'next': 'Conflicting recorded profile paths; inspect lease history before resuming.'}
+        recorded_path = Path(next(iter(recorded))) if recorded else None
         inherited_path, requested_inheritance = stopped_legacy_profile(conn, args, alias, auth_domain, key)
         if requested_inheritance and inherited_path is None:
             return {'status': 'locked', 'reason': 'legacy-profile-history-mismatch'}
@@ -1029,7 +1103,24 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
-        persistent_profile = inherited_path or instance_profile(args.program, auth_domain, alias, key)
+        persistent_profile = inherited_path or recorded_path or requested_path
+        if not safe_profile_path(Path(persistent_profile)):
+            return {'status': 'profile-unavailable', 'next': 'Profile is on Shared, a network/unverified filesystem, or an unavailable /mnt/bounty mount; inspect the recorded location without relocating.'}
+        if recorded_path is None and inherited_path is None:
+            root = artifact_base()
+            if root == fallback_base():
+                try:
+                    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    info = root.lstat()
+                    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                            or info.st_mode & 0o077 or not os.access(root, os.W_OK)):
+                        raise OSError('fallback directory is not private and writable')
+                except OSError:
+                    return {'status': 'profile-unavailable', 'next': 'Create a private writable browser-runtime directory on a local filesystem.'}
+            if not writable_ancestor(Path(persistent_profile)):
+                return {'status': 'profile-unavailable', 'next': 'Choose a writable local profile root, or fix its permissions before requesting a browser.'}
+        if reservation_conflict(conn, path=str(persistent_profile)):
+            return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         conn.execute(
             """
             INSERT INTO browser_profile_leases(

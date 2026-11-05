@@ -119,7 +119,8 @@ def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp
     monkeypatch.setenv("MOCK_FAILED_ROOT", str(failed_root))
 
     def check(profile_path, *, final=False):
-        env = {**os.environ, "HARNESS_BOUNTY_ARTIFACT_ROOT": str(profile_path)}
+        env = {**os.environ, "HARNESS_BOUNTY_ARTIFACT_ROOT": str(profile_path),
+               "CHROMIUM_PROFILE_PROBE": str(profile_path)}
         if final:
             env["CHROMIUM_PROFILE_PROBE"] = str(profile_path)
             env["HARNESS_BOUNTY_ARTIFACT_ROOT"] = str(local_root)

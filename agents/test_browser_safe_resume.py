@@ -17,6 +17,8 @@ def manager(monkeypatch, tmp_path):
     assert spec is not None and spec.loader is not None
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    import browser_profile_lease as profiles
+    monkeypatch.setattr(profiles, 'local_filesystem', lambda _: True)
     return m
 
 
@@ -86,6 +88,7 @@ def test_cleanup_dry_run_and_terminal_apply(monkeypatch, tmp_path, capsys):
 def test_resume_exact_owner_healthy_and_stopped_blocker(monkeypatch, tmp_path, capsys):
     m = manager(monkeypatch, tmp_path)
     c = rows(m, tmp_path, count=1)
+    (tmp_path / 'profile-0').mkdir()
     args = argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run')
     assert result(lambda: m.resume(argparse.Namespace(**{**vars(args), 'run_id': 'other'}))) == 2
     assert json.loads(capsys.readouterr().out)['status'] == 'not-owner'
@@ -108,6 +111,23 @@ def test_resume_exact_owner_healthy_and_stopped_blocker(monkeypatch, tmp_path, c
     output = json.loads(capsys.readouterr().out)
     assert output['reason'] == 'safe-launch-recipe-unavailable'
     assert output['state_lost'] is False
+
+
+def test_resume_rejects_running_shared_profile_without_mutation(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('HARNESS_SHARED_BASE', str(tmp_path / 'Shared'))
+    m = manager(monkeypatch, tmp_path)
+    c = rows(m, tmp_path, count=1)
+    profile = tmp_path / 'Shared' / 'profile'
+    profile.mkdir(parents=True)
+    c.execute('UPDATE browsers SET profile_dir=? WHERE browser_id=?', (str(profile), 'browser-0'))
+    c.commit()
+    monkeypatch.setattr(m, 'retire', lambda *a: pytest.fail('must not stop browser'))
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('must not dispatch'))
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
+    assert c.execute("SELECT state, profile_dir FROM browsers WHERE browser_id='browser-0'").fetchone()[:] == ('running', str(profile))
+    assert profile.is_dir()
 
 
 def test_cleanup_refuses_hold_and_missing_canonical_owner(monkeypatch, tmp_path, capsys):
@@ -216,8 +236,9 @@ def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False, mo
     return m, c, row, recipe
 
 
-@pytest.mark.parametrize('missing,removed_after_preflight', [(False, False), (True, False), (False, True)])
-def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_path, capsys, missing, removed_after_preflight):
+@pytest.mark.parametrize('missing,removed_after_preflight,unsafe_after_dispatch', [
+    (False, False, False), (True, False, False), (False, True, False), (False, False, True)])
+def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_path, capsys, missing, removed_after_preflight, unsafe_after_dispatch):
     m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, missing=missing)
     calls = []
     def child(cmd, **kwargs):
@@ -239,13 +260,20 @@ def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_pat
                                                        'launch_recipe': {'physical_profile': list(
                                                            profiles.physical_profile(row['profile_dir']))}}))
         c.commit()
+        if unsafe_after_dispatch:
+            monkeypatch.setenv('HARNESS_SHARED_BASE', row['profile_dir'])
         return SimpleNamespace(returncode=0, stdout=json.dumps(dict(
             status='started', browser_id='new-id', lease_id='new-lease',
             replaces_browser_id='browser-0')))
     monkeypatch.setattr(m.subprocess, 'run', child)
     monkeypatch.setattr(m, 'healthy', lambda _: True)
-    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 0
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == (2 if unsafe_after_dispatch else 0)
     out = json.loads(capsys.readouterr().out)
+    if unsafe_after_dispatch:
+        assert out['status'] == 'profile-unavailable'
+        assert c.execute("SELECT state FROM browsers WHERE browser_id='new-id'").fetchone()[0] == 'running'
+        assert Path(row['profile_dir']).is_dir()
+        return
     assert out['state_lost'] is (missing or removed_after_preflight)
     assert out['authentication'] == 'browser-native-check-required'
     assert len(calls) == 1 and '--expected-replaces-browser-id' in calls[0]
@@ -378,6 +406,29 @@ def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, 
     assert out['replaces_browser_id'] == 'browser-0'
     assert out['state_lost'] is stored_state_lost
 
+
+def test_resume_rejects_unsafe_verified_successor_without_dispatch(monkeypatch, tmp_path, capsys):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
+    profile = Path(row['profile_dir'])
+    import browser_profile_lease as profiles
+    monkeypatch.setenv('HARNESS_SHARED_BASE', str(profile))
+    c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              ('new-lease', 'new-id', 'task-owned', 'task-identity', 'task', 'agent', 'run',
+               'fixture', 'new-unit', str(profile), str(tmp_path / 'new.json'), 'running', 0, 0, 1, 1))
+    (tmp_path / 'new.json').write_text(json.dumps({'replaces_browser_id': 'browser-0',
+        'instance_key': '', 'resumed_state_lost': False,
+        'launch_recipe': {'physical_profile': list(profiles.physical_profile(profile))}}))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    monkeypatch.setattr(m, 'reservation_blocks', lambda _: False)
+    monkeypatch.setattr(m, 'matching_proxy', lambda *a: True)
+    monkeypatch.setattr(m, 'retire', lambda *a: pytest.fail('must not stop browser'))
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('must not dispatch'))
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
+    assert c.execute("SELECT state, profile_dir FROM browsers WHERE browser_id='new-id'").fetchone()[:] == ('running', str(profile))
+    assert profile.is_dir()
+
 def test_resume_external_ca_missing_refuses(monkeypatch, tmp_path, capsys):
     m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
     data = json.loads(Path(row['launch_file']).read_text())
@@ -465,3 +516,38 @@ def test_automatic_slot_replay_preserves_manager_selection_proof(monkeypatch, tm
     assert result(lambda: m.start(args)) == 2
     assert '--automatic-instance' in observed and '--selection-proof-stdin' in observed
     assert json.loads(capsys.readouterr().out)['status'] == 'queued'
+
+
+@pytest.mark.parametrize('kind', ['missing', 'home-shared-out', 'custom-shared-out'])
+def test_running_resume_rejects_missing_or_shared_lexical_profile(monkeypatch, tmp_path, capsys, kind):
+    home = tmp_path / 'home'
+    home.mkdir()
+    shared = home / 'Shared'
+    shared.mkdir()
+    custom = tmp_path / 'custom-shared'
+    custom.mkdir()
+    local = tmp_path / 'local'
+    local.mkdir()
+    monkeypatch.setenv('HOME', str(home))
+    monkeypatch.setenv('HARNESS_SHARED_BASE', str(custom))
+    m = manager(monkeypatch, tmp_path)
+    c = rows(m, tmp_path, count=1)
+    path = tmp_path / 'no-such-profile'
+    if kind != 'missing':
+        path = (shared if kind == 'home-shared-out' else custom) / 'link'
+        path.symlink_to(local, target_is_directory=True)
+    c.execute('UPDATE browsers SET profile_dir=? WHERE browser_id=?', (str(path), 'browser-0'))
+    c.commit()
+    monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
+    monkeypatch.setattr(m, 'reservation_blocks', lambda row: False)
+    monkeypatch.setattr(m, 'lifecycle_state', lambda c, row: 'active')
+    monkeypatch.setattr(m, 'healthy', lambda row: True)
+    monkeypatch.setattr(m, 'activity_snapshot', lambda row: {'frozen': False, 'last_activity': 0})
+    monkeypatch.setattr(m, 'matching_proxy', lambda c, args, row: True)
+    monkeypatch.setattr(m, 'unit_active', lambda unit: True)
+    monkeypatch.setattr(m, 'proxy_row', lambda c, args: None)
+    monkeypatch.setattr(m, 'retire', lambda *a: pytest.fail('must not stop'))
+    code = result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run')))
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
+    assert c.execute("SELECT state FROM browsers WHERE browser_id='browser-0'").fetchone()[0] == 'running'

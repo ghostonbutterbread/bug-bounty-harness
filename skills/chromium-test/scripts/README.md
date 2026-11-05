@@ -221,6 +221,24 @@ identity and released status; active or uncertain history remains locked. This
 is admission of terminal history, not a rewrite of canonical leases or a
 replacement for the provisioner's quiescence check. `browser_manager_row_repair.py`
 repairs malformed manager projections only, not missing lease-manager provenance.
+
+For a new node-local identity, the default `/mnt/bounty` is selected only when
+it is a writable, mounted local filesystem. Otherwise profiles use
+`~/.local/share/ghost/browser-runtime/<program>/...` beneath a private `0700`
+root. A configured local `HARNESS_BOUNTY_ARTIFACT_ROOT` still works; Shared or
+network-backed choices fall back to the local root. Filesystem detection uses
+`findmnt` and the same conservative local types as the browser preflight. If
+local storage cannot be verified, acquisition reports `profile-unavailable`.
+Recorded identities retain their recorded path after the root changes; conflicting
+history and recorded Shared, network or unverified filesystems are refused, not
+relocated. Paths resolving beneath `/mnt/bounty`, including symlink aliases,
+require the actual mount and a local profile filesystem. Restore the original
+mount first. Unwritable custom roots fail before a new lease is issued.
+This mount-presence check does not attest the identity of the mounted device;
+legacy custom-root records likewise lack historical device identity, and the
+node-local database cannot establish absence of a profile on another host.
+The launcher still requires its normal exact-path preflight.
+
 Manual policy and passive reporting:
 
 ```sh
@@ -263,8 +281,9 @@ multi-instance pane registry.
 - **Outputs:** JSON lease/status records only. It never emits auth-seed paths,
   cookies, tokens, passwords, or private headers.
 - **Mutates:** A local SQLite lease database under
-  `~/.local/state/ghost/browser-profile-leases/` by default. It does not modify
-  browser profiles or the account inventory.
+  `~/.local/state/ghost/browser-profile-leases/` by default and, when needed,
+  creates the private fallback root. It does not modify browser profiles or the
+  account inventory.
 - **Scope:** Run on the persistent-profile host (normally Hoster), not on a
   machine that merely forwards CDP to it.
 - **Walkthrough:**

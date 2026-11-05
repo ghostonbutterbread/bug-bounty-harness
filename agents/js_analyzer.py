@@ -424,18 +424,19 @@ def read_json_file(path: Path) -> dict:
 
 
 def load_config(explicit_path: str | None = None) -> dict:
-    paths: list[Path] = []
+    paths: list[tuple[Path, bool]] = []
     if explicit_path:
-        paths.append(Path(explicit_path).expanduser())
+        paths.append((Path(explicit_path).expanduser(), True))
     env_path = os.environ.get("JS_ANALYZER_CONFIG")
     if env_path:
-        paths.append(Path(env_path).expanduser())
-    paths.extend(DEFAULT_CONFIG_PATHS)
+        paths.append((Path(env_path).expanduser(), True))
+    paths.extend((path, False) for path in DEFAULT_CONFIG_PATHS)
 
-    for path in paths:
+    for path, explicit in paths:
         if path.exists():
             config = read_json_file(path)
             config["_config_path"] = str(path)
+            config["_config_explicit"] = explicit
             return config
     return {}
 
@@ -498,6 +499,27 @@ def resolve_inventory_paths(args: argparse.Namespace, run_id: str) -> tuple[Path
     else:
         assert program_root
         integration_index_root = program_root / "web" / "intel" / "integrations"
+    # Auto-discovered legacy config is not an explicit bulk-storage opt-in.
+    # Preserve a config selected by --config / JS_ANALYZER_CONFIG, and each
+    # explicit destination flag, without moving an existing corpus.
+    if not config.get("_config_explicit") and (artifact_env is None or artifact_env.strip()):
+        selected = resolve_artifact_root()
+        shared = Path.home() / "Shared"
+
+        def in_shared(path: Path) -> bool:
+            lexical = Path(os.path.abspath(path))
+            shared_lexical = Path(os.path.abspath(shared))
+            return lexical.is_relative_to(shared_lexical) or path.resolve().is_relative_to(shared.resolve())
+
+        if not in_shared(selected):
+            for flag, path, explicit in (("--output-root", root, args.output_root),
+                                         ("--library-root", library_root, args.library_root)):
+                if not explicit and in_shared(path):
+                    raise SystemExit(
+                        f"artifact root {selected} conflicts with configured Shared bulk destination {path} "
+                        f"(config: {config.get('_config_path', 'unknown')}); review the existing corpus and "
+                        f"config, or explicitly select {flag}. No files were moved."
+                    )
     config_summary = {
         "config_path": config.get("_config_path", ""),
         "shared_web_base": str(shared_base) if shared_base else "",
@@ -827,8 +849,11 @@ def check_output_space(path: Path, size: int, *, floor: int | None = None) -> No
 
 
 def write_bytes_checked(path: Path, body: bytes, *, floor: int | None = None) -> None:
+    preflight_artifact_paths(path)
     check_output_space(path, len(body), floor=floor)
+    preflight_artifact_paths(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    preflight_artifact_paths(path)
     path.write_bytes(body)
 
 
@@ -1204,7 +1229,6 @@ class WaybackRecovery:
             if map_body is not None:
                 archived_sha = hashlib.sha256(archived[0]).hexdigest()
                 bundle_path = self.source_maps_dir / "historical_bundles" / f"{archived_sha}.js"
-                bundle_path.parent.mkdir(parents=True, exist_ok=True)
                 write_bytes_checked(bundle_path, archived[0])
                 history.update(bundle_artifact_path=str(bundle_path),
                                bundle_archive_timestamp=stamp, bundle_retrieval_url=bundle_retrieval,
@@ -1336,6 +1360,7 @@ def write_source_map_modules(
             allowed = packeted_modules < module_limit and len(packets) + chunk_count <= max_packets and expanded_bytes + content_bytes <= max_expanded_bytes
             if allowed:
                 chunks = chunk_text(content, chunk_size, chunk_overlap)
+                preflight_artifact_paths(module_dir)
                 module_dir.mkdir(parents=True, exist_ok=True)
                 module_path = module_dir / f"{module['source_index']:05d}.js"
                 write_text_atomic(module_path, module["content"])
@@ -1347,6 +1372,7 @@ def write_source_map_modules(
                 module_source_scan = scan_source_sites(module["content"])
                 row["source_sites"] = module_source_scan["hits"]
                 row["source_sites_truncated"] = module_source_scan["truncated"]
+                preflight_artifact_paths(packet_dir)
                 packet_dir.mkdir(parents=True, exist_ok=True)
                 for chunk_index, (start, end, chunk) in enumerate(chunks):
                     packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
@@ -1376,33 +1402,48 @@ def chunk_text(text: str, size: int, overlap: int) -> list[tuple[int, int, str]]
     return chunks
 
 
+# An open descriptor remains attached to its original filesystem after unmount.
+# Recheck periodically to stop long streams, not for every descriptor write.
+JSONL_PREFLIGHT_INTERVAL = 256
+
+
 def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
     # Stream into a sibling file; readers must never see a partial projection.
+    preflight_artifact_paths(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
     try:
+        preflight_artifact_paths(temporary, path)
         with temporary.open("x", encoding="utf-8") as handle:
-            for row in rows:
+            for index, row in enumerate(rows, 1):
                 line = json.dumps(row, sort_keys=True) + "\n"
                 check_output_space(temporary, len(line.encode("utf-8")))
+                if index % JSONL_PREFLIGHT_INTERVAL == 0:
+                    preflight_artifact_paths(temporary)
                 handle.write(line)
+            preflight_artifact_paths(temporary)
             handle.flush()
             os.fsync(handle.fileno())
+        preflight_artifact_paths(temporary, path)
         temporary.replace(path)
     finally:
+        preflight_artifact_paths(temporary)
         temporary.unlink(missing_ok=True)
 
 
 def write_text_atomic(path: Path, text: str) -> None:
     """Publish one complete text artifact for concurrent readers."""
+    preflight_artifact_paths(path)
     if isinstance(text, str):
         check_output_space(path, len(text.encode("utf-8")))
+    preflight_artifact_paths(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
         for _ in range(100):
             temporary_path = path.parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
             try:
+                preflight_artifact_paths(temporary_path, path)
                 handle = temporary_path.open("x", encoding="utf-8")
             except FileExistsError:
                 continue
@@ -1412,19 +1453,27 @@ def write_text_atomic(path: Path, text: str) -> None:
 
         with handle:
             created_mode = os.fstat(handle.fileno()).st_mode & 0o777
+            preflight_artifact_paths(temporary_path)
             os.fchmod(handle.fileno(), created_mode & 0o644)
+            preflight_artifact_paths(temporary_path)
             handle.write(text)
+            preflight_artifact_paths(temporary_path)
             handle.flush()
             os.fsync(handle.fileno())
+        preflight_artifact_paths(temporary_path, path)
         temporary_path.replace(path)
     finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
+        if temporary_path is not None:
+            if temporary_path.exists():
+                preflight_artifact_paths(temporary_path)
+                temporary_path.unlink()
 
 
 def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
+    preflight_artifact_paths(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.stat().st_size:
+        preflight_artifact_paths(path)
         with path.open("rb+") as repair:
             repair.seek(-1, os.SEEK_END)
             if repair.read(1) != b"\n":
@@ -1436,12 +1485,18 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
                     if repair.read(1) == b"\n":
                         break
                     position -= 1
+                preflight_artifact_paths(path)
                 repair.truncate(position + 1)
+    preflight_artifact_paths(path)
     with path.open("a", encoding="utf-8") as handle:
-        for row in rows:
+        for index, row in enumerate(rows, 1):
             line = json.dumps(row, sort_keys=True) + "\n"
             check_output_space(path, len(line.encode("utf-8")))
+            if index % JSONL_PREFLIGHT_INTERVAL == 0:
+                preflight_artifact_paths(path)
             handle.write(line)
+        preflight_artifact_paths(path)
+        handle.flush()
 
 
 def published_run_urls(path: Path, run_id: str, field: str) -> set[str]:
@@ -1532,11 +1587,14 @@ def load_ledger(path: Path) -> dict:
 
 
 def save_ledger(path: Path, ledger: dict) -> None:
+    preflight_artifact_paths(path, path.with_suffix(path.suffix + ".tmp"))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     text = json.dumps(ledger, indent=2, sort_keys=True) + "\n"
     check_output_space(tmp, len(text.encode("utf-8")))
+    preflight_artifact_paths(tmp, path)
     tmp.write_text(text, encoding="utf-8")
+    preflight_artifact_paths(tmp, path)
     tmp.replace(path)
 
 
@@ -1768,7 +1826,9 @@ def build_metadata_row(
 
 
 def write_provenance_table(path: Path, rows: Iterable[dict]) -> None:
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     path.parent.mkdir(parents=True, exist_ok=True)
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_provenance (
@@ -1831,7 +1891,9 @@ def write_provenance_table(path: Path, rows: Iterable[dict]) -> None:
 
 
 def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: list[dict]) -> None:
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     path.parent.mkdir(parents=True, exist_ok=True)
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_files (
@@ -2019,7 +2081,9 @@ def normalize_observation_row(row: dict) -> dict:
 
 
 def write_observations_table(path: Path, rows: Iterable[dict]) -> None:
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     path.parent.mkdir(parents=True, exist_ok=True)
+    preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_observations (
@@ -2266,6 +2330,7 @@ def write_chunk_set(
         except (OSError, json.JSONDecodeError):
             pass
 
+    preflight_artifact_paths(chunk_dir)
     chunk_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
     for chunk_index, (start, end, chunk) in enumerate(chunks):
@@ -2418,10 +2483,9 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_maps_dir = library_root / "sourcemaps"
     library_chunks_dir = library_root / "chunks"
     packets_dir = root / "packets"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-    source_maps_dir.mkdir(parents=True, exist_ok=True)
-    library_chunks_dir.mkdir(parents=True, exist_ok=True)
-    packets_dir.mkdir(parents=True, exist_ok=True)
+    for destination in (downloads_dir, source_maps_dir, library_chunks_dir, packets_dir):
+        preflight_artifact_paths(destination)
+        destination.mkdir(parents=True, exist_ok=True)
     ledger_path = library_root / "ledger.json"
     library_provenance_path = library_root / "provenance.jsonl"
     library_metadata_path = library_root / "metadata.jsonl"

@@ -2481,6 +2481,8 @@ def start(args):
         instance = automatic_instance(c, args, alias, auth_domain)
         automatic = bool(instance)
     row = selected_browser(c, args.program, alias, auth_domain, instance)
+    if row and row['state'] == 'running':
+        require_safe_running_profile(row)
     if (row and row["state"] == "running"
             and row["agent_id"] == args.agent_id and row["run_id"] == args.run_id
             and getattr(args, "driving_mode", None) is not None

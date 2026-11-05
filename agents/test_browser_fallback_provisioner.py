@@ -71,3 +71,29 @@ def test_start_refuses_missing_running_profile_without_stopping(monkeypatch, tmp
     assert exc.value.code == 2
     assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
     assert c.execute('SELECT state FROM browsers WHERE lease_id=?', (row['lease_id'],)).fetchone()[0] == 'running'
+
+
+def test_start_guards_missing_profile_before_cleanup(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, None)
+    c.execute('UPDATE browsers SET profile_dir=? WHERE lease_id=?',
+              (str(tmp_path / 'missing'), row['lease_id']))
+    c.commit()
+    request = recovery_args()
+    request.agent_id, request.run_id = row['agent_id'], row['run_id']
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'automatic_instance', lambda *a, **k: '')
+    monkeypatch.setattr(m, 'canonical_owner', lambda *a, **kw: True)
+    monkeypatch.setattr(m, 'cleanup_headless', lambda *a: True)
+    monkeypatch.setattr(m, 'owner_state', lambda *a: 'terminal')
+    monkeypatch.setattr(m, 'activity_snapshot', lambda *a: {
+        'idle_seconds': 8000, 'inflight': 0, 'reserved_seconds': 0, 'attached_clients': 0})
+    monkeypatch.setattr(m, 'freeze_idle', lambda *a, **kw: True)
+    stopped = []
+    monkeypatch.setattr(m, 'retire', lambda c, item: stopped.append(item['browser_id']) or True)
+    with pytest.raises(SystemExit) as exc:
+        m.start(request)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'profile-unavailable'
+    assert stopped == []

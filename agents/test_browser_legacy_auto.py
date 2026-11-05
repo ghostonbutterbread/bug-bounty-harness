@@ -568,7 +568,7 @@ def test_preselection_sweep_preserves_manager_legacy_with_malformed_canonical_hi
 
 
 @pytest.mark.parametrize('kind', ['keyed', 'arbitrary', 'task-owned'])
-def test_preselection_sweep_does_not_blanket_retain_disposable_profiles(monkeypatch, tmp_path, kind):
+def test_preselection_sweep_retains_ambiguous_named_but_cleans_disposable(monkeypatch, tmp_path, kind):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     path = Path(row['profile_dir'])
     if kind == 'arbitrary':
@@ -585,8 +585,12 @@ def test_preselection_sweep_does_not_blanket_retain_disposable_profiles(monkeypa
     monkeypatch.setattr(m, 'unit_active', lambda _: False)
     monkeypatch.setattr(m, 'stopped', lambda _: True)
     removed, skipped = m.sweep_rows(c, 14, True)
-    assert len(removed) == 1 and not skipped
-    assert not path.exists()
+    if kind == 'arbitrary':
+        assert not removed and skipped[0]['reason'] == 'legacy-auth-retained'
+        assert path.exists()
+    else:
+        assert len(removed) == 1 and not skipped
+        assert not path.exists()
 
 @pytest.mark.parametrize('observable', ['active-unit', 'active-root', 'active-cdp',
                                         'missing-receipt-active-unit'])

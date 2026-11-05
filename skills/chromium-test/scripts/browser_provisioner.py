@@ -3419,29 +3419,48 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
           "indexed": flow.exists() and bool(flow.stat().st_size)})
 
 
-def managed_root():
-    return Path(os.environ.get("HARNESS_BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")).resolve()
-
-
 def managed_profile(path):
-    try:
-        relative = Path(path).resolve().relative_to(managed_root())
-    except ValueError:
+    import browser_profile_lease as profiles
+    # A recovered mount or changed override must not orphan the known fallback.
+    # Former arbitrary overrides are deliberately not discovery/cleanup roots.
+    roots = (profiles.configured_artifact_base(), profiles.DEFAULT_BOUNTY_ROOT,
+             profiles.fallback_base())
+    for root in roots:
+        try:
+            relative = Path(path).resolve().relative_to(root.resolve())
+        except (ValueError, OSError, RuntimeError):
+            continue
+        # Only manager-shaped legacy and domain-scoped paths qualify.
+        if (((len(relative.parts) in (4, 5) and relative.parts[1:3] == ("web", "browser-profiles"))
+             or (len(relative.parts) == 6 and relative.parts[1:3] == ("web", "browser-instances")))
+                and all(part not in ("", ".", "..") for part in relative.parts)):
+            return True
+    return False
+
+
+def manager_legacy_profile(row):
+    """Unkeyed named manager history is persistent, even with mismatched metadata."""
+    return row['program'] != 'task-owned' and not record_info(row).get('instance_key')
+
+
+def sweep_runtime_stopped(row):
+    """Read-only proof for a sweep owner, including old PID-only receipts."""
+    if not stopped(row):
         return False
-    # Only manager-shaped legacy <program>/web/browser-profiles/<account> and
-    # auth-domain-scoped <program>/web/browser-profiles/<domain>/<account> qualify.
-    return (
-        ((len(relative.parts) in (4, 5) and relative.parts[1:3] == ("web", "browser-profiles"))
-         or (len(relative.parts) == 6 and relative.parts[1:3] == ("web", "browser-instances")))
-        and all(part not in ("", ".", "..") for part in relative.parts)
-    )
+    info = record_info(row)
+    if info.get('pid') and not info.get('process_identity'):
+        try:
+            return process_identity(info['pid']) is None
+        except (OSError, ValueError, TypeError):
+            return False
+    return True
 
 
 def sweep_rows(c, older_than_days, confirm):
     import browser_profile_lease as profiles
     def direct_path(p):
         try:
-            return p.resolve(strict=True) == p.absolute()
+            return p.is_absolute() and p.resolve(strict=True) == p.absolute()
         except (OSError, RuntimeError):
             return False
     cutoff = now() - older_than_days * 86400
@@ -3459,41 +3478,36 @@ def sweep_rows(c, older_than_days, confirm):
         if identity is None or not direct_path(p):
             skipped.append({"browser_id": r["browser_id"], "reason": "profile-identity-unverified"})
             continue
+        if not managed_profile(p):
+            skipped.append({"browser_id": r["browser_id"], "reason": "not-managed-profile"})
+            continue
         # Never remove a physical profile through a keyed or historical alias.
         protected = [other for other in c.execute("SELECT * FROM browsers").fetchall()
-                     if other['program'] != 'task-owned' and
-                     record_info(other).get('instance_key', '') == '' and
-                     Path(other['profile_dir']) in legacy_profile_paths(
-                         other['program'], other['account'], other['auth_domain'])]
-        if r['program'] != 'task-owned' and any(
-                profiles.physical_profile(other['profile_dir']) == identity for other in protected):
-            skipped.append({"browser_id": r["browser_id"], "reason": "legacy-auth-retained"})
-            continue
-        # Manager-proven unkeyed persistent profiles predate canonical history.
-        # Protect only exact known account paths, never arbitrary or task-owned rows.
-        if (r['program'] != 'task-owned' and
-                record_info(r).get('instance_key', '') == '' and
-                p in legacy_profile_paths(r['program'], r['account'], r['auth_domain'])):
+                     if manager_legacy_profile(other)]
+        if any(profiles.physical_profile(other['profile_dir']) == identity for other in protected):
             skipped.append({"browser_id": r["browser_id"], "reason": "legacy-auth-retained"})
             continue
         lease_db = STATE.parent / "browser_profile_leases.sqlite"
         if lease_db.exists():
             with sqlite3.connect(lease_db) as leases:
                 columns = {item[1] for item in leases.execute('PRAGMA table_info(browser_profile_leases)')}
+                filters = []
+                # A disposable manager row must not override another account's
+                # persistent canonical history through the same physical inode.
+                if 'program' in columns:
+                    filters.append("COALESCE(program,'')!='task-owned'")
                 historical = (any(profiles.physical_profile(h[0]) == identity for h in leases.execute(
                     "SELECT profile_dir FROM browser_profile_leases " +
-                    ("WHERE COALESCE(instance_key,'')=''" if 'instance_key' in columns else '')
+                    ("WHERE " + " AND ".join(filters) if filters else '')
                 ).fetchall()) if columns else None)
                 marker = (leases.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
                           and any(profiles.physical_profile(h[0]) == identity for h in leases.execute(
                               "SELECT profile_dir FROM browser_legacy_auto").fetchall()))
-                if r['program'] != 'task-owned' and (historical or marker):
+                if historical or marker:
                     skipped.append({"browser_id": r["browser_id"], "reason": "legacy-auth-retained"})
                     continue
-        if not managed_profile(p):
-            skipped.append(
-                {"browser_id": r["browser_id"], "reason": "not-managed-profile"}
-            )
+        if not profiles.safe_profile_path(p):
+            skipped.append({"browser_id": r["browser_id"], "reason": "unsafe-profile-path"})
             continue
         if unit_active(r["unit"]):
             skipped.append({"browser_id": r["browser_id"], "reason": "unit-active"})
@@ -3521,11 +3535,12 @@ def sweep_rows(c, older_than_days, confirm):
             profiles.physical_profile(other['profile_dir']) in (None, identity)]
         if any(
             other["state"] != "stopped" or other["updated"] >= cutoff
+            or not sweep_runtime_stopped(other)
             for other in others
         ):
             skipped.append({"browser_id": r["browser_id"], "reason": "profile-in-use"})
             continue
-        if not stopped(r):
+        if not sweep_runtime_stopped(r):
             skipped.append(
                 {"browser_id": r["browser_id"], "reason": "browser-not-stopped"}
             )
@@ -3538,8 +3553,12 @@ def sweep_rows(c, older_than_days, confirm):
                 {"browser_id": r["browser_id"], "profile_dir": str(p), "dry_run": True}
             )
             continue
-        if profiles.physical_profile(p) != identity or not direct_path(p):
+        if (profiles.physical_profile(p) != identity or not direct_path(p)
+                or not profiles.safe_profile_path(p)):
             skipped.append({"browser_id": r["browser_id"], "reason": "profile-identity-changed"})
+            continue
+        if not sweep_runtime_stopped(r) or any(not sweep_runtime_stopped(other) for other in others):
+            skipped.append({"browser_id": r["browser_id"], "reason": "profile-in-use"})
             continue
         shutil.rmtree(p)
         c.execute(
@@ -3794,6 +3813,12 @@ def main():
     watcher = sub.add_parser("watch")
     watcher.add_argument("--browser-id", required=True)
     args = p.parse_args()
+    if args.cmd in ("start", "request", "sweep-stale"):
+        import browser_profile_lease as profiles
+        try:
+            profiles.configured_artifact_base()
+        except ValueError as exc:
+            p.error(str(exc))
     if args.cmd in ("start", "request"):
         import browser_profile_lease as profiles
         try:

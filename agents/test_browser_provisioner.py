@@ -47,7 +47,7 @@ def test_sweep_deletes_only_registered_old_profile(monkeypatch, tmp_path):
     assert not skipped and not profile.exists()
 
 
-def test_sweep_deletes_registered_auth_domain_profile(monkeypatch, tmp_path):
+def test_sweep_preserves_unkeyed_named_auth_domain_profile(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     root = tmp_path / "artifacts"
     profile = root / "demo/web/browser-profiles/api.example.test/fixture"
@@ -56,8 +56,8 @@ def test_sweep_deletes_registered_auth_domain_profile(monkeypatch, tmp_path):
 
     removed, skipped = m.sweep_rows(m.db(), 14, True)
 
-    assert removed[0]["browser_id"] == "domain-browser"
-    assert not skipped and not profile.exists()
+    assert not removed and skipped[0]["reason"] == "legacy-auth-retained"
+    assert profile.exists()
 
 
 def test_sweep_refuses_path_outside_managed_root(monkeypatch, tmp_path):
@@ -337,6 +337,7 @@ def test_provisioner_request_defaults_to_required_proxy_ca_import(monkeypatch, t
 
 def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
+    (tmp_path / "artifacts/p").mkdir(parents=True)
     monkeypatch.setattr(m, "matching_proxy", lambda *_: True)
     c = m.db(); t = time.time()
     c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("l","b","demo","fixture","legacy-global","agent","run","test","u",str(tmp_path/"artifacts/p"),"/tmp/x","running",0,t,t,t)); c.commit()

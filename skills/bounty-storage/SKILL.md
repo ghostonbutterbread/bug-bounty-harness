@@ -28,8 +28,10 @@ Resolve the active program family/lane first, then choose storage:
 
 Never put raw cookies, bearer tokens, auth headers, CSRF tokens, reset links,
 passwords, API keys, private request bodies, private headers, or raw sensitive
-files in `~/Shared` or `/mnt/bounty`. Store only sanitized manifests, indexes,
-hashes, field names, counts, and replay templates there.
+files in `~/Shared`. Keep them in restricted owner-only local storage, not
+`/mnt/bounty`, unless Ryushe explicitly approves the exact location and retention reason.
+Store only sanitized manifests, indexes, hashes, field names, counts, and replay
+templates in Shared or the ordinary artifact tier.
 
 Do not hard-code legacy roots when a resolver exists. Prefer
 `agents/storage_resolver.py`, `bounty_core.storage`, `context/target_profile.json`,
@@ -54,9 +56,13 @@ outputs, dependencies, virtualenvs, fixtures, and generated corpora should not.
   packets, reports, ledgers, compact summaries, manifests, artifact maps,
   curated aggregate lists, sanitized request contracts, small reusable scripts.
 - `/mnt/bounty`: raw JS/source bundles, scraped pages, screenshots/videos, proxy
-  flows/HARs, browser profiles, CDP traces, parser intermediates, long fuzz/recon
-  runs, redownloadable corpora with manifests, and desktop-app installers or
-  unpacked binary bundles after checking for embedded secrets.
+  flows/HARs, CDP traces, parser intermediates, long fuzz/recon runs,
+  redownloadable corpora with manifests, and desktop-app installers or unpacked
+  binary bundles after checking for embedded secrets.
+- Active browser profiles: restricted node-local storage on the browser host,
+  using the owner's lease-recorded path; never Shared or an SMB-mounted live profile.
+  Apply the canonical secret-bearing artifact rule, including exact-location
+  and retention approval before using `/mnt/bounty` for sensitive profile state.
 - Scratch: active downloads, parser temp files, partial output, retry state, tool
   logs, throwaway experiments.
 - Restricted local evidence only: raw secret-bearing captures or exact sensitive
@@ -71,10 +77,16 @@ archive pointers, and handoff requirements.
 
 For large artifacts:
 
-1. `/mnt/bounty` if writable.
-2. Current host artifact directory.
-3. `~/workdir/<program>/<run_id>/`.
-4. Write a compact Shared manifest with actual path and regeneration command.
+1. `/mnt/bounty` if the mount is actually present and writable.
+2. An explicitly selected current-host artifact directory.
+3. An explicitly selected `~/workdir/<program>/<run_id>/`.
+4. Write a compact Shared manifest with actual host, path and regeneration command.
+
+Initializer and JS analyzer use `BOUNTY_ARTIFACT_ROOT` for an explicitly
+configured bulk root; export the same value for later processes. Their default
+`/mnt/bounty` is checked for an actual mount before writes. Other tools may
+need explicit paths; verify their fallback behavior instead of assuming it.
+Never silently switch roots mid-run or fall back canonical Shared ledgers.
 
 Do not silently dump large data into `~/Shared` because `/mnt/bounty` is absent.
 
@@ -82,7 +94,8 @@ Do not silently dump large data into `~/Shared` because `/mnt/bounty` is absent.
 
 - Heavy data is outside Shared unless explicitly cloud-backed.
 - Shared has a manifest, artifact map, or curated aggregate pointer.
-- Raw secrets are absent from Shared, `/mnt/bounty`, prompts, commits, and chat.
+- Raw secrets are absent from Shared, prompts, commits, and chat, and from
+  `/mnt/bounty` unless the exact location and retention reason were approved.
 - Missing/stale/moved artifact pointers are marked instead of silently trusted.
 - Handoffs include manifest path, artifact pointer, hash/chunk/range, compact
   evidence excerpt, allowed scope, and stop condition.

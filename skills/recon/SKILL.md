@@ -397,7 +397,12 @@ existing options and behavior.
 The CLI writes only a proposal. The **owning Hermes agent**, not the CLI, must
 execute the following after a named program and published rules are available:
 
-1. Read the generated JSON and current saved scope/rules. Load the entry-chain
+1. Read the generated JSON and current saved scope/rules. Copy its
+   `storage.artifact_host` and paths into each run-bound worker packet; the
+   fixed handoff file may be refreshed later, so do not reread it as the
+   worker's mutable storage selection. Paths are interpreted on the recorded
+   host; verify an explicitly mapped path before using a different host.
+   Load the entry-chain
    policies above plus `resource-safety-policy` and `bb-script-rules` before
    scripts. Obtain approval for request-level destinations (origins, ports and
    paths), active/passive classes, redirects, and an **aggregate** rate budget
@@ -416,9 +421,13 @@ execute the following after a named program and published rules are available:
    refreshing the stale or missing portion. A scoped surface with no JS gets an
    explicit no-JS receipt; API mapping may proceed from runtime/spec evidence.
    A detached Recon-Ry PID is not a completion receipt. Give workers exact
-   seeds, scope/rate allocation, policy chain, output root and expected receipt;
-   read their manifests and gaps, not merely their self-reports. Stop on
-   challenge, repeated 429 or scope drift.
+   seeds, scope/rate allocation, policy chain, output root and expected receipt.
+   Pass `storage.js_library_root` as `--library-root`,
+   `storage.js_integration_index_root` as `--integration-index-root`, and a run
+   directory under `storage.js_run_parent` as `--output-root` to JS inventory;
+   use the same library root for later observation. Keep URL aggregates and
+   compact receipts in Shared, not JS bodies. Read manifests and gaps, not merely self-reports.
+   Stop on challenge, repeated 429 or scope drift.
 3. For **full/api/params**, after the JS checkpoint, assign
    `katana-endpoints` using only approved page/JS inputs. Check installed
    `katana -h`; use `-jc` with bounded memory/rate and request-level destination

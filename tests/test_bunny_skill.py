@@ -33,6 +33,17 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("aggregate", router)
         self.assertIn("do not automatically submit externally", router)
 
+    def test_all_modes_route_worker_artifacts_to_program_storage(self):
+        router = " ".join(ROUTER.read_text(encoding="utf-8").split())
+        for phrase in (
+            "program-specific artifact destination",
+            "bulky run outputs",
+            "Shared ledgers and URL inventories",
+            "restricted node-local",
+            "lease-recorded",
+        ):
+            self.assertIn(phrase, router)
+
     def test_mode_and_model_arguments_are_composable_and_worker_scoped(self):
         router = ROUTER.read_text(encoding="utf-8")
         collaborative = COLLABORATIVE.read_text(encoding="utf-8")

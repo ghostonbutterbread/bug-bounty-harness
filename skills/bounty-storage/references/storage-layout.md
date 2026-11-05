@@ -63,13 +63,12 @@ Use program-first layout with stable category/corpus directories for lookup and
     recon/
       fuzzing/<target-slug>/runs/<run_id>/
       subdomains/runs/<run_id>/
-      javascript/
-        downloads/by-host/
-        downloads/by-sha256/
-        sourcemaps/
-        chunks/
-        indexes/
-        runs/<run_id>/
+      js/
+        _library/downloads/<sha256>.js
+        _library/sourcemaps/
+        _library/chunks/
+        _library/ledger.json
+        <run_id>/
       pages/
       api/
     screenshots/
@@ -84,7 +83,6 @@ Use program-first layout with stable category/corpus directories for lookup and
       har/
       runs/<run_id>/
     videos/
-    browser-profiles/
     cdp-traces/
   apk/
     static/decompile/
@@ -100,9 +98,11 @@ Use program-first layout with stable category/corpus directories for lookup and
   downloads/
 ```
 
-For JavaScript, `downloads/by-host/` is the human browse path and
-`downloads/by-sha256/` is the dedupe path. For screenshots, stable folders are
-the browseable library and `runs/<run_id>/` preserves run history.
+For JavaScript, the existing analyzer owns `_library/downloads/<sha256>.js`
+and `_library/ledger.json`; URL aliases and provenance identify the source.
+Existing legacy `javascript/` stores are not automatically migrated; preserve
+their pointers until an explicit verified migration. For screenshots, stable
+folders are the browseable library and `runs/<run_id>/` preserves run history.
 
 Desktop-app installers and extracted binary bundles (for example `app.asar` or
 exe/dll trees) are heavy artifacts, not Shared truth. Keep non-secret bundles in

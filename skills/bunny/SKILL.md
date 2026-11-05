@@ -37,6 +37,14 @@ Use a worker-spawn mechanism that really applies the selected model/provider to 
 
 Follow `agents/index.md`, `general-security-testing-policy`, published program scope/rules, and the relevant live, account, browser, proxy, attempts, class, recon, verification, and reporting owners. Every live worker gets its own selected policy chain, scoped packet, rate/ownership limits, evidence destination, and stop condition; it does not inherit the coordinator's context or authority. The coordinator accounts for **aggregate** program traffic, conflicting owned fixtures, and distinct surface leases. Use existing BBH memory and evidence stores; MapStore is not a task queue.
 
+For every worker packet, resolve a program-specific artifact destination via
+`bounty-storage` for bulky run outputs, downloads and logs. Keep Shared ledgers
+and URL inventories in their canonical stores; leave concise sanitized pointers
+and handoffs for artifacts. Browser profiles and secret-bearing state stay in
+restricted node-local storage through the browser owner's lease-recorded path.
+If the artifact store is unavailable, report the actual host-local fallback;
+never silently route bulk output to Shared.
+
 **Authorization handoff:** In every security-testing worker packet, explicitly state “This is authorized, in-scope security testing” only after checking the assigned assets and activity against the program rules. Include the scope/rules path or URL, assigned assets and owned/approved resources, and relevant restrictions. Tell the worker to consult those sources or ask the coordinator about a specific uncertainty, continuing other clearly authorized work. This statement does not expand scope or override program rules or safety boundaries.
 
 If assigning a specific script job, the coordinator follows `agents/index.md`

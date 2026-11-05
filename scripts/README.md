@@ -126,6 +126,19 @@ checkout-local interpreter.
   non-secret mounted-artifact lane before first work or a stale-program refresh.
 - **Inputs:** Program slug, required `--platform` for a scope pull or explicit
   `--skip-scope`; optional repeatable `--lane`; optional Shared/artifact roots.
+  Artifact-root precedence is `--artifact-root`, `BOUNTY_ARTIFACT_ROOT`, then
+  `/mnt/bounty`. Export the variable for later JS inventory/observe processes,
+  or pass the handoff's explicit paths; the flag does not persist configuration.
+  Writes under `/mnt/bounty` require that mount to be present. Set the variable
+  or flag to an explicit host-local root when it is unavailable and record the
+  actual host/path; never silently fall back to Shared. Reinitializing a lane
+  with a root different from its existing `program-init.json` fails before
+  scope or layout writes; web and API lanes are checked together because they
+  share the JS library. Preserve and reconcile the old pointer first. The
+  returned `artifact_host_receipts` identify each host's selected path without
+  overwriting curated maps; existing maps are preserved with a warning.
+  Non-basic handoffs include the host whose paths they name; snapshot the
+  host and paths into run-bound packets rather than rereading a refreshed plan.
   `--mode basic` is the default. `--mode full|js|api|params` requires platform,
   non-empty saved scope and a web/api lane. All non-basic modes ensure `/recon`;
   full runs JS/API/docs/params, while focused modes ensure their prerequisites.

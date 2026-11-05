@@ -17,6 +17,14 @@ import pytest
 from agents import js_analyzer as J
 
 
+@pytest.fixture(autouse=True)
+def isolated_artifact_root(monkeypatch, tmp_path: Path):
+    # Tests without an explicit integration/output root must never use the host mount.
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(tmp_path / "artifact-root"))
+    monkeypatch.delenv("JS_ANALYZER_CONFIG", raising=False)
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
+
+
 @pytest.mark.parametrize("shared_map_body", [False, True])
 def test_identical_bundles_at_distinct_urls_preserve_source_map_packets(tmp_path: Path, shared_map_body: bool):
     urls = ["https://app.example.com/one/app.js", "https://app.example.com/two/app.js"]
@@ -123,7 +131,233 @@ def test_cached_source_map_obeys_lowered_byte_cap_without_refetch(tmp_path: Path
     assert manifest["source_maps_too_large"] == 1
 
 
-def test_default_inventory_paths_use_mounted_bounty_program_js_root():
+def test_artifact_root_env_routes_inventory_and_observe(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
+    args = Namespace(program="demo", config=None, output_root=None, library_root=None, integration_index_root=None)
+
+    output, library, integrations, _ = J.resolve_inventory_paths(args, "run-1")
+    observed_library, _ = J.resolve_library_root(args)
+    program_root = tmp_path / "artifacts" / "demo" / "web"
+    assert output == program_root / "recon" / "js" / "run-1"
+    assert library == observed_library == program_root / "recon" / "js" / "_library"
+    assert integrations == program_root / "intel" / "integrations"
+
+
+@pytest.mark.parametrize("unsafe_flag", ["--output-root", "--library-root", "--integration-index-root"])
+def test_inventory_rejects_each_unmounted_destination_before_any_write_or_network(monkeypatch, tmp_path: Path, unsafe_flag: str):
+    monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT", raising=False)
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    roots = {flag: str(tmp_path / flag[2:]) for flag in ("--output-root", "--library-root", "--integration-index-root")}
+    roots[unsafe_flag] = "/mnt/bounty/example"
+    argv = ["inventory", "demo", "--page", "https://example.com", "--target-host", "example.com"]
+    for flag, value in roots.items():
+        argv.extend([flag, value])
+    with patch.object(Path, "mkdir") as mkdir, patch.object(J, "collect_from_page") as fetch:
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main(argv)
+        mkdir.assert_not_called()
+        fetch.assert_not_called()
+    assert not any(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("subpath", [
+    "lib/downloads", "lib/sourcemaps", "lib/chunks", "lib/ledger.json", "lib/ledger.json.tmp",
+    "lib/metadata.jsonl", "lib/provenance.jsonl", "lib/observations.jsonl", "lib/js_info.sqlite",
+    "lib/js_info.sqlite-journal", "lib/js_info.sqlite-wal", "lib/js_info.sqlite-shm",
+    "out/packets", "out/source_map_packets", "out/checkpoint.json", "out/manifest.json",
+    "out/metadata.jsonl", "out/packets.jsonl", "out/source_map_modules.jsonl", "out/page_context.jsonl",
+    "out/js_provenance.jsonl", "out/external_integrations.jsonl", "out/pending_urls.txt",
+    "integrations/external_urls.jsonl", "integrations/external_hosts.json",
+])
+def test_inventory_preflights_nested_symlinks_before_any_write_or_network(monkeypatch, tmp_path: Path, subpath: str):
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    target = tmp_path / subpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.symlink_to("/mnt/bounty/symlink-destination")
+    argv = ["inventory", "demo", "--page", "https://example.com", "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"),
+            "--integration-index-root", str(tmp_path / "integrations")]
+    with patch.object(Path, "mkdir") as mkdir, patch.object(J, "collect_from_page") as fetch:
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main(argv)
+        mkdir.assert_not_called()
+        fetch.assert_not_called()
+
+
+@pytest.mark.parametrize("name", ["observations.jsonl", "js_info.sqlite", "js_info.sqlite-journal",
+                                  "js_info.sqlite-wal", "js_info.sqlite-shm"])
+def test_observe_preflights_nested_symlinks_before_any_write(monkeypatch, tmp_path: Path, name: str):
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    library = tmp_path / "lib"
+    library.mkdir()
+    (library / name).symlink_to("/mnt/bounty/symlink-destination")
+    with patch.object(Path, "mkdir") as mkdir:
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main(["observe", "demo", "--input", str(tmp_path / "unused"), "--library-root", str(library)])
+        mkdir.assert_not_called()
+
+
+def test_observe_rejects_unmounted_config_path_before_any_write(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT", raising=False)
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {"library_root": "/mnt/bounty/demo/library"}}))
+    with patch.object(Path, "mkdir") as mkdir:
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main(["observe", "demo", "--input", str(tmp_path / "not-read"), "--config", str(config)])
+        mkdir.assert_not_called()
+
+
+@pytest.mark.parametrize("missing", ["output_root", "library_root", "integration_index_root"])
+def test_empty_artifact_root_rejected_if_any_inventory_destination_depends_on_it(monkeypatch, tmp_path: Path, missing: str):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "  ")
+    roots: dict[str, str | None] = {name: str(tmp_path / name) for name in ("output_root", "library_root", "integration_index_root")}
+    roots[missing] = None
+    args = Namespace(program="demo", config=None, **roots)
+    with pytest.raises(SystemExit, match="BOUNTY_ARTIFACT_ROOT is empty"):
+        J.resolve_inventory_paths(args, "run")
+
+
+def test_empty_env_with_configured_inventory_destinations_and_flag_overrides(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "")
+    config = tmp_path / "config.json"
+    settings = {name: str(tmp_path / name) for name in ("output_base", "library_root", "integration_index_root")}
+    config.write_text(json.dumps({"defaults": settings}))
+    args = Namespace(program="demo", config=str(config), output_root=None, library_root=None, integration_index_root=None)
+    output, library, integrations, summary = J.resolve_inventory_paths(args, "run")
+    assert (output, library, integrations) == (Path(settings["output_base"]) / "run", Path(settings["library_root"]), Path(settings["integration_index_root"]))
+    assert summary == {"config_path": str(config), "shared_web_base": "", "program_root": "", "js_root": ""}
+    assert J.resolve_library_root(args)[0] == library
+    args.output_root = str(tmp_path / "flag-output")
+    args.library_root = str(tmp_path / "flag-library")
+    args.integration_index_root = str(tmp_path / "flag-integrations")
+    assert J.resolve_inventory_paths(args, "run")[:3] == tuple(Path(getattr(args, name)) for name in ("output_root", "library_root", "integration_index_root"))
+    assert J.resolve_library_root(args)[0] == Path(args.library_root)
+
+
+@pytest.mark.parametrize("configured_root", ["program_root", "js_root"])
+def test_empty_env_respects_configured_ancestor_roots(monkeypatch, tmp_path: Path, configured_root: str):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "")
+    config = tmp_path / "config.json"
+    root = tmp_path / "configured"
+    config.write_text(json.dumps({"defaults": {configured_root: str(root)}}))
+    args = Namespace(program="demo", config=str(config), output_root=None, library_root=None,
+                     integration_index_root=str(tmp_path / "integrations"))
+    output, library, integrations, summary = J.resolve_inventory_paths(args, "run")
+    js_root = root / "web" / "recon" / "js" if configured_root == "program_root" else root
+    assert (output, library, integrations) == (js_root / "run", js_root / "_library", tmp_path / "integrations")
+    assert J.resolve_library_root(args)[0] == library
+    assert summary["shared_web_base"] == ""
+    assert summary["program_root"] == (str(root) if configured_root == "program_root" else "")
+    assert summary["js_root"] == str(js_root)
+
+
+def test_configuration_summary_preserves_valid_env_and_config_ancestors(monkeypatch, tmp_path: Path):
+    env_root = tmp_path / "env"
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(env_root))
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {"program_root": str(tmp_path / "configured")}}))
+    args = Namespace(program="demo", config=str(config), output_root=str(tmp_path / "out"),
+                     library_root=str(tmp_path / "lib"), integration_index_root=str(tmp_path / "integrations"))
+    summary = {"config_path": str(config), "shared_web_base": str(env_root),
+               "program_root": str(tmp_path / "configured"),
+               "js_root": str(tmp_path / "configured" / "web" / "recon" / "js")}
+    assert J.resolve_inventory_paths(args, "run")[3] == summary
+    assert J.resolve_library_root(args)[1] == summary
+
+
+def test_analyzer_root_flags_and_config_take_precedence_over_env(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(tmp_path / "env"))
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"defaults": {"program_root": str(tmp_path / "configured"),
+                                                   "library_root": str(tmp_path / "configured-library")}}))
+    args = Namespace(program="demo", config=str(config), output_root=str(tmp_path / "explicit-output"),
+                     library_root=str(tmp_path / "explicit-library"), integration_index_root=None)
+    output, library, integrations, _ = J.resolve_inventory_paths(args, "run-1")
+    observed_library, _ = J.resolve_library_root(args)
+    assert output == tmp_path / "explicit-output"
+    assert library == observed_library == tmp_path / "explicit-library"
+    assert integrations == tmp_path / "configured" / "web" / "intel" / "integrations"
+    args.library_root = None
+    assert J.resolve_library_root(args)[0] == tmp_path / "configured-library"
+    assert J.resolve_inventory_paths(args, "run-1")[1] == tmp_path / "configured-library"
+
+
+def test_custom_env_inventory_and_observe_share_real_library(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
+    source = tmp_path / "urls.txt"
+    source.write_text("")
+    observations = tmp_path / "observations.jsonl"
+    observations.write_text(json.dumps({"sha256": "abc123", "title": "Test observation"}) + "\n")
+    with patch.object(J, "http_get", side_effect=AssertionError("unexpected network")):
+        assert J.main(["inventory", "demo", "--input", str(source), "--run-id", "test", "--source-map-wayback", "off"]) == 0
+        assert J.main(["observe", "demo", "--input", str(observations)]) == 0
+    library = tmp_path / "artifacts" / "demo" / "web" / "recon" / "js" / "_library"
+    assert (library / "ledger.json").is_file()
+    assert J.read_jsonl(library / "observations.jsonl")[0]["title"] == "Test observation"
+    with sqlite3.connect(library / "js_info.sqlite") as db:
+        assert db.execute("SELECT count(*) FROM js_observations").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("command", ["inventory", "observe"])
+def test_empty_artifact_root_env_fails_before_writes(monkeypatch, tmp_path: Path, command: str):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "")
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
+    with patch.object(Path, "mkdir") as mkdir:
+        with pytest.raises(SystemExit, match="BOUNTY_ARTIFACT_ROOT is empty"):
+            J.main([command, "demo", "--input", str(tmp_path / "unused")])
+        mkdir.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["inventory", "observe"])
+def test_default_unmounted_root_fails_before_writes_or_network(monkeypatch, tmp_path: Path, command: str):
+    monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT", raising=False)
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    with patch.object(Path, "mkdir") as mkdir, patch.object(J, "http_get") as fetch:
+        with pytest.raises(SystemExit, match="/mnt/bounty.*mount"):
+            J.main([command, "demo", "--input", str(tmp_path / "unused")])
+        mkdir.assert_not_called()
+        fetch.assert_not_called()
+
+
+def test_inventory_explicit_destinations_override_empty_artifact_root(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "")
+    source = tmp_path / "urls.txt"
+    source.write_text("")
+    output, library, integrations = (tmp_path / name for name in ("out", "lib", "integrations"))
+    assert J.main(["inventory", "demo", "--input", str(source), "--output-root", str(output),
+                   "--library-root", str(library), "--integration-index-root", str(integrations)]) == 0
+    summary = json.loads((output / "manifest.json").read_text())["config"]
+    assert summary == {"config_path": "", "shared_web_base": "", "program_root": "", "js_root": ""}
+    assert (library / "ledger.json").is_file()
+
+
+def test_observe_explicit_library_overrides_empty_artifact_root(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "")
+    source = tmp_path / "observations.jsonl"
+    source.write_text(json.dumps({"sha256": "abc", "title": "explicit library"}) + "\n")
+    library = tmp_path / "library"
+    assert J.main(["observe", "demo", "--input", str(source), "--library-root", str(library)]) == 0
+    assert J.read_jsonl(library / "observations.jsonl")[0]["title"] == "explicit library"
+
+
+def test_observe_explicit_local_root_overrides_unmounted_env(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")
+    monkeypatch.setattr(os.path, "ismount", lambda path: False)
+    source = tmp_path / "observations.jsonl"
+    source.write_text(json.dumps({"sha256": "abc", "title": "safe override"}) + "\n")
+    library = tmp_path / "local-library"
+    assert J.main(["observe", "demo", "--input", str(source), "--library-root", str(library)]) == 0
+    assert J.read_jsonl(library / "observations.jsonl")[0]["title"] == "safe override"
+
+
+def test_default_inventory_paths_use_mounted_bounty_program_js_root(monkeypatch):
+    monkeypatch.delenv("BOUNTY_ARTIFACT_ROOT", raising=False)
+    monkeypatch.delenv("JS_ANALYZER_CONFIG", raising=False)
+    monkeypatch.setattr(J, "DEFAULT_CONFIG_PATHS", ())
     root, library, integrations, summary = J.resolve_inventory_paths(Namespace(program="demo", config=None, output_root=None, library_root=None, integration_index_root=None), "run-1")
 
     assert root == Path("/mnt/bounty/demo/web/recon/js/run-1")

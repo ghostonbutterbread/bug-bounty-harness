@@ -9,8 +9,9 @@ Scope is required by default; pass either ``--platform`` (to pull it) or
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import os
+import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ HARNESS_ROOT = Path(__file__).resolve().parents[1]
 if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))
 
+from agents.artifact_root import preflight_artifact_paths, resolve_artifact_root
 from agents.scope_puller import canonical_program_slug, pull_scope
 from agents.scope_seed_files import recon_seed_lines
 from agents.scope_manager import ScopeManager
@@ -32,7 +34,6 @@ from agents.storage_resolver import (
     resolve_storage,
 )
 
-DEFAULT_ARTIFACT_ROOT = Path(os.environ.get("BOUNTY_ARTIFACT_ROOT", "/mnt/bounty"))
 LANE_FAMILIES = {
     "web": WEB_FAMILY,
     "api": WEB_FAMILY,
@@ -68,13 +69,9 @@ def _artifact_paths(program: str, lane: str, root: Path) -> list[Path]:
         return [
             surface / "recon" / "fuzzing",
             surface / "recon" / "subdomains" / "runs",
-            surface / "recon" / "javascript" / "urls",
-            surface / "recon" / "javascript" / "downloads" / "by-host",
-            surface / "recon" / "javascript" / "downloads" / "by-sha256",
-            surface / "recon" / "javascript" / "sourcemaps",
-            surface / "recon" / "javascript" / "chunks",
-            surface / "recon" / "javascript" / "indexes",
-            surface / "recon" / "javascript" / "runs",
+            program_root / "web" / "recon" / "js" / "_library" / "downloads",
+            program_root / "web" / "recon" / "js" / "_library" / "sourcemaps",
+            program_root / "web" / "recon" / "js" / "_library" / "chunks",
             surface / "recon" / "pages",
             surface / "recon" / "api",
             surface / "screenshots" / "admin",
@@ -87,7 +84,6 @@ def _artifact_paths(program: str, lane: str, root: Path) -> list[Path]:
             surface / "proxy" / "har",
             surface / "proxy" / "runs",
             surface / "videos",
-            surface / "browser-profiles",
             surface / "cdp-traces",
             surface / "reports-heavy",
         ]
@@ -107,10 +103,7 @@ def _artifact_paths(program: str, lane: str, root: Path) -> list[Path]:
 def _shared_lane_paths(layout) -> list[Path]:
     paths = [
         layout.recon_root / "_meta",
-        layout.recon_root / "_batches",
-        layout.recon_root / "_runs",
         layout.recon_root / "_archive",
-        layout.recon_root / "_scratch",
         layout.lane_root / "findings",
         layout.lane_root / "scripts",
     ]
@@ -143,7 +136,7 @@ def _seed_recon_files(recon_root: Path, domains: set[str], urls: set[str], *, dr
         _write_once(recon_root / name, body, dry_run=dry_run)
     return seeds
 
-def _collection_handoff(program: str, domains: set[str], urls: set[str], *, mode: str, include_docs: bool) -> dict[str, object]:
+def _collection_handoff(program: str, domains: set[str], urls: set[str], *, mode: str, include_docs: bool, artifact_root: Path, artifact_host: str) -> dict[str, object]:
     """Stable dependency packets for an agent coordinator, not scanner commands."""
     seeds, wildcards = recon_seed_lines(domains, urls)
     scope = {"source": "saved platform scope", "domains": sorted(domains),
@@ -158,7 +151,7 @@ def _collection_handoff(program: str, domains: set[str], urls: set[str], *, mode
                      "Inspect comparable baseline freshness and scope first. Reuse a verified current baseline, run a targeted delta for a named gap, or run all eligible /recon baseline lanes if missing or stale. For explicit full, do not silently downgrade collection. Assess request-level destinations and aggregate rate across workers; Recon-Ry owns archive promotion. Publish scope-checked new page/host discoveries to the JS worker without waiting for the entire broad run.",
                      "Completed comparable baseline/reuse or delta receipt with manifests, scope/rate decision, gaps and completed Recon-Ry receipt when launched")]
     stages.append(packet("js-url-acquisition", "/js-pull + /live-map", [] if mode == "full" else ["full-recon"],
-                         "For full, start beside /recon on approved seeds within a shared rate budget and consume newly validated scoped page/host URLs as they arrive; for focused modes, first ensure a usable /recon receipt. Reuse current content-addressed JS or fetch missing/stale scoped scripts, including runtime chunks and bounded source maps. A page/flow with no JS is an explicit negative coverage receipt, not a blocker to mapping other evidence. Do not mistake URL inventory for downloaded or reviewed JS.",
+                         "For full, start beside /recon on approved seeds within a shared rate budget and consume newly validated scoped page/host URLs as they arrive; for focused modes, first ensure a usable /recon receipt. Use the existing JS inventory with --library-root set to storage.js_library_root, --integration-index-root to storage.js_integration_index_root, and --output-root to a run directory under storage.js_run_parent; keep bodies and run output out of Shared. Reuse current content-addressed JS or fetch missing/stale scoped scripts, including runtime chunks and bounded source maps. A page/flow with no JS is an explicit negative coverage receipt, not a blocker to mapping other evidence. Do not mistake URL inventory for downloaded or reviewed JS.",
                          "JS URL/content-hash and page/flow provenance, failures, no-JS surfaces and bounded collection checkpoint/coverage gaps"))
     if mode in {"full", "api", "params"}:
         stages.append(packet("katana-endpoints", "/bounty-tools + /focused-recon", ["js-url-acquisition"],
@@ -200,6 +193,11 @@ def _collection_handoff(program: str, domains: set[str], urls: set[str], *, mode
     return {"schema_version": 2, "program": program, "mode": mode,
             "execution_boundary": "plan-only; this CLI does not spawn Hermes subagents or make target requests",
             "scope": scope,
+            "storage": {"artifact_root": str(artifact_root / program),
+                        "artifact_host": artifact_host,
+                        "js_run_parent": str(artifact_root / program / "web" / "recon" / "js"),
+                        "js_library_root": str(artifact_root / program / "web" / "recon" / "js" / "_library"),
+                        "js_integration_index_root": str(artifact_root / program / "web" / "intel" / "integrations")},
             "gates": ["Read published program scope and rules, saved scope and permitted aggregate rate budget before dispatch.",
                       "Apply general-security-testing-policy, program-testing-policy and live-testing-policy before traffic; owning skills govern accounts, browsers, tools and writes.",
                       "Wildcard/shared IP/archive/docs do not authorize a destination; enforce restricted origins/paths at request time or defer broad active scanning.",
@@ -221,6 +219,8 @@ def initialize_program(
     include_docs: bool | None = None,
 ) -> dict[str, object]:
     slug = canonical_program_slug(program) if platform else normalize_program(program)
+    artifact_root = artifact_root.expanduser().absolute()
+    artifact_host = socket.gethostname()
     if platform and skip_scope:
         raise ValueError("--platform and --skip-scope cannot be used together")
     if not platform and not skip_scope:
@@ -240,6 +240,31 @@ def initialize_program(
     if mode != "basic" and shared_root.expanduser().resolve() != (Path.home() / "Shared").resolve():
         raise ValueError("--shared-root is not supported with non-basic initialization: scope pull and reads use ~/Shared/scopes")
 
+    # Existing initialization pointers are write-once. Do not create a second
+    # artifact tree while those pointers still identify a different root.
+    checked_lanes = list(lanes)
+    if any(lane in {"web", "api"} for lane in lanes):
+        checked_lanes = list(dict.fromkeys([*lanes, "web", "api"]))
+    for lane in checked_lanes:
+        existing_layout = resolve_storage(slug, family=LANE_FAMILIES[lane], lane=lane,
+                                          root_override=shared_root, create=False)
+        existing_manifest = existing_layout.recon_root / "_meta" / "program-init.json"
+        if existing_manifest.exists():
+            try:
+                recorded = json.loads(existing_manifest.read_text(encoding="utf-8"))
+                previous_root = recorded.get("artifact_root")
+            except (OSError, ValueError, AttributeError) as exc:
+                raise ValueError(f"cannot verify existing artifact root in {existing_manifest}: {exc}") from exc
+            selected_root = artifact_root / slug / lane
+            if not isinstance(previous_root, str) or not previous_root:
+                raise ValueError(f"cannot verify existing artifact root in {existing_manifest}; preserve and reconcile it before initialization")
+            if Path(previous_root).expanduser().resolve() != selected_root.expanduser().resolve():
+                raise ValueError(f"artifact root differs from existing {existing_manifest}; preserve and reconcile the existing pointer before selecting {selected_root}")
+
+    if not dry_run:
+        destinations = [path for lane in lanes for path in _artifact_paths(slug, lane, artifact_root)]
+        preflight_artifact_paths(artifact_root, *destinations)
+
     if platform and not dry_run:
         pulled_scope = pull_scope(program, platform)
         if pulled_scope is None:
@@ -254,10 +279,12 @@ def initialize_program(
         domains, urls = _read_scope(slug)
     if mode != "basic" and not (domains or urls):
         raise ValueError(f"{mode} mode requires non-empty saved scope; no layout or handoff created")
-    handoff = _collection_handoff(slug, domains, urls, mode=mode, include_docs=include_docs) if mode != "basic" else None
+    handoff = _collection_handoff(slug, domains, urls, mode=mode, include_docs=include_docs, artifact_root=artifact_root, artifact_host=artifact_host) if mode != "basic" else None
     created: list[str] = []
     refreshed: list[str] = []
     shared_lanes: dict[str, str] = {}
+    artifact_host_receipts: dict[str, str] = {}
+    warnings: list[str] = []
 
     for lane in lanes:
         layout = resolve_storage(
@@ -294,16 +321,35 @@ def initialize_program(
             "scope_urls": len(urls),
             "recon_seeds": seeds,
             "artifact_root": str(artifact_root / slug / lane),
+            "artifact_host": artifact_host,
             "initialized_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         manifest_path = layout.recon_root / "_meta" / "program-init.json"
         if _write_once(manifest_path, json.dumps(manifest, indent=2) + "\n", dry_run=dry_run):
             created.append(str(manifest_path))
+        # A tiny host-qualified receipt describes this host's selected path;
+        # it does not replace the original map or claim global currency.
+        host_record = {"program": slug, "lane": lane, "artifact_host": artifact_host,
+                       "artifact_root": str(artifact_root / slug / lane)}
+        if lane in {"web", "api"}:
+            host_record["js_library_root"] = str(artifact_root / slug / "web" / "recon" / "js" / "_library")
+        host_key = hashlib.sha256(json.dumps(host_record, sort_keys=True).encode()).hexdigest()
+        host_receipt = layout.recon_root / "_meta" / "artifact-hosts" / f"{host_key}.json"
+        if _write_once(host_receipt, json.dumps(host_record, indent=2, sort_keys=True) + "\n", dry_run=dry_run):
+            created.append(str(host_receipt))
+        artifact_host_receipts[lane] = str(host_receipt)
         artifact_map = layout.recon_root / "artifact-map.md"
+        if artifact_map.exists():
+            warnings.append(f"existing artifact map preserved at {artifact_map}; verify its pointers for this host using {host_receipt}")
+        js_library = (
+            f"JavaScript library (shared with web lane): `{artifact_root / slug / 'web' / 'recon' / 'js' / '_library'}`\n\n"
+            if lane == "api" else ""
+        )
         if _write_once(
             artifact_map,
             f"# {slug} {lane} artifact map\n\n"
-            f"Heavy non-secret artifacts: `{artifact_root / slug / lane}`\n\n"
+            f"Heavy non-secret artifacts on `{artifact_host}`: `{artifact_root / slug / lane}`\n\n"
+            f"{js_library}"
             "Update machine-readable per-artifact maps when a persistent corpus is created.\n",
             dry_run=dry_run,
         ):
@@ -328,6 +374,9 @@ def initialize_program(
         "program": slug,
         "lanes": shared_lanes,
         "artifact_root": str(artifact_root / slug),
+        "artifact_host": artifact_host,
+        "artifact_host_receipts": artifact_host_receipts,
+        "warnings": warnings,
         "scope_state": scope_state,
         "scope_domains": len(domains),
         "scope_urls": len(urls),
@@ -352,7 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=["basic", "full", "js", "api", "params"], default="basic", help="Basic bootstrap (default), or an agent-facing recon + discovery handoff (CLI does not dispatch)")
     parser.add_argument("--include-docs", action="store_true", default=None, help="Bounded public docs; included by default in full, api and params")
     parser.add_argument("--shared-root", type=Path, default=Path.home() / "Shared", help="Shared base root (default: ~/Shared)")
-    parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT, help="Mounted non-secret artifact root (default: /mnt/bounty)")
+    parser.add_argument("--artifact-root", type=Path, default=None, help="Non-secret artifact root (default: BOUNTY_ARTIFACT_ROOT or /mnt/bounty)")
     parser.add_argument("--dry-run", action="store_true", help="Show the initialization plan without creating files")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON")
     return parser
@@ -365,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             args.program,
             lanes=args.lanes or ["web"],
             shared_root=args.shared_root.expanduser(),
-            artifact_root=args.artifact_root.expanduser(),
+            artifact_root=(args.artifact_root or resolve_artifact_root()).expanduser(),
             platform=args.platform,
             skip_scope=args.skip_scope,
             dry_run=args.dry_run,
@@ -381,7 +430,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Initialized {result['program']} ({result['scope_state']})")
         for lane, path in result["lanes"].items():
             print(f"  Shared {lane}: {path}")
-        print(f"  Mounted artifacts: {result['artifact_root']}")
+        print(f"  Artifacts: {result['artifact_root']} (on {result['artifact_host']})")
+        receipts, warnings = result["artifact_host_receipts"], result["warnings"]
+        assert isinstance(receipts, dict) and isinstance(warnings, list)
+        for lane, receipt in receipts.items():
+            print(f"  {lane} host receipt: {receipt}")
+        for warning in warnings:
+            print(f"  Warning: {warning}")
         label = "Planned" if result["dry_run"] else "Created"
         print(f"  {label}: {len(result['created'])} path(s)")
         print(f"  {'Would refresh' if result['dry_run'] else 'Refreshed'}: {len(result['refreshed'])} path(s)")

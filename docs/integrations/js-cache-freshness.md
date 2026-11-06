@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-06
 - **Owning feature branch/ref:** `fix/js-cache-freshness`
-- **Latest immutable recovery checkpoint:** `e4e00d8a3db92b531c765da7bfd3368471fcfd5a`
-- **Feature implementation commit(s):** `af701926318859e60fe02af60f57faa7da4ecd6c`, `e4e00d8a3db92b531c765da7bfd3368471fcfd5a`
+- **Latest immutable recovery checkpoint:** `6faf5dfaacae7865a9fabbd9223ea197bbd933a2`
+- **Feature implementation commit(s):** `af701926318859e60fe02af60f57faa7da4ecd6c`, `e4e00d8a3db92b531c765da7bfd3368471fcfd5a`, `6faf5dfaacae7865a9fabbd9223ea197bbd933a2`
 - **Inspiration / canonical references:** prior offline acquisition-cache review; `js-pull` freshness contract; existing `agents/js_analyzer.py`
 
 ## Intent
@@ -57,8 +57,8 @@ Prevent historical or stale URL mappings from suppressing acquisition, and preve
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/js-cache-freshness`
-- **Latest immutable recovery checkpoint:** `e4e00d8a3db92b531c765da7bfd3368471fcfd5a` (the handoff-only commit follows it).
-- **Exact resume point:** independent re-review of the repair checkpoint and tests; no production state touched.
+- **Latest immutable recovery checkpoint:** `6faf5dfaacae7865a9fabbd9223ea197bbd933a2` (a handoff-only commit follows it).
+- **Exact resume point:** independent re-review of the full feature and the new five-defect repair; no production state touched. Parent owns beta fetch/reconciliation and subsequent integration decisions.
 - **Working-tree state at handoff:** expected clean after checkpoint.
 
 ## Decision gates

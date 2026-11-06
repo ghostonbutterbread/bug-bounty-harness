@@ -39,7 +39,7 @@ Start with direct policy failures before chasing subtle gadgets: no effective `s
 
 **A. Host/scheme allowlists (`self`, host, wildcard, scheme, `data:`/`blob:`)**
 
-For only the effective allowed origins, inspect whether the app or trusted origin has a relevant executable resource: JSONP, a user-uploaded file served as script, a callback/config endpoint, a script-serving redirect, an obsolete framework/library, or a path that returns attacker-controlled JavaScript. Check origin, path, redirect chain, MIME/nosniff behavior, and whether the loaded content can be influenced. A broad host list or `self` is a lead, not proof; a CSP evaluator's known-host match is also only a lead. Do not probe unrelated domains from a published host list.
+For only the effective allowed origins, inspect whether the app or trusted origin has a relevant executable resource: JSONP, a user-uploaded file served as script, a callback/config endpoint, a script-serving redirect, an obsolete framework/library, or a path that returns attacker-controlled JavaScript. Check origin, path, redirect chain, MIME/nosniff behavior, and whether the loaded content can be influenced. When upload validation restricts file types, consider format polyglots or files that satisfy a PDF validator while carrying another representation. The linked Doyensec examples demonstrate PDF-validator/JSON combinations for a JSON consumer, not automatic JavaScript execution: establish the actual consumer, valid script syntax, response headers and target-browser behavior separately before claiming a script-load bypass. A broad host list or `self` is a lead, not proof; a CSP evaluator's known-host match is also only a lead. Do not probe unrelated domains from a published host list.
 
 **B. JSONP / callback endpoints**
 
@@ -58,9 +58,9 @@ Candidate patterns include AngularJS expression/template handling, HTML-to-DOM h
 
 For a nonce/hash policy, inspect the authorized scripts as part of the trusted computing base. Check whether controlled input can reach a nonce-bearing inline block, the `src`/URL builder of an authorized dynamic loader, or a code-capable sink in a trusted script. With `strict-dynamic`, supporting CSP3 browsers trust non-parser-inserted scripts loaded by a nonce/hash-trusted script and ignore host/scheme/`self` sources for relevant script checks; older CSP behavior can fall back to those allowlists. Map the exact root script → loader decision → child request and test the target browser. Do not treat `strict-dynamic` itself as a flaw; a safe loader is its intended design.
 
-**E. Nonce reuse, cache, and nonce read paths**
+**E. Nonce reuse, predictability, cache, and nonce read paths**
 
-Observe nonce values across normal fresh responses and, if permitted, the same owned test account/session plus a clean owned session. Check cache headers/variants and whether reuse is session-bound; do not target other users, brute-force values, or induce shared cache changes. A nonce in the page source is expected and is not by itself a bypass. Nonce-read/exfil ideas (for example a parser/DOM/CSS-side-channel condition) require a concrete injection location, a browser behavior that exposes the value, and a permitted observable channel; verify against current browser behavior and HTML nonce-hiding rules. The 2023 study found reuse on at least two sampled requests at 598 of 2,271 sites with nonce-based CSP (561 of those across sessions); this is an old crawl sample, not a present-day prevalence estimate or claim about a target.
+Observe nonce values across normal fresh responses and, if permitted, the same owned test account/session plus a clean owned session. Check cache headers/variants and whether reuse is session-bound; do not target other users, brute-force values, or induce shared cache changes. Predictability is a separate hypothesis from reuse: if source or owned-response evidence suggests a timestamp, user agent, or other predictable construction, investigate that mechanism and its prerequisites without assuming a new nonce is secure merely because it changes. A nonce in the page source is expected and is not by itself a bypass. Nonce-read/exfil ideas (for example a parser/DOM/CSS-side-channel condition) require a concrete injection location, a browser behavior that exposes the value, and a permitted observable channel; verify against current browser behavior and HTML nonce-hiding rules. The 2023 study found reuse on at least two sampled requests at 598 of 2,271 sites with nonce-based CSP (561 of those across sessions); this is an old crawl sample, not a present-day prevalence estimate or claim about a target.
 
 **F. `unsafe-inline`, hashes, event attributes, and `unsafe-eval`**
 
@@ -78,9 +78,13 @@ A missing `base-uri` matters for an XSS chain only when input can introduce/affe
 
 Check accidental Report-Only deployment, missing policy on one route/template, conflicting policies, header/meta differences, redirects/frames, cached responses, and browser/CSP-level semantics. Compare the policy the browser received with the policy shown in source/config. Prefer observed target-browser behavior over user-agent strings or assumed version support.
 
+**J. Dynamic CSP injection**
+
+If input can affect a dynamically generated policy, compare controlled changes with the exact delivered header or meta policy and its parsed effective directives. Test whether an injected directive changes the relevant execution check on the real document. A duplicate directive does not simply override the first occurrence, and a second enforced policy is cumulative rather than a relaxation; header injection alone is not a CSP bypass. Confirm browser behavior and a separate controlled execution path.
+
 ### 4. Use analyzers and research appropriately
 
-Use Google CSP Evaluator to triage risky keywords, missing `object-src` / `base-uri`, host allowlists, known JSONP/AngularJS hosts, and wildcards. It is not a scanner for the target application's runtime gadgets, and its output is not proof. Follow a candidate back to the exact effective directive, endpoint or loaded script, and controlled source-to-sink edge. Use the sources below to derive a narrow mechanism, preconditions, smallest check, and falsifier; keep a failed mechanism's negative local to that edge.
+Use Google CSP Evaluator to triage risky keywords, missing `object-src` / `base-uri`, host allowlists, known JSONP/AngularJS hosts, and wildcards. Search CSPBypass (https://cspbypass.com/) by relevant allowed host or policy for candidate endpoints and payload patterns. Before submitting a target policy to an external service, remove nonce values and sensitive or internal hostnames; where a sanitized lookup would hide the needed condition, use an approved local alternative. Neither catalog identifies every application-specific runtime gadget or proves a bypass. Follow a candidate back to the exact effective directive, endpoint or loaded script, and controlled source-to-sink edge. Use the sources below to derive a narrow mechanism, preconditions, smallest check, and falsifier; keep a failed mechanism's negative local to that edge.
 
 ### 5. Prove or falsify in the authorized browser
 
@@ -115,6 +119,8 @@ Record exact policy and delivery, browser, directive, controlled source, transfo
 
 **Allowlist and gadget bypass families**
 - Google CSP Evaluator: https://csp-evaluator.withgoogle.com/ — triage tool; its code documents checks for wildcard sources, missing directives, `self`, known JSONP/AngularJS and object allowlists: https://github.com/google/csp-evaluator/blob/master/checks/security_checks.ts.
+- CSPBypass: https://cspbypass.com/ — search known candidate bypasses by host or policy; verify applicability and current browser execution.
+- Doyensec, “Bypassing File Upload Restrictions To Exploit Client-Side Path Traversal”: https://blog.doyensec.com/2025/01/09/cspt-file-upload.html — PDF-validation/JSON examples; consumer-specific leads, not evidence of script execution.
 - Weichselbaum et al., “CSP Is Dead, Long Live CSP!”: https://research.google/pubs/csp-is-dead-long-live-csp-on-the-insecurity-of-whitelists-and-the-future-of-content-security-policy/ — historical measurement and analysis of host allowlist weakness; don't reuse its endpoint corpus blindly.
 - Lekies et al., “Code-reuse attacks for the Web: Breaking Cross-Site Scripting Mitigations via Script Gadgets” (CCS 2017): https://research.google/pubs/code-reuse-attacks-for-the-web-breaking-cross-site-scripting-mitigations-via-script-gadgets/ — trusted application/framework code can interpret injected markup despite tag/event-handler restrictions.
 - Roth et al., “Assessing the Impact of Script Gadgets on CSP at Scale” (2020): https://swag.cispa.saarland/papers/roth2020gadgets.pdf — measured gadget sideloading conditions; results are dated and not a target verdict.

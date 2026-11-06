@@ -1,14 +1,14 @@
 # Bunny OMP worker routing integration dossier
 
-- **Status:** feature; runtime inference and publication unverified
+- **Status:** review-approved guidance; runtime inference unverified
 - **Owner:** Hermes
 - **Branch:** `fix/bunny-omp-dynamic-model`
 - **Base commit:** `69cec71186264b7495e949679efd5342a4f72ded`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-05
 - **Owning feature branch/ref:** `fix/bunny-omp-dynamic-model`
-- **Latest immutable recovery checkpoint:** see first branch commit containing this dossier
-- **Feature implementation commit(s):** see branch history
+- **Latest immutable recovery checkpoint:** `1874d6c63438aa6f0f298536646a92b102c96f3e`
+- **Feature implementation commit(s):** `dfdb9d9e555fba5766bb9a27784e15f1f16b9b04`, `1874d6c63438aa6f0f298536646a92b102c96f3e`
 - **Inspiration / canonical references:** Bunny dispatch and OMP worker selection; installed OMP 18.16.0 source and `omp://task-agent-discovery.md`.
 
 ## Intent
@@ -39,14 +39,14 @@ The Bunny router conditionally loads an OMP-specific reference. It explains a tr
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/bunny-omp-dynamic-model`
-- **Latest immutable recovery checkpoint:** see branch history containing this dossier
-- **Feature implementation commit(s):** see branch history
-- **Exact resume point:** inspect full-test result, compare fetched beta tip, review cumulative diff and dossier, then decide whether to integrate guidance separately while keeping end-to-end smoke open.
+- **Latest immutable recovery checkpoint:** `1874d6c63438aa6f0f298536646a92b102c96f3e`
+- **Feature implementation commit(s):** `dfdb9d9e555fba5766bb9a27784e15f1f16b9b04`, `1874d6c63438aa6f0f298536646a92b102c96f3e`
+- **Exact resume point:** integrate reviewed guidance only into `beta`, delete this branch-only dossier from the integration tree, rerun focused tests, publish, and verify Hoster projection. Keep native-child model smoke and the unrelated Codex/sync/browser blockers open.
 - **Working-tree state at handoff:** commit task-owned paths with this dossier; do not stage unrelated paths.
 
 ## Decision gates
 
-- **Integration:** focused review and tests, complete applicable suite and policy-alignment checks; no implication of live inference.
+- **Integration:** focused review approved `1874d6c63438aa6f0f298536646a92b102c96f3e` (`deleg_b1356a88`); tagged-source links and 14 tests verified. Integrate guidance only, with the recorded pre-existing suite failures and no implication of live inference.
 - **Activation / cohort:** verify Hoster's actual source, new-session skill path and no disruption to existing processes.
 - **Promotion:** explicit stable-lane user direction; not requested.
 

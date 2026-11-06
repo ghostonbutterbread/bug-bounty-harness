@@ -28,7 +28,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -313,6 +313,7 @@ class JsRecord:
     byte_count: int
     sha256: str
     artifact_path: str
+    last_fetched_at: str | None = None
     reused_download: bool = False
     reused_chunks: bool = False
     page_context: str = ""
@@ -1986,7 +1987,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 str(row.get("content_type") or ""),
                 str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
-                str(row.get("generated_at") or ""),
+                row.get("last_fetched_at"),
                 str(row.get("run_id") or ""),
                 str(row.get("target_host") or ""),
                 str(row.get("source_map") or ""),
@@ -2000,7 +2001,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 str(row.get("url") or ""),
                 str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
-                str(row.get("generated_at") or ""),
+                row.get("last_fetched_at"),
                 str(row.get("run_id") or ""),
                 row.get("status") if isinstance(row.get("status"), int) else None,
                 str(row.get("content_type") or ""),
@@ -2179,6 +2180,20 @@ def ledger_lookup_url(ledger: dict, url: str) -> str | None:
     return None
 
 
+def cache_is_fresh(ledger: dict, url: str) -> bool:
+    # Old last_seen values may have been advanced by cache replay, so only the
+    # new fetch-only marker can establish freshness; legacy rows are unknown.
+    entry = ledger.get("urls", {}).get(url)
+    if not isinstance(entry, dict) or not isinstance(entry.get("status"), int) or not 200 <= entry["status"] < 300:
+        return False
+    try:
+        fetched = datetime.fromisoformat(entry["last_fetched_at"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        return fetched.tzinfo is not None and now - timedelta(days=7) <= fetched <= now
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        return False
+
+
 def update_ledger_for_file(
     ledger: dict,
     *,
@@ -2191,13 +2206,16 @@ def update_ledger_for_file(
     chunk_set_key: str,
     chunk_count: int,
     chunk_manifest_path: Path,
+    last_fetched_at: str | None,
+    fetched: bool,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     urls = ledger.setdefault("urls", {})
     files = ledger.setdefault("files", {})
     urls[url] = {
         "sha256": sha256,
-        "last_seen": now,
+        "last_seen": last_fetched_at,
+        "last_fetched_at": last_fetched_at,
         "status": status,
         "content_type": content_type,
     }
@@ -2214,7 +2232,7 @@ def update_ledger_for_file(
     }
     files[sha256] = {
         "first_seen": first_seen,
-        "last_seen": now,
+        "last_seen": last_fetched_at if fetched else file_entry.get("last_seen"),
         "artifact_path": str(artifact_path),
         "byte_count": byte_count,
         "urls": known_urls,
@@ -2610,7 +2628,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                 url not in page_urls and url not in inline_bodies
                 and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
             )
-            if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
+            fresh_cache = not args.refresh and url not in inline_bodies and cache_is_fresh(ledger, url)
+            if args.skip_cached_processing and fresh_cache:
                 cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
                 if cached_artifact:
                     skipped_cached_urls += 1
@@ -2626,10 +2645,12 @@ def command_inventory(args: argparse.Namespace) -> int:
 
             reused_download = False
             map_header = ("", "")
-            cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+            last_fetched_at = None
+            cached = load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir) if fresh_cache else None
             if cached:
                 body = cached[0]
                 cached_response = ledger.get("urls", {}).get(url, {})
+                last_fetched_at = cached_response.get("last_fetched_at")
                 status = cached_response.get("status") if isinstance(cached_response, dict) else None
                 content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
                 if isinstance(cached_response, dict):
@@ -2655,6 +2676,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                     save_checkpoint()
                     continue
             current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
+            if current_available and cached is None and url not in inline_bodies:
+                last_fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
             if not current_available:
                 # An HTTP error body (or an empty/failed fetch) is not JavaScript.
                 # Retain status/history metadata for archive fallback, not live bytes.
@@ -2788,6 +2811,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 byte_count=len(body),
                 sha256=digest,
                 artifact_path=str(artifact_path) if artifact_path is not None else "",
+                last_fetched_at=last_fetched_at,
                 reused_download=reused_download,
                 reused_chunks=reused_chunks,
                 page_context=args.page_context or "",
@@ -2907,6 +2931,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                     chunk_set_key=chunk_set_key,
                     chunk_count=len(chunks),
                     chunk_manifest_path=chunk_manifest_path,
+                    last_fetched_at=last_fetched_at,
+                    fetched=cached is None and url not in inline_bodies,
                 )
                 ledger["urls"][url].update(source_map_header=map_header[0], source_map_header_name=map_header[1])
             for chunk_row in chunk_rows:
@@ -3158,11 +3184,11 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--integration-index-root", help="Override external integration index root")
     inv.add_argument("--provenance-input", help="Optional JSONL mapping JS URLs to page/proxy/flow provenance")
     inv.add_argument("--provenance-source", help="Source label for provenance rows, e.g. ryushe-proxy, katana, playwright")
-    inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
+    inv.add_argument("--refresh", action="store_true", help="Refetch URLs even when the cached fetch is less than seven days old")
     inv.add_argument(
         "--skip-cached-processing",
         action="store_true",
-        help="For exact URL aliases already mapped to an existing cached artifact, skip signal extraction, chunking, packet generation, metadata, provenance, and DB updates",
+        help="For exact URL aliases with a successful fetch at most seven days old and an existing cached artifact, skip processing and metadata updates; stale or unknown entries are fetched",
     )
     inv.add_argument("--limit", type=int, help="Maximum JS URLs per run; remaining URLs are written to pending_urls.txt")
     inv.add_argument("--disk-free-floor-gib", type=float, default=5.0,

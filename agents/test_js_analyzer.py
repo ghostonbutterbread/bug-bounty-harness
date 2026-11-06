@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 from argparse import Namespace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -15,6 +16,126 @@ import pytest
 # fallback and its off controls are exercised in test_js_analyzer_wayback.py.
 
 from agents import js_analyzer as J
+
+
+def test_fresh_cache_reprocessing_preserves_fetch_time_in_ledger_and_index(tmp_path: Path):
+    url = "https://app.example.com/app.js"
+    body = b"const cached = true;"
+    sha = hashlib.sha256(body).hexdigest()
+    fetched = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    library = tmp_path / "library"
+    (library / "downloads").mkdir(parents=True)
+    (library / "downloads" / f"{sha}.js").write_bytes(body)
+    (library / "ledger.json").write_text(json.dumps({"urls": {url: {
+        "sha256": sha, "status": 200, "last_seen": fetched, "last_fetched_at": fetched
+    }}, "files": {sha: {"last_seen": fetched}}}))
+    source = tmp_path / "urls.txt"
+    source.write_text(url + "\n")
+    args = ["inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(library),
+            "--integration-index-root", str(tmp_path / "integration"), "--source-maps", "off",
+            "--disk-free-floor-gib", "0"]
+    with patch.object(J, "http_get", side_effect=AssertionError("unexpected fetch")):
+        assert J.main(args) == 0
+    ledger = json.loads((library / "ledger.json").read_text())
+    assert ledger["urls"][url]["last_seen"] == fetched
+    assert ledger["files"][sha]["last_seen"] == fetched
+    with sqlite3.connect(library / "js_info.sqlite") as db:
+        assert db.execute("SELECT last_seen FROM js_url_aliases WHERE js_url=?", (url,)).fetchone()[0] == fetched
+
+
+@pytest.mark.parametrize("skip", [False, True])
+def test_legacy_cache_with_untrusted_last_seen_is_refetched(tmp_path: Path, skip: bool):
+    url = "https://app.example.com/app.js"
+    body = b"const old = true;"
+    sha = hashlib.sha256(body).hexdigest()
+    library = tmp_path / "library"
+    (library / "downloads").mkdir(parents=True)
+    (library / "downloads" / f"{sha}.js").write_bytes(body)
+    (library / "ledger.json").write_text(json.dumps({"urls": {url: {
+        "sha256": sha, "status": 200, "last_seen": "2999-01-01T00:00:00Z"
+    }}, "files": {}}))
+    source = tmp_path / "urls.txt"
+    source.write_text(url + "\n")
+    args = ["inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(library),
+            "--integration-index-root", str(tmp_path / "integration"), "--source-maps", "off",
+            "--disk-free-floor-gib", "0"]
+    if skip:
+        args.append("--skip-cached-processing")
+    with patch.object(J, "http_get", return_value=(b"const fresh = true;", 200, "application/javascript")) as fetch:
+        assert J.main(args) == 0
+    assert fetch.call_count == 1
+    entry = json.loads((library / "ledger.json").read_text())["urls"][url]
+    assert entry["sha256"] == hashlib.sha256(b"const fresh = true;").hexdigest()
+    assert entry["last_fetched_at"] == entry["last_seen"]
+
+
+@pytest.mark.parametrize("time_value,status,expected", [
+    ("recent", 200, True), ("old", 200, False), ("future", 200, False),
+    (None, 200, False), ("invalid", 200, False), ("naive", 200, False),
+    ("recent", None, False), ("recent", 403, False),
+])
+def test_cache_freshness_requires_real_recent_success(time_value, status, expected):
+    now = datetime.now(timezone.utc)
+    values = {
+        "recent": (now - timedelta(days=6)).isoformat(),
+        "old": (now - timedelta(days=8)).isoformat(),
+        "future": (now + timedelta(days=1)).isoformat(),
+        "invalid": "not-a-date", "naive": "2026-01-01T00:00:00",
+    }
+    assert J.cache_is_fresh({"urls": {"u": {"status": status, "last_fetched_at": values.get(time_value)}}}, "u") is expected
+
+
+@pytest.mark.parametrize("extra,expected_calls", [([], 0), (["--skip-cached-processing"], 0),
+                                                 (["--refresh"], 1), (["--refresh", "--skip-cached-processing"], 1)])
+def test_fresh_cache_flags_and_successful_refetch(tmp_path: Path, extra, expected_calls):
+    url = "https://app.example.com/app.js"
+    body = b"const cache = true;"
+    sha = hashlib.sha256(body).hexdigest()
+    fetched = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    library = tmp_path / "library"
+    (library / "downloads").mkdir(parents=True)
+    (library / "downloads" / f"{sha}.js").write_bytes(body)
+    (library / "ledger.json").write_text(json.dumps({"urls": {url: {
+        "sha256": sha, "status": 200, "last_seen": fetched, "last_fetched_at": fetched
+    }}, "files": {sha: {"last_seen": fetched}}}))
+    source = tmp_path / "urls.txt"
+    source.write_text(url + "\n")
+    args = ["inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(library),
+            "--integration-index-root", str(tmp_path / "integration"), "--source-maps", "off",
+            "--disk-free-floor-gib", "0"] + extra
+    with patch.object(J, "http_get", return_value=(body, 200, "application/javascript")) as fetch:
+        assert J.main(args) == 0
+    assert fetch.call_count == expected_calls
+    entry = json.loads((library / "ledger.json").read_text())["urls"][url]
+    assert (entry["last_fetched_at"] != fetched) == bool(expected_calls)
+    assert entry["last_seen"] == entry["last_fetched_at"]
+
+
+@pytest.mark.parametrize("skip", [False, True])
+def test_unknown_status_failed_refresh_never_fabricates_status_or_fetch_time(tmp_path: Path, skip: bool):
+    url = "https://app.example.com/app.js"
+    body = b"const historical = true;"
+    sha = hashlib.sha256(body).hexdigest()
+    library = tmp_path / "library"
+    (library / "downloads").mkdir(parents=True)
+    (library / "downloads" / f"{sha}.js").write_bytes(body)
+    original = {"sha256": sha, "last_seen": "2020-01-01T00:00:00Z"}
+    (library / "ledger.json").write_text(json.dumps({"urls": {url: original}, "files": {}}))
+    source = tmp_path / "urls.txt"
+    source.write_text(url + "\n")
+    args = ["inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(library),
+            "--integration-index-root", str(tmp_path / "integration"), "--source-maps", "off",
+            "--disk-free-floor-gib", "0"] + (["--skip-cached-processing"] if skip else [])
+    with patch.object(J, "http_get", return_value=(b"", None, "")) as fetch:
+        J.main(args)
+    assert fetch.call_count == 1
+    assert json.loads((library / "ledger.json").read_text())["urls"][url] == original
+    checkpoint = json.loads((tmp_path / "out" / "checkpoint.json").read_text())
+    assert url in checkpoint["retryable_failed"]
 
 
 @pytest.fixture(autouse=True)

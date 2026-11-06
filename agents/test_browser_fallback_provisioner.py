@@ -31,7 +31,7 @@ def test_start_selects_local_fallback_via_real_lease_subprocess(monkeypatch, tmp
     with pytest.raises(StopBeforeLaunch):
         m.start(request)
     assert result['status'] == 'leased'
-    assert Path(result['lease']['profile_dir']).is_relative_to(tmp_path / '.local/share/ghost/browser-runtime/demo')
+    assert Path(result['lease']['profile_dir']).is_relative_to(tmp_path / '.local/bounty/browser-runtime/demo')
     assert not (tmp_path / 'Shared').exists()
 
 

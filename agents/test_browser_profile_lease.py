@@ -132,7 +132,7 @@ def test_new_profile_uses_private_local_fallback_when_default_unmounted(monkeypa
                                      agent_id='a', run_id='one', purpose='test'))
     assert result['status'] == 'leased'
     path = Path(result['lease']['profile_dir'])
-    root = tmp_path / '.local/share/ghost/browser-runtime'
+    root = tmp_path / '.local/bounty/browser-runtime'
     assert path.is_relative_to(root / 'demo')
     assert root.stat().st_mode & 0o777 == 0o700
 
@@ -148,6 +148,29 @@ def test_released_profile_reuses_recorded_custom_root_after_configuration_change
     second = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test'))
     assert second['status'] == 'leased'
     assert second['lease']['profile_dir'] == first['lease']['profile_dir']
+
+
+def test_old_fallback_profile_remains_at_recorded_path(monkeypatch, tmp_path):
+    module = load_module()
+    state = tmp_path / 'state'
+    monkeypatch.setenv('HOME', str(tmp_path))
+    old_root = tmp_path / '.local/share/ghost/browser-runtime'
+    monkeypatch.setenv('HARNESS_BOUNTY_ARTIFACT_ROOT', str(old_root))
+    first = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='a', run_id='one', purpose='test'))
+    assert first['status'] == 'leased'
+    old_profile = Path(first['lease']['profile_dir'])
+    old_profile.mkdir(parents=True)
+    marker = old_profile / 'fixture'
+    marker.write_text('retain')
+    module.cmd_release(args(module, state, 'release', lease_id=first['lease']['lease_id'],
+                            agent_id='a', disposition='completed', profile_health='healthy'))
+    monkeypatch.delenv('HARNESS_BOUNTY_ARTIFACT_ROOT')
+    monkeypatch.setattr(module, 'default_mount_available', lambda: False)
+    second = module.cmd_acquire(args(module, state, 'acquire', account='anon', agent_id='b', run_id='two', purpose='test'))
+    assert second['status'] == 'leased'
+    assert Path(second['lease']['profile_dir']) == old_profile
+    assert marker.read_text() == 'retain'
+    assert not module.fallback_base().exists()
 
 
 def test_fallback_identity_stays_on_fallback_after_mount_returns(monkeypatch, tmp_path):

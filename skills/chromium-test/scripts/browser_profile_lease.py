@@ -67,7 +67,7 @@ def default_mount_available() -> bool:
 
 
 def fallback_base() -> Path:
-    return Path.home() / '.local' / 'share' / 'ghost' / 'browser-runtime'
+    return Path.home() / '.local' / 'bounty' / 'browser-runtime'
 
 
 def safe_profile_path(path: Path) -> bool:

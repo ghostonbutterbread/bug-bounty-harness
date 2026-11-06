@@ -358,7 +358,7 @@ task-owned disposable** browser on this node, the existing artifact-root
 resolver can be overridden for the single provisioner request, for example:
 
 ```bash
-HARNESS_BOUNTY_ARTIFACT_ROOT="$HOME/.local/share/ghost/browser-runtime" \
+HARNESS_BOUNTY_ARTIFACT_ROOT="$HOME/.local/bounty/browser-runtime" \
   bbh skills/chromium-test/scripts/browser_provisioner.py request \
   --task-owned --agent-id <agent-id> --run-id <run-id> \
   --purpose '<task>' --url about:blank

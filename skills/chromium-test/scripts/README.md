@@ -224,7 +224,7 @@ repairs malformed manager projections only, not missing lease-manager provenance
 
 For a new node-local identity, the default `/mnt/bounty` is selected only when
 it is a writable, mounted local filesystem. Otherwise profiles use
-`~/.local/share/ghost/browser-runtime/<program>/...` beneath a private `0700`
+`~/.local/bounty/browser-runtime/<program>/...` beneath a private `0700`
 root. A configured local `HARNESS_BOUNTY_ARTIFACT_ROOT` still works; Shared or
 network-backed choices fall back to the local root. Filesystem detection uses
 `findmnt` and the same conservative local types as the browser preflight. If

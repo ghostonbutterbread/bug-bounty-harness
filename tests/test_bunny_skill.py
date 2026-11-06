@@ -89,6 +89,14 @@ class BunnySkillTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
+        for phrase in (
+            "collaborative mode", "offhand", "ordinary scoped worker",
+            "do not launch collaborative role files", "Grok coordinator preset",
+            "do not use OMP's headless `task` children for live testing",
+            "v18.16.0", "task/executor.ts", "task/structured-subagent.ts",
+        ):
+            self.assertIn(phrase, text)
+
     def test_multi_program_is_depth_first_with_bounded_workers(self):
         router = ROUTER.read_text(encoding="utf-8")
         collaborative = COLLABORATIVE.read_text(encoding="utf-8")

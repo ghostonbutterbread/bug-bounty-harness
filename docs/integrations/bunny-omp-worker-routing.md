@@ -53,3 +53,4 @@ The Bunny router conditionally loads an OMP-specific reference. It explains a tr
 ## Decision record
 
 - 2026-11-05 — initial independent review blocked on parent approval and model inheritance; corrections independently re-reviewed and approved for those findings only. No end-to-end smoke or deployment claimed.
+- 2026-11-05 — cumulative review `deleg_dd807249` blocked on offhand role selection, Grok preset's stricter no-headless gate and lack of version-specific source links. The correction scopes named roles to collaborative mode, routes offhand to ordinary workers, preserves the stricter Grok boundary, and links tagged OMP 18.16.0 source. Focused 14-test suite passes; independent re-review required.

@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-06
 - **Owning feature branch/ref:** `fix/js-cache-freshness`
-- **Latest immutable recovery checkpoint before review repairs:** `859f95d2be9ef22a296af8a5d469573c6299d302`
-- **Feature implementation commit(s):** `af701926318859e60fe02af60f57faa7da4ecd6c`
+- **Latest immutable recovery checkpoint:** `e4e00d8a3db92b531c765da7bfd3368471fcfd5a`
+- **Feature implementation commit(s):** `af701926318859e60fe02af60f57faa7da4ecd6c`, `e4e00d8a3db92b531c765da7bfd3368471fcfd5a`
 - **Inspiration / canonical references:** prior offline acquisition-cache review; `js-pull` freshness contract; existing `agents/js_analyzer.py`
 
 ## Intent
@@ -51,7 +51,7 @@ Prevent historical or stale URL mappings from suppressing acquisition, and preve
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/js-cache-freshness`
-- **Latest immutable recovery checkpoint before this repair:** `859f95d2be9ef22a296af8a5d469573c6299d302`; review the subsequent feature-branch checkpoint as well.
+- **Latest immutable recovery checkpoint:** `e4e00d8a3db92b531c765da7bfd3368471fcfd5a` (the handoff-only commit follows it).
 - **Exact resume point:** independent re-review of the repair checkpoint and tests; no production state touched.
 - **Working-tree state at handoff:** expected clean after checkpoint.
 

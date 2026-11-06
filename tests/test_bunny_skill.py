@@ -74,6 +74,21 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("pending approval", collaborative)
         self.assertIn("final-result-only", OFFHAND.read_text(encoding="utf-8"))
 
+    def test_omp_worker_model_route_is_explicit_and_run_scoped(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        reference = SKILLS / "bunny" / "references" / "omp-worker-routing.md"
+        self.assertIn("(references/omp-worker-routing.md)", router)
+        text = " ".join(reference.read_text(encoding="utf-8").split())
+        for phrase in (
+            "operator-controlled", "--config", "modelRoles", "task.perCallModel",
+            "bunny-recon", "provider-qualified", "effective model and provider",
+            "agentModelOverrides", "rechecked", "Do not change global configuration",
+            "existing process", "approval", "confirmed exit",
+            "frontmatter", "parent's active route", "tools.approvalMode: yolo",
+            "non-bypassed parent task-approval", "headless",
+        ):
+            self.assertIn(phrase, text)
+
     def test_multi_program_is_depth_first_with_bounded_workers(self):
         router = ROUTER.read_text(encoding="utf-8")
         collaborative = COLLABORATIVE.read_text(encoding="utf-8")

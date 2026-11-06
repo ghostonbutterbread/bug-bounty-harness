@@ -70,6 +70,20 @@ class CspBypassSkillTests(unittest.TestCase):
         self.assertIn("`wasm-unsafe-eval` permits WebAssembly compilation without enabling JavaScript string evaluation", skill)
         self.assertIn("`trusted-types-eval` can allow TrustedScript-valued eval sinks", skill)
 
+    def test_research_leads_preserve_consumer_and_policy_caveats(self):
+        skill = (ROOT / "skills/csp-bypass/SKILL.md").read_text(encoding="utf-8")
+        for guidance in (
+            "Search CSPBypass (https://cspbypass.com/)",
+            "remove nonce values and sensitive or internal hostnames",
+            "PDF-validator/JSON combinations for a JSON consumer, not automatic JavaScript execution",
+            "Predictability is a separate hypothesis from reuse",
+            "Dynamic CSP injection",
+            "A duplicate directive does not simply override the first occurrence",
+            "a second enforced policy is cumulative",
+        ):
+            with self.subTest(guidance=guidance):
+                self.assertIn(guidance, skill)
+
 
 if __name__ == "__main__":
     unittest.main()

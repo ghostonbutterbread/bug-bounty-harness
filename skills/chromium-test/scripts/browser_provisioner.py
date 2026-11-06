@@ -3421,10 +3421,11 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
 
 def managed_profile(path):
     import browser_profile_lease as profiles
-    # A recovered mount or changed override must not orphan the known fallback.
+    # A recovered mount or changed fallback must not orphan managed history.
     # Former arbitrary overrides are deliberately not discovery/cleanup roots.
+    legacy_fallback = Path.home() / '.local' / 'share' / 'ghost' / 'browser-runtime'
     roots = (profiles.configured_artifact_base(), profiles.DEFAULT_BOUNTY_ROOT,
-             profiles.fallback_base())
+             profiles.fallback_base(), legacy_fallback)
     for root in roots:
         try:
             relative = Path(path).resolve().relative_to(root.resolve())

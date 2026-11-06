@@ -78,6 +78,15 @@ def test_sweep_fallback_after_default_mount_recovers(setup, monkeypatch, tmp_pat
     assert m.db().execute("select state from browsers where lease_id='old'").fetchone()[0] == 'deleted'
 
 
+def test_sweep_still_recognizes_previously_recorded_fallback(setup, monkeypatch, tmp_path):
+    m = setup
+    monkeypatch.delenv('HARNESS_BOUNTY_ARTIFACT_ROOT', raising=False)
+    old_root = tmp_path / 'home/.local/share/ghost/browser-runtime'
+    path = put(m, old_root, 'old', program='task-owned')
+    dry, skipped = m.sweep_rows(m.db(), 14, False)
+    assert len(dry) == 1 and dry[0]['dry_run'] and not skipped and path.exists()
+
+
 def test_root_transitions_protect_legacy_and_do_not_authorize_old_custom(setup, monkeypatch, tmp_path):
     m = setup
     fallback = profiles.fallback_base()

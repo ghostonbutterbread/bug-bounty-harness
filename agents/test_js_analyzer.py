@@ -41,7 +41,7 @@ def test_fresh_cache_reprocessing_preserves_fetch_time_in_ledger_and_index(tmp_p
     assert ledger["urls"][url]["last_seen"] == fetched
     assert ledger["files"][sha]["last_seen"] == fetched
     with sqlite3.connect(library / "js_info.sqlite") as db:
-        assert db.execute("SELECT last_seen FROM js_url_aliases WHERE js_url=?", (url,)).fetchone()[0] == fetched
+        assert db.execute("SELECT last_fetched_at FROM js_url_aliases WHERE js_url=?", (url,)).fetchone()[0] == fetched
 
 
 @pytest.mark.parametrize("skip", [False, True])

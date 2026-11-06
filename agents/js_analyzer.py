@@ -9,6 +9,7 @@ extracting cheap signals, and writing bounded agent packets for deep review.
 from __future__ import annotations
 
 import argparse
+import fcntl
 from contextvars import ContextVar
 import hashlib
 import html.parser
@@ -1891,11 +1892,30 @@ def write_provenance_table(path: Path, rows: Iterable[dict]) -> None:
         db.commit()
 
 
+def _latest_fetch_time(first: object, second: object) -> str | None:
+    """Compare timezone-aware fetch instants without guessing legacy times."""
+    def parse(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return result if result.tzinfo is not None and result.utcoffset() is not None else None
+        except (ValueError, OverflowError):
+            return None
+    first_date, second_date = parse(first), parse(second)
+    if second_date is None:
+        return first if first_date is not None else None
+    if first_date is None or second_date > first_date:
+        return second
+    return first
+
+
 def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: list[dict]) -> None:
     preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     path.parent.mkdir(parents=True, exist_ok=True)
     preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
+        db.create_function("latest_fetch_time", 2, _latest_fetch_time)
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_files (
                 sha256 TEXT PRIMARY KEY,
@@ -1904,6 +1924,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 content_type TEXT,
                 first_seen TEXT,
                 last_seen TEXT,
+                last_fetched_at TEXT,
                 latest_run_id TEXT,
                 target_host TEXT,
                 source_map TEXT,
@@ -1918,6 +1939,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 sha256 TEXT NOT NULL,
                 first_seen TEXT,
                 last_seen TEXT,
+                last_fetched_at TEXT,
                 latest_run_id TEXT,
                 status INTEGER,
                 content_type TEXT,
@@ -1937,17 +1959,24 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 PRIMARY KEY (sha256, artifact_type, artifact_path)
             )
         """)
+        # Existing last_seen values can be ambiguous; rebuild from metadata.
+        for table in ("js_files", "js_url_aliases"):
+            if "last_fetched_at" not in {row[1] for row in db.execute(f"PRAGMA table_info({table})")}:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN last_fetched_at TEXT")
+                db.execute(f"UPDATE {table} SET first_seen = NULL, last_seen = NULL")
         js_files_sql = """
             INSERT INTO js_files (
                 sha256, artifact_path, byte_count, content_type, first_seen,
-                last_seen, latest_run_id, target_host, source_map, chunk_count,
+                last_seen, last_fetched_at, latest_run_id, target_host, source_map, chunk_count,
                 signal_counts_json, metadata_json
-            ) VALUES (?, ?, ?, ?, COALESCE((SELECT first_seen FROM js_files WHERE sha256 = ?), ?), ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sha256) DO UPDATE SET
                 artifact_path = excluded.artifact_path,
                 byte_count = excluded.byte_count,
                 content_type = excluded.content_type,
-                last_seen = excluded.last_seen,
+                first_seen = CASE WHEN COALESCE(js_files.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_files.first_seen ELSE min(js_files.first_seen, excluded.first_seen) END,
+                last_seen = NULLIF(max(COALESCE(js_files.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
+                last_fetched_at = latest_fetch_time(js_files.last_fetched_at, excluded.last_fetched_at),
                 latest_run_id = excluded.latest_run_id,
                 target_host = excluded.target_host,
                 source_map = excluded.source_map,
@@ -1957,11 +1986,13 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
         """
         alias_sql = """
             INSERT INTO js_url_aliases (
-                js_url, sha256, first_seen, last_seen, latest_run_id,
+                js_url, sha256, first_seen, last_seen, last_fetched_at, latest_run_id,
                 status, content_type, source, page_context
-            ) VALUES (?, ?, COALESCE((SELECT first_seen FROM js_url_aliases WHERE js_url = ? AND sha256 = ?), ?), ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(js_url, sha256) DO UPDATE SET
-                last_seen = excluded.last_seen,
+                first_seen = CASE WHEN COALESCE(js_url_aliases.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_url_aliases.first_seen ELSE min(js_url_aliases.first_seen, excluded.first_seen) END,
+                last_seen = NULLIF(max(COALESCE(js_url_aliases.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
+                last_fetched_at = latest_fetch_time(js_url_aliases.last_fetched_at, excluded.last_fetched_at),
                 latest_run_id = excluded.latest_run_id,
                 status = excluded.status,
                 content_type = excluded.content_type,
@@ -1980,14 +2011,15 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
             if not row.get("sha256"):
                 # Unavailable-current/archive-only metadata has no live file or alias.
                 continue
+            fetched_at = _latest_fetch_time(None, row.get("last_fetched_at"))
             db.execute(js_files_sql, (
                 str(row.get("sha256") or ""),
                 str(row.get("artifact_path") or ""),
                 int(row.get("byte_count") or 0),
                 str(row.get("content_type") or ""),
-                str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
-                row.get("last_fetched_at"),
+                str(row.get("generated_at") or ""),
+                fetched_at,
                 str(row.get("run_id") or ""),
                 str(row.get("target_host") or ""),
                 str(row.get("source_map") or ""),
@@ -1998,10 +2030,9 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
             db.execute(alias_sql, (
                 str(row.get("url") or ""),
                 str(row.get("sha256") or ""),
-                str(row.get("url") or ""),
-                str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
-                row.get("last_fetched_at"),
+                str(row.get("generated_at") or ""),
+                fetched_at,
                 str(row.get("run_id") or ""),
                 row.get("status") if isinstance(row.get("status"), int) else None,
                 str(row.get("content_type") or ""),
@@ -2466,7 +2497,20 @@ def preflight_library_paths(library_root: Path, *, inventory: bool = False) -> N
     preflight_artifact_paths(library_root, *(library_root / name for name in names))
 
 
-def command_inventory(args: argparse.Namespace) -> int:
+def preflight_inventory_paths(root: Path, library_root: Path, integration_index_root: Path) -> None:
+    preflight_library_paths(library_root, inventory=True)
+    preflight_artifact_paths(
+        root, integration_index_root,
+        *(root / name for name in (
+            "packets", "source_map_packets", "checkpoint.json", "manifest.json",
+            "metadata.jsonl", "packets.jsonl", "source_map_modules.jsonl", "page_context.jsonl",
+            "js_provenance.jsonl", "external_integrations.jsonl", "pending_urls.txt",
+        )),
+        *(integration_index_root / name for name in ("external_urls.jsonl", "external_hosts.json")),
+    )
+
+
+def _validate_inventory_args(args: argparse.Namespace) -> None:
     if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
             or args.source_map_max_bytes <= 0 or (args.source_map_parse_max_bytes is not None and args.source_map_parse_max_bytes <= 0)
@@ -2484,18 +2528,12 @@ def command_inventory(args: argparse.Namespace) -> int:
         set_extra_http_headers(getattr(args, "header", None))
     except ValueError as exc:
         raise SystemExit(f"invalid --header: {exc}")
-    run_id = args.run_id or f"js-{utc_stamp()}"
-    root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
-    preflight_library_paths(library_root, inventory=True)
-    preflight_artifact_paths(
-        root, integration_index_root,
-        *(root / name for name in (
-            "packets", "source_map_packets", "checkpoint.json", "manifest.json",
-            "metadata.jsonl", "packets.jsonl", "source_map_modules.jsonl", "page_context.jsonl",
-            "js_provenance.jsonl", "external_integrations.jsonl", "pending_urls.txt",
-        )),
-        *(integration_index_root / name for name in ("external_urls.jsonl", "external_hosts.json")),
-    )
+
+
+def _command_inventory(args: argparse.Namespace) -> int:
+    run_id = args._inventory_run_id
+    root, library_root, integration_index_root, config_summary = args._inventory_paths
+    preflight_inventory_paths(root, library_root, integration_index_root)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
     source_maps_dir = library_root / "sourcemaps"
@@ -3139,8 +3177,8 @@ def command_inventory(args: argparse.Namespace) -> int:
     return 0
 
 
-def command_observe(args: argparse.Namespace) -> int:
-    library_root, config_summary = resolve_library_root(args)
+def _command_observe(args: argparse.Namespace) -> int:
+    library_root, config_summary = args._library_paths
     preflight_library_paths(library_root)
     observations_path = library_root / "observations.jsonl"
     js_info_db_path = library_root / "js_info.sqlite"
@@ -3164,6 +3202,36 @@ def command_observe(args: argparse.Namespace) -> int:
     }
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
+
+
+def _with_library_lock(library_root: Path, operation, args: argparse.Namespace) -> int:
+    # A stable lock inode must not be removed or replaced while writers run.
+    # Older versions do not acquire it and must be externally fenced.
+    preflight_library_paths(library_root)
+    lock_path = library_root / ".js-writer.lock"
+    preflight_artifact_paths(lock_path)
+    library_root.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            return operation(args)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def command_inventory(args: argparse.Namespace) -> int:
+    _validate_inventory_args(args)
+    args._inventory_run_id = args.run_id or f"js-{utc_stamp()}"
+    args._inventory_paths = resolve_inventory_paths(args, args._inventory_run_id)
+    root, library_root, index_root, _ = args._inventory_paths
+    preflight_inventory_paths(root, library_root, index_root)
+    return _with_library_lock(library_root, _command_inventory, args)
+
+
+def command_observe(args: argparse.Namespace) -> int:
+    args._library_paths = resolve_library_root(args)
+    library_root, _ = args._library_paths
+    return _with_library_lock(library_root, _command_observe, args)
 
 
 def build_parser() -> argparse.ArgumentParser:

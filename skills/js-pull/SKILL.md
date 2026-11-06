@@ -22,19 +22,36 @@ contracts); do not create a second downloader or copy bundles into prompts.
    Browser-observed scripts with a non-JS suffix (for example `chunk.php`)
    need the explicit `--input` URL plus a matching `--provenance-input` row;
    see `prompts/js-playbook.md` for the evidence fields and response checks.
-   Apply an **age edge: re-pull any artifact whose `last_seen` is older than the
-   staleness window regardless of whether its URL is still mapped.** Seven days
-   is the default window; a program may set its own. When the operator asks for
+   Apply an **age edge to the current URL mapping**: re-pull if its successful
+   fetch is older than seven days or its status/fetch time is unknown. Legacy
+   `last_seen` does not prove a fetch. When the operator asks for
    a full re-pull of everything rather than a refresh of the current set, use
    `--refresh` and ignore the cache entirely. Derive the stale subset instead of
    refetching wholesale when only part of the corpus has aged:
 
-   ```sql
-   -- stale artifacts to re-pull; feed the URLs to inventory --input
-   -- strftime keeps the Z-suffixed ISO-8601 comparison exact; bare datetime()
-   -- yields a space separator that mis-sorts on same-date boundaries
-   SELECT DISTINCT js_url FROM js_url_aliases
-   WHERE last_seen < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days');
+   Read the current ledger, not historical SQLite alias/hash rows. Set
+   `LIBRARY_ROOT` to the selected `_library` directory; review scope before
+   using the resulting URLs. Inline-script identities are not fetchable URLs.
+
+   ```sh
+   python3 - "$LIBRARY_ROOT/ledger.json" <<'PY' > stale-urls.txt
+   import json, sys
+   from datetime import datetime, timedelta, timezone
+
+   with open(sys.argv[1], encoding='utf-8') as source:
+       ledger = json.load(source)
+   now = datetime.now(timezone.utc)
+   for url, entry in ledger['urls'].items():
+       fresh = False
+       if isinstance(entry, dict) and isinstance(entry.get('status'), int) and 200 <= entry['status'] < 300:
+           try:
+               fetched = datetime.fromisoformat(entry['last_fetched_at'].replace('Z', '+00:00'))
+               fresh = fetched.tzinfo is not None and now - timedelta(days=7) <= fetched <= now
+           except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+               pass
+       if not fresh and '#inline-script-' not in url:
+           print(url)
+   PY
    ```
 2. Apply program scope and the normal live-testing policy before any download;
    inventory fetches and source-map retrieval are network requests. Use

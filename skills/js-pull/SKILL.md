@@ -17,7 +17,8 @@ contracts); do not create a second downloader or copy bundles into prompts.
 
 1. Resolve a page URL, scope-checked `aggregated/jsfiles.txt`, proxy/recon
    references, or a prior run. Check the `_library/` URL/hash ledger first:
-   reuse present artifacts unless freshness is deliberately requested.
+   reuse artifacts only when the current URL mapping is fresh and the body
+   matches its SHA-256, including with `--skip-cached-processing`.
    JS acquisition is cheap relative to its value, so bias toward re-pulling.
    Browser-observed scripts with a non-JS suffix (for example `chunk.php`)
    need the explicit `--input` URL plus a matching `--provenance-input` row;

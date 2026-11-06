@@ -1915,6 +1915,8 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
     path.parent.mkdir(parents=True, exist_ok=True)
     preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
+        # SQLite DDL is otherwise autocommitted before the first DML statement.
+        db.execute("BEGIN")
         db.create_function("latest_fetch_time", 2, _latest_fetch_time)
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_files (
@@ -1971,18 +1973,18 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 signal_counts_json, metadata_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sha256) DO UPDATE SET
-                artifact_path = excluded.artifact_path,
-                byte_count = excluded.byte_count,
-                content_type = excluded.content_type,
+                artifact_path = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.artifact_path ELSE js_files.artifact_path END,
+                byte_count = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.byte_count ELSE js_files.byte_count END,
+                content_type = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.content_type ELSE js_files.content_type END,
                 first_seen = CASE WHEN COALESCE(js_files.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_files.first_seen ELSE min(js_files.first_seen, excluded.first_seen) END,
                 last_seen = NULLIF(max(COALESCE(js_files.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
                 last_fetched_at = latest_fetch_time(js_files.last_fetched_at, excluded.last_fetched_at),
-                latest_run_id = excluded.latest_run_id,
-                target_host = excluded.target_host,
-                source_map = excluded.source_map,
-                chunk_count = excluded.chunk_count,
-                signal_counts_json = excluded.signal_counts_json,
-                metadata_json = excluded.metadata_json
+                latest_run_id = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.latest_run_id ELSE js_files.latest_run_id END,
+                target_host = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.target_host ELSE js_files.target_host END,
+                source_map = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.source_map ELSE js_files.source_map END,
+                chunk_count = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.chunk_count ELSE js_files.chunk_count END,
+                signal_counts_json = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.signal_counts_json ELSE js_files.signal_counts_json END,
+                metadata_json = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.metadata_json ELSE js_files.metadata_json END
         """
         alias_sql = """
             INSERT INTO js_url_aliases (
@@ -1993,11 +1995,11 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 first_seen = CASE WHEN COALESCE(js_url_aliases.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_url_aliases.first_seen ELSE min(js_url_aliases.first_seen, excluded.first_seen) END,
                 last_seen = NULLIF(max(COALESCE(js_url_aliases.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
                 last_fetched_at = latest_fetch_time(js_url_aliases.last_fetched_at, excluded.last_fetched_at),
-                latest_run_id = excluded.latest_run_id,
-                status = excluded.status,
-                content_type = excluded.content_type,
-                source = excluded.source,
-                page_context = excluded.page_context
+                latest_run_id = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.latest_run_id ELSE js_url_aliases.latest_run_id END,
+                status = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.status ELSE js_url_aliases.status END,
+                content_type = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.content_type ELSE js_url_aliases.content_type END,
+                source = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.source ELSE js_url_aliases.source END,
+                page_context = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.page_context ELSE js_url_aliases.page_context END
         """
         artifact_sql = """
             INSERT OR IGNORE INTO js_artifacts (
@@ -2339,6 +2341,14 @@ def update_ledger_source_map(
     }
 
 
+def _artifact_matches_sha(path: Path, sha: str) -> bool:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest() == sha
+
+
 def cached_artifact_from_ledger(
     ledger: dict,
     *,
@@ -2355,6 +2365,8 @@ def cached_artifact_from_ledger(
         if candidate:
             artifact_path = Path(candidate)
     if not artifact_path.exists():
+        return None
+    if not _artifact_matches_sha(artifact_path, sha):
         return None
     return sha, artifact_path
 
@@ -2742,9 +2754,27 @@ def _command_inventory(args: argparse.Namespace) -> int:
             elif current_available:
                 digest = hashlib.sha256(body).hexdigest()
                 artifact_path = downloads_dir / f"{digest}.js"
-                if artifact_path.exists():
+                if artifact_path.exists() and _artifact_matches_sha(artifact_path, digest):
                     reused_download = True
                     reused_downloads += 1
+                elif artifact_path.exists():
+                    # Replace corrupt content atomically so readers never see a partial repair.
+                    temporary = artifact_path.parent / f".{artifact_path.name}.{secrets.token_hex(8)}.tmp"
+                    created = False
+                    try:
+                        preflight_artifact_paths(temporary, artifact_path)
+                        check_output_space(temporary, len(body))
+                        with temporary.open("xb") as handle:
+                            created = True
+                            handle.write(body)
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        preflight_artifact_paths(temporary, artifact_path)
+                        temporary.replace(artifact_path)
+                    finally:
+                        if created:
+                            preflight_artifact_paths(temporary)
+                            temporary.unlink(missing_ok=True)
                 else:
                     write_bytes_checked(artifact_path, body)
             text = body.decode("utf-8", errors="ignore")
@@ -3204,6 +3234,20 @@ def _command_observe(args: argparse.Namespace) -> int:
     return 0
 
 
+_library_lock_handles: set = set()
+
+
+def _close_inherited_library_locks() -> None:
+    # Close, never unlock: an inherited flock refers to the owner's open file
+    # description, so LOCK_UN here would release the live writer's lock.
+    for handle in _library_lock_handles:
+        handle.close()
+    _library_lock_handles.clear()
+
+
+os.register_at_fork(after_in_child=_close_inherited_library_locks)
+
+
 def _with_library_lock(library_root: Path, operation, args: argparse.Namespace) -> int:
     # A stable lock inode must not be removed or replaced while writers run.
     # Older versions do not acquire it and must be externally fenced.
@@ -3212,11 +3256,15 @@ def _with_library_lock(library_root: Path, operation, args: argparse.Namespace) 
     preflight_artifact_paths(lock_path)
     library_root.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _library_lock_handles.add(handle)
         try:
-            return operation(args)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                return operation(args)
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _library_lock_handles.discard(handle)
 
 
 def command_inventory(args: argparse.Namespace) -> int:

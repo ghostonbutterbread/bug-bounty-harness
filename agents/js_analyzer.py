@@ -9,6 +9,7 @@ extracting cheap signals, and writing bounded agent packets for deep review.
 from __future__ import annotations
 
 import argparse
+import fcntl
 from contextvars import ContextVar
 import hashlib
 import html.parser
@@ -28,7 +29,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -313,6 +314,7 @@ class JsRecord:
     byte_count: int
     sha256: str
     artifact_path: str
+    last_fetched_at: str | None = None
     reused_download: bool = False
     reused_chunks: bool = False
     page_context: str = ""
@@ -1890,11 +1892,32 @@ def write_provenance_table(path: Path, rows: Iterable[dict]) -> None:
         db.commit()
 
 
+def _latest_fetch_time(first: object, second: object) -> str | None:
+    """Compare timezone-aware fetch instants without guessing legacy times."""
+    def parse(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return result if result.tzinfo is not None and result.utcoffset() is not None else None
+        except (ValueError, OverflowError):
+            return None
+    first_date, second_date = parse(first), parse(second)
+    if second_date is None:
+        return first if first_date is not None else None
+    if first_date is None or second_date > first_date:
+        return second
+    return first
+
+
 def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: list[dict]) -> None:
     preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     path.parent.mkdir(parents=True, exist_ok=True)
     preflight_artifact_paths(path, *(Path(str(path) + suffix) for suffix in ("-journal", "-wal", "-shm")))
     with sqlite3.connect(path) as db:
+        # SQLite DDL is otherwise autocommitted before the first DML statement.
+        db.execute("BEGIN")
+        db.create_function("latest_fetch_time", 2, _latest_fetch_time)
         db.execute("""
             CREATE TABLE IF NOT EXISTS js_files (
                 sha256 TEXT PRIMARY KEY,
@@ -1903,6 +1926,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 content_type TEXT,
                 first_seen TEXT,
                 last_seen TEXT,
+                last_fetched_at TEXT,
                 latest_run_id TEXT,
                 target_host TEXT,
                 source_map TEXT,
@@ -1917,6 +1941,7 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 sha256 TEXT NOT NULL,
                 first_seen TEXT,
                 last_seen TEXT,
+                last_fetched_at TEXT,
                 latest_run_id TEXT,
                 status INTEGER,
                 content_type TEXT,
@@ -1936,36 +1961,45 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
                 PRIMARY KEY (sha256, artifact_type, artifact_path)
             )
         """)
+        # Existing last_seen values can be ambiguous; rebuild from metadata.
+        for table in ("js_files", "js_url_aliases"):
+            if "last_fetched_at" not in {row[1] for row in db.execute(f"PRAGMA table_info({table})")}:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN last_fetched_at TEXT")
+                db.execute(f"UPDATE {table} SET first_seen = NULL, last_seen = NULL")
         js_files_sql = """
             INSERT INTO js_files (
                 sha256, artifact_path, byte_count, content_type, first_seen,
-                last_seen, latest_run_id, target_host, source_map, chunk_count,
+                last_seen, last_fetched_at, latest_run_id, target_host, source_map, chunk_count,
                 signal_counts_json, metadata_json
-            ) VALUES (?, ?, ?, ?, COALESCE((SELECT first_seen FROM js_files WHERE sha256 = ?), ?), ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sha256) DO UPDATE SET
-                artifact_path = excluded.artifact_path,
-                byte_count = excluded.byte_count,
-                content_type = excluded.content_type,
-                last_seen = excluded.last_seen,
-                latest_run_id = excluded.latest_run_id,
-                target_host = excluded.target_host,
-                source_map = excluded.source_map,
-                chunk_count = excluded.chunk_count,
-                signal_counts_json = excluded.signal_counts_json,
-                metadata_json = excluded.metadata_json
+                artifact_path = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.artifact_path ELSE js_files.artifact_path END,
+                byte_count = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.byte_count ELSE js_files.byte_count END,
+                content_type = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.content_type ELSE js_files.content_type END,
+                first_seen = CASE WHEN COALESCE(js_files.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_files.first_seen ELSE min(js_files.first_seen, excluded.first_seen) END,
+                last_seen = NULLIF(max(COALESCE(js_files.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
+                last_fetched_at = latest_fetch_time(js_files.last_fetched_at, excluded.last_fetched_at),
+                latest_run_id = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.latest_run_id ELSE js_files.latest_run_id END,
+                target_host = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.target_host ELSE js_files.target_host END,
+                source_map = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.source_map ELSE js_files.source_map END,
+                chunk_count = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.chunk_count ELSE js_files.chunk_count END,
+                signal_counts_json = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.signal_counts_json ELSE js_files.signal_counts_json END,
+                metadata_json = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_files.last_seen, '') THEN excluded.metadata_json ELSE js_files.metadata_json END
         """
         alias_sql = """
             INSERT INTO js_url_aliases (
-                js_url, sha256, first_seen, last_seen, latest_run_id,
+                js_url, sha256, first_seen, last_seen, last_fetched_at, latest_run_id,
                 status, content_type, source, page_context
-            ) VALUES (?, ?, COALESCE((SELECT first_seen FROM js_url_aliases WHERE js_url = ? AND sha256 = ?), ?), ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(js_url, sha256) DO UPDATE SET
-                last_seen = excluded.last_seen,
-                latest_run_id = excluded.latest_run_id,
-                status = excluded.status,
-                content_type = excluded.content_type,
-                source = excluded.source,
-                page_context = excluded.page_context
+                first_seen = CASE WHEN COALESCE(js_url_aliases.first_seen, '') = '' THEN excluded.first_seen WHEN COALESCE(excluded.first_seen, '') = '' THEN js_url_aliases.first_seen ELSE min(js_url_aliases.first_seen, excluded.first_seen) END,
+                last_seen = NULLIF(max(COALESCE(js_url_aliases.last_seen, ''), COALESCE(excluded.last_seen, '')), ''),
+                last_fetched_at = latest_fetch_time(js_url_aliases.last_fetched_at, excluded.last_fetched_at),
+                latest_run_id = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.latest_run_id ELSE js_url_aliases.latest_run_id END,
+                status = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.status ELSE js_url_aliases.status END,
+                content_type = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.content_type ELSE js_url_aliases.content_type END,
+                source = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.source ELSE js_url_aliases.source END,
+                page_context = CASE WHEN COALESCE(excluded.last_seen, '') >= COALESCE(js_url_aliases.last_seen, '') THEN excluded.page_context ELSE js_url_aliases.page_context END
         """
         artifact_sql = """
             INSERT OR IGNORE INTO js_artifacts (
@@ -1979,14 +2013,15 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
             if not row.get("sha256"):
                 # Unavailable-current/archive-only metadata has no live file or alias.
                 continue
+            fetched_at = _latest_fetch_time(None, row.get("last_fetched_at"))
             db.execute(js_files_sql, (
                 str(row.get("sha256") or ""),
                 str(row.get("artifact_path") or ""),
                 int(row.get("byte_count") or 0),
                 str(row.get("content_type") or ""),
-                str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
                 str(row.get("generated_at") or ""),
+                fetched_at,
                 str(row.get("run_id") or ""),
                 str(row.get("target_host") or ""),
                 str(row.get("source_map") or ""),
@@ -1997,10 +2032,9 @@ def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: li
             db.execute(alias_sql, (
                 str(row.get("url") or ""),
                 str(row.get("sha256") or ""),
-                str(row.get("url") or ""),
-                str(row.get("sha256") or ""),
                 str(row.get("generated_at") or ""),
                 str(row.get("generated_at") or ""),
+                fetched_at,
                 str(row.get("run_id") or ""),
                 row.get("status") if isinstance(row.get("status"), int) else None,
                 str(row.get("content_type") or ""),
@@ -2179,6 +2213,20 @@ def ledger_lookup_url(ledger: dict, url: str) -> str | None:
     return None
 
 
+def cache_is_fresh(ledger: dict, url: str) -> bool:
+    # Old last_seen values may have been advanced by cache replay, so only the
+    # new fetch-only marker can establish freshness; legacy rows are unknown.
+    entry = ledger.get("urls", {}).get(url)
+    if not isinstance(entry, dict) or not isinstance(entry.get("status"), int) or not 200 <= entry["status"] < 300:
+        return False
+    try:
+        fetched = datetime.fromisoformat(entry["last_fetched_at"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        return fetched.tzinfo is not None and now - timedelta(days=7) <= fetched <= now
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        return False
+
+
 def update_ledger_for_file(
     ledger: dict,
     *,
@@ -2191,13 +2239,16 @@ def update_ledger_for_file(
     chunk_set_key: str,
     chunk_count: int,
     chunk_manifest_path: Path,
+    last_fetched_at: str | None,
+    fetched: bool,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     urls = ledger.setdefault("urls", {})
     files = ledger.setdefault("files", {})
     urls[url] = {
         "sha256": sha256,
-        "last_seen": now,
+        "last_seen": last_fetched_at,
+        "last_fetched_at": last_fetched_at,
         "status": status,
         "content_type": content_type,
     }
@@ -2214,7 +2265,7 @@ def update_ledger_for_file(
     }
     files[sha256] = {
         "first_seen": first_seen,
-        "last_seen": now,
+        "last_seen": last_fetched_at if fetched else file_entry.get("last_seen"),
         "artifact_path": str(artifact_path),
         "byte_count": byte_count,
         "urls": known_urls,
@@ -2290,6 +2341,14 @@ def update_ledger_source_map(
     }
 
 
+def _artifact_matches_sha(path: Path, sha: str) -> bool:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest() == sha
+
+
 def cached_artifact_from_ledger(
     ledger: dict,
     *,
@@ -2306,6 +2365,8 @@ def cached_artifact_from_ledger(
         if candidate:
             artifact_path = Path(candidate)
     if not artifact_path.exists():
+        return None
+    if not _artifact_matches_sha(artifact_path, sha):
         return None
     return sha, artifact_path
 
@@ -2448,7 +2509,20 @@ def preflight_library_paths(library_root: Path, *, inventory: bool = False) -> N
     preflight_artifact_paths(library_root, *(library_root / name for name in names))
 
 
-def command_inventory(args: argparse.Namespace) -> int:
+def preflight_inventory_paths(root: Path, library_root: Path, integration_index_root: Path) -> None:
+    preflight_library_paths(library_root, inventory=True)
+    preflight_artifact_paths(
+        root, integration_index_root,
+        *(root / name for name in (
+            "packets", "source_map_packets", "checkpoint.json", "manifest.json",
+            "metadata.jsonl", "packets.jsonl", "source_map_modules.jsonl", "page_context.jsonl",
+            "js_provenance.jsonl", "external_integrations.jsonl", "pending_urls.txt",
+        )),
+        *(integration_index_root / name for name in ("external_urls.jsonl", "external_hosts.json")),
+    )
+
+
+def _validate_inventory_args(args: argparse.Namespace) -> None:
     if (args.source_map_wayback_max_requests < 0 or args.source_map_wayback_max_captures <= 0
             or args.source_map_wayback_max_bytes <= 0 or args.source_map_wayback_max_total_bytes <= 0
             or args.source_map_max_bytes <= 0 or (args.source_map_parse_max_bytes is not None and args.source_map_parse_max_bytes <= 0)
@@ -2466,18 +2540,12 @@ def command_inventory(args: argparse.Namespace) -> int:
         set_extra_http_headers(getattr(args, "header", None))
     except ValueError as exc:
         raise SystemExit(f"invalid --header: {exc}")
-    run_id = args.run_id or f"js-{utc_stamp()}"
-    root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
-    preflight_library_paths(library_root, inventory=True)
-    preflight_artifact_paths(
-        root, integration_index_root,
-        *(root / name for name in (
-            "packets", "source_map_packets", "checkpoint.json", "manifest.json",
-            "metadata.jsonl", "packets.jsonl", "source_map_modules.jsonl", "page_context.jsonl",
-            "js_provenance.jsonl", "external_integrations.jsonl", "pending_urls.txt",
-        )),
-        *(integration_index_root / name for name in ("external_urls.jsonl", "external_hosts.json")),
-    )
+
+
+def _command_inventory(args: argparse.Namespace) -> int:
+    run_id = args._inventory_run_id
+    root, library_root, integration_index_root, config_summary = args._inventory_paths
+    preflight_inventory_paths(root, library_root, integration_index_root)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
     source_maps_dir = library_root / "sourcemaps"
@@ -2610,7 +2678,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                 url not in page_urls and url not in inline_bodies
                 and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
             )
-            if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
+            fresh_cache = not args.refresh and url not in inline_bodies and cache_is_fresh(ledger, url)
+            if args.skip_cached_processing and fresh_cache:
                 cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
                 if cached_artifact:
                     skipped_cached_urls += 1
@@ -2626,10 +2695,12 @@ def command_inventory(args: argparse.Namespace) -> int:
 
             reused_download = False
             map_header = ("", "")
-            cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+            last_fetched_at = None
+            cached = load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir) if fresh_cache else None
             if cached:
                 body = cached[0]
                 cached_response = ledger.get("urls", {}).get(url, {})
+                last_fetched_at = cached_response.get("last_fetched_at")
                 status = cached_response.get("status") if isinstance(cached_response, dict) else None
                 content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
                 if isinstance(cached_response, dict):
@@ -2655,6 +2726,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                     save_checkpoint()
                     continue
             current_available = bool(body) and (url in inline_bodies or isinstance(status, int) and 200 <= status < 300)
+            if current_available and cached is None and url not in inline_bodies:
+                last_fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
             if not current_available:
                 # An HTTP error body (or an empty/failed fetch) is not JavaScript.
                 # Retain status/history metadata for archive fallback, not live bytes.
@@ -2681,9 +2754,27 @@ def command_inventory(args: argparse.Namespace) -> int:
             elif current_available:
                 digest = hashlib.sha256(body).hexdigest()
                 artifact_path = downloads_dir / f"{digest}.js"
-                if artifact_path.exists():
+                if artifact_path.exists() and _artifact_matches_sha(artifact_path, digest):
                     reused_download = True
                     reused_downloads += 1
+                elif artifact_path.exists():
+                    # Replace corrupt content atomically so readers never see a partial repair.
+                    temporary = artifact_path.parent / f".{artifact_path.name}.{secrets.token_hex(8)}.tmp"
+                    created = False
+                    try:
+                        preflight_artifact_paths(temporary, artifact_path)
+                        check_output_space(temporary, len(body))
+                        with temporary.open("xb") as handle:
+                            created = True
+                            handle.write(body)
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        preflight_artifact_paths(temporary, artifact_path)
+                        temporary.replace(artifact_path)
+                    finally:
+                        if created:
+                            preflight_artifact_paths(temporary)
+                            temporary.unlink(missing_ok=True)
                 else:
                     write_bytes_checked(artifact_path, body)
             text = body.decode("utf-8", errors="ignore")
@@ -2788,6 +2879,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 byte_count=len(body),
                 sha256=digest,
                 artifact_path=str(artifact_path) if artifact_path is not None else "",
+                last_fetched_at=last_fetched_at,
                 reused_download=reused_download,
                 reused_chunks=reused_chunks,
                 page_context=args.page_context or "",
@@ -2907,6 +2999,8 @@ def command_inventory(args: argparse.Namespace) -> int:
                     chunk_set_key=chunk_set_key,
                     chunk_count=len(chunks),
                     chunk_manifest_path=chunk_manifest_path,
+                    last_fetched_at=last_fetched_at,
+                    fetched=cached is None and url not in inline_bodies,
                 )
                 ledger["urls"][url].update(source_map_header=map_header[0], source_map_header_name=map_header[1])
             for chunk_row in chunk_rows:
@@ -3113,8 +3207,8 @@ def command_inventory(args: argparse.Namespace) -> int:
     return 0
 
 
-def command_observe(args: argparse.Namespace) -> int:
-    library_root, config_summary = resolve_library_root(args)
+def _command_observe(args: argparse.Namespace) -> int:
+    library_root, config_summary = args._library_paths
     preflight_library_paths(library_root)
     observations_path = library_root / "observations.jsonl"
     js_info_db_path = library_root / "js_info.sqlite"
@@ -3140,6 +3234,54 @@ def command_observe(args: argparse.Namespace) -> int:
     return 0
 
 
+_library_lock_handles: set = set()
+
+
+def _close_inherited_library_locks() -> None:
+    # Close, never unlock: an inherited flock refers to the owner's open file
+    # description, so LOCK_UN here would release the live writer's lock.
+    for handle in _library_lock_handles:
+        handle.close()
+    _library_lock_handles.clear()
+
+
+os.register_at_fork(after_in_child=_close_inherited_library_locks)
+
+
+def _with_library_lock(library_root: Path, operation, args: argparse.Namespace) -> int:
+    # A stable lock inode must not be removed or replaced while writers run.
+    # Older versions do not acquire it and must be externally fenced.
+    preflight_library_paths(library_root)
+    lock_path = library_root / ".js-writer.lock"
+    preflight_artifact_paths(lock_path)
+    library_root.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as handle:
+        _library_lock_handles.add(handle)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                return operation(args)
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            _library_lock_handles.discard(handle)
+
+
+def command_inventory(args: argparse.Namespace) -> int:
+    _validate_inventory_args(args)
+    args._inventory_run_id = args.run_id or f"js-{utc_stamp()}"
+    args._inventory_paths = resolve_inventory_paths(args, args._inventory_run_id)
+    root, library_root, index_root, _ = args._inventory_paths
+    preflight_inventory_paths(root, library_root, index_root)
+    return _with_library_lock(library_root, _command_inventory, args)
+
+
+def command_observe(args: argparse.Namespace) -> int:
+    args._library_paths = resolve_library_root(args)
+    library_root, _ = args._library_paths
+    return _with_library_lock(library_root, _command_observe, args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="JavaScript inventory and deep-review packet builder")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -3158,11 +3300,11 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--integration-index-root", help="Override external integration index root")
     inv.add_argument("--provenance-input", help="Optional JSONL mapping JS URLs to page/proxy/flow provenance")
     inv.add_argument("--provenance-source", help="Source label for provenance rows, e.g. ryushe-proxy, katana, playwright")
-    inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
+    inv.add_argument("--refresh", action="store_true", help="Refetch URLs even when the cached fetch is less than seven days old")
     inv.add_argument(
         "--skip-cached-processing",
         action="store_true",
-        help="For exact URL aliases already mapped to an existing cached artifact, skip signal extraction, chunking, packet generation, metadata, provenance, and DB updates",
+        help="For exact URL aliases with a successful fetch at most seven days old and an existing cached artifact, skip processing and metadata updates; stale or unknown entries are fetched",
     )
     inv.add_argument("--limit", type=int, help="Maximum JS URLs per run; remaining URLs are written to pending_urls.txt")
     inv.add_argument("--disk-free-floor-gib", type=float, default=5.0,

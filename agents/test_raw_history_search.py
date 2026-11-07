@@ -62,6 +62,81 @@ class RawHistoryTest(unittest.TestCase):
         proc = subprocess.run(cmd + list(args), capture_output=True, text=True)
         return proc, [json.loads(line) for line in proc.stdout.splitlines() if json.loads(line)['type'] != 'source']
 
+    def test_real_flow_reader_scans_https_and_http_without_exposing_raw(self):
+        before = [signature(p) for p in (self.capture, self.db)]
+        proc, events = self.run_search('--contains', 'needle')
+        self.assertEqual(proc.returncode, 0, (proc.stderr, events))
+        self.assertEqual([e['occurrence'] for e in events[:-1]], [1, 2, 3])
+        self.assertEqual(events[-1]['occurrences_read'], 3)
+        self.assertEqual(events[-1]['matches'], 3)
+        self.assertNotIn('secret-', proc.stdout)
+        self.assertNotIn('raw_base64', proc.stdout)
+        self.assertEqual(before, [signature(p) for p in (self.capture, self.db)])
+
+    def test_bounded_peek_is_non_consuming_and_never_reads_past_snapshot(self):
+        spec = importlib.util.spec_from_file_location('raw_history_search', SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sample = self.root / 'bounds'
+        sample.write_bytes(b'abcdefEXTRA')
+        with sample.open('rb', buffering=0) as handle:
+            reader = mod.BoundedReader(handle, 6)
+            self.assertEqual(reader.peek(4), b'abcd')
+            self.assertEqual(reader.tell(), 0)
+            self.assertEqual(reader.read(4), b'abcd')
+            self.assertEqual(reader.peek(99), b'ef')
+            self.assertEqual(reader.tell(), 4)
+            self.assertEqual(reader.read(99), b'ef')
+            self.assertEqual(reader.peek(1), b'')
+            self.assertEqual(reader.read(1), b'')
+            handle.seek(1)
+            self.assertEqual(reader.peek(2), b'bc')
+            self.assertEqual(reader.tell(), 1)
+            self.assertEqual(reader.peek(0), b'')
+            with mock.patch.object(mod.os, 'pread', side_effect=OSError('private-secret')):
+                with self.assertRaises(mod.SourceReadError):
+                    reader.peek(1)
+            with mock.patch.object(mod.os, 'pread', side_effect=MemoryError):
+                with self.assertRaises(MemoryError):
+                    reader.peek(1)
+
+    def test_peek_source_error_is_sanitized_at_search_boundary(self):
+        if int(version.VERSION.split('.')[0]) < 12:
+            self.skipTest('FlowReader in this version does not peek')
+        spec = importlib.util.spec_from_file_location('raw_history_search', SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        events = []
+        with mock.patch.object(mod.os, 'pread', side_effect=OSError('private-secret')):
+            result = mod.search(self.capture, b'needle', False, events.append)
+        self.assertEqual(result, (0, 0, ['source-unavailable']))
+        self.assertEqual([e['type'] for e in events], ['source'])
+        self.assertNotIn('private-secret', repr(events))
+        with mock.patch.object(mod.os, 'pread', side_effect=MemoryError):
+            with self.assertRaises(MemoryError):
+                mod.search(self.capture, b'needle', False, events.append)
+
+    def test_truncation_during_scan_preserves_partial_matches(self):
+        spec = importlib.util.spec_from_file_location('raw_history_search', SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        original = self.capture.read_bytes()
+        mode = self.capture.stat().st_mode
+        events = []
+        def truncate(event):
+            events.append(event)
+            if event['type'] == 'match' and event['occurrence'] == 1:
+                with self.capture.open('r+b') as target:
+                    target.truncate(event['end_offset'] + 10)
+        count, matches, reasons = mod.search(self.capture, b'needle', False, truncate)
+        self.assertEqual((count, matches), (1, 1))
+        self.assertIn('invalid-or-truncated-capture', reasons)
+        self.assertIn('source-changed-during-search', reasons)
+        self.assertEqual([e['type'] for e in events], ['source', 'match', 'source-error'])
+        self.assertEqual(self.capture.read_bytes(), original[:events[1]['end_offset'] + 10])
+        self.assertEqual(self.capture.stat().st_mode, mode)
+        self.assertNotIn('secret-', repr(events))
+
     def test_historical_duplicate_binary_privacy_wal_and_program(self):
         with sqlite3.connect(self.db) as c:
             self.assertEqual(c.execute('select count(*) from requests').fetchone()[0], 2)
@@ -160,6 +235,11 @@ class RawHistoryTest(unittest.TestCase):
     def test_fallback_uses_mitmdump_python(self):
         if not Path('/usr/bin/mitmdump').is_file():
             self.skipTest('system mitmdump unavailable')
+        system_format = int(subprocess.check_output(
+            ['/usr/bin/python3', '-s', '-c',
+             'from mitmproxy.version import FLOW_FORMAT_VERSION; print(FLOW_FORMAT_VERSION)'], text=True))
+        if system_format < version.FLOW_FORMAT_VERSION:
+            self.skipTest('system fallback cannot decode newer fixture format')
         command = [sys.executable, '-S', str(SCRIPT), '--db', str(self.db), '--program', 'program-a', '--lane', 'lane-a', '--contains', 'needle']
         proc = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)

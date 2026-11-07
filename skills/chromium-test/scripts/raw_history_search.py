@@ -90,6 +90,14 @@ class BoundedReader:
         except OSError as exc:
             raise SourceReadError from exc
 
+    def peek(self, amount=0):
+        try:
+            position = self.handle.tell()
+            remaining = max(0, self.size - position)
+            return os.pread(self.handle.fileno(), min(max(0, amount), remaining), position)
+        except OSError as exc:
+            raise SourceReadError from exc
+
     def tell(self):
         try:
             return self.handle.tell()

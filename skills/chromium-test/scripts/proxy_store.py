@@ -601,7 +601,23 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
     skipped = 0
     with connect(db_path) as conn:
         init_db(conn)
+        conn.execute("BEGIN IMMEDIATE")
         now = time.time()
+        prior = conn.execute("SELECT * FROM lanes WHERE lane=?", (args.lane,)).fetchone()
+        # A lane name and even a reused file path do not identify its owner.
+        # Missing owner components make the old/new capture ambiguous.
+        identity = {"program": program, "agent_id": metadata["agent_id"], "run_id": metadata["run_id"]}
+        same_capture = bool(
+            prior and prior["flow_file"]
+            and Path(prior["flow_file"]).is_absolute()
+            and Path(prior["flow_file"]).expanduser().resolve() == flow_file.resolve()
+            and all(value and prior[key] == value for key, value in identity.items())
+        )
+        if same_capture:
+            for key in ("runtime_host", "browser_profile_id", "session_source"):
+                if metadata[key] is None:
+                    metadata[key] = prior[key]
+        note = prior["note"] if same_capture and args.note is None else args.note
         conn.execute(
             """
             INSERT INTO lanes(lane, program, task, account, profile_dir, proxy_server, flow_file, raw_dir, first_indexed_at, last_indexed_at, note)
@@ -624,11 +640,11 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
                 metadata.get("account_label"),
                 lane_state.get("profile_dir"),
                 metadata.get("proxy_server"),
-                str(flow_file),
+                str(flow_file.resolve()),
                 str(flow_file.parent),
                 now,
                 now,
-                args.note,
+                note,
             ),
         )
         conn.execute(

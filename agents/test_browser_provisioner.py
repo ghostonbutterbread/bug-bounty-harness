@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -95,6 +96,143 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
 
 def start_args():
     return argparse.Namespace(program="demo", account="fixture", auth_domain=None, agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy="none", proxy_ownership="task", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None, display_backend=None, kasmvnc_display=None, kasmvnc_web_port=None)
+
+
+def test_finish_reindex_preserves_lane_and_request_metadata(monkeypatch, tmp_path, capsys):
+    if not shutil.which("mitmdump"):
+        pytest.skip("real mitmproxy required")
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    for name, path in {
+        "HOME": home, "TMPDIR": tmp_path, "XDG_CONFIG_HOME": home / "config",
+        "XDG_CACHE_HOME": home / "cache", "XDG_DATA_HOME": home / "data",
+        "XDG_STATE_HOME": home / "state", "HARNESS_SHARED_BASE": tmp_path / "shared",
+    }.items():
+        monkeypatch.setenv(name, str(path))
+    m = load(monkeypatch, tmp_path)
+    store = home / ".local/share/ghost/proxy-store/proxy_store.sqlite"
+    monkeypatch.setattr(m, "DEFAULT_STORE", store)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "unit_identity", lambda _: "fixture-invocation")
+    monkeypatch.setattr(m, "proxy_ready", lambda _: True)
+    args = start_args()
+    with monkeypatch.context() as fake_systemd:
+        fake_systemd.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=0))
+        row, created = m.start_proxy(m.db(), args)
+    assert created
+    executable, python = m.mitm_runtime()
+    flow = Path(m.proxy_metadata(row)["flow_file"])
+    subprocess.run([python, "-c", (
+        "import sys; from mitmproxy import http, connection; from mitmproxy.io import FlowWriter; "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',1234),sockname=('127.0.0.1',8080),timestamp_start=1), connection.Server(address=('example.test',80))); "
+        "f.request=http.Request.make('GET','http://example.test/one?key=value'); "
+        "out=open(sys.argv[1],'wb'); FlowWriter(out).add(f); out.close()"
+    ), str(flow)], check=True, capture_output=True, text=True)
+    base = [python, *(["-s"] if executable == "/usr/bin/mitmdump" else []), str(m.PROXY_STORE),
+            "--db", str(store), "--json", "index-lane", "--lane", row["lane"],
+            "--lane-root", str(flow.parent.parent), "--flow-file", str(flow),
+            "--program", "demo", "--task", "test", "--run-id", "run", "--agent-id", "agent",
+            "--account-label", "fixture", "--proxy-host", "127.0.0.1", "--proxy-port", str(row["port"]),
+            "--proxy-server", m.proxy_metadata(row)["proxy_server"], "--transport", "mixed"]
+    first = subprocess.run(base + ["--runtime-host", "first-host", "--browser-profile-id", "first-profile",
+                                   "--session-source", "first-source", "--note", "first-note"],
+                           check=True, capture_output=True, text=True)
+    assert json.loads(first.stdout)["indexed"] == 1
+    def metadata():
+        with sqlite3.connect(store) as conn:
+            lane = conn.execute("select runtime_host,browser_profile_id,session_source,note,request_count from lanes").fetchone()
+            request = conn.execute("select runtime_host,browser_profile_id,session_source from requests").fetchone()
+            return lane, request
+    expected = (("first-host", "first-profile", "first-source", "first-note", 1),
+                ("first-host", "first-profile", "first-source"))
+    assert metadata() == expected
+    with pytest.raises(SystemExit) as exc:
+        m.finish_proxy(args)
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "finished"
+    assert metadata() == expected
+    # A repeat and a partial explicit update keep omitted values. Empty note is
+    # an existing explicit clear; the other attribution flags use truthy values.
+    subprocess.run(base, check=True, capture_output=True, text=True)
+    assert metadata() == expected
+    subprocess.run(base + ["--runtime-host", "second-host", "--note", ""],
+                   check=True, capture_output=True, text=True)
+    expected = (("second-host", "first-profile", "first-source", "", 1),
+                ("second-host", "first-profile", "first-source"))
+    assert metadata() == expected
+
+    # Index a new origin and additional real flow: the fresh request inherits
+    # existing attribution, while explicit proxy and profile values take effect.
+    subprocess.run([python, "-c", (
+        "import sys; from mitmproxy import http, connection; from mitmproxy.io import FlowWriter; "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',1234),sockname=('127.0.0.1',8080),timestamp_start=1), connection.Server(address=('other.test',80))); "
+        "f.request=http.Request.make('GET','http://other.test/two'); "
+        "out=open(sys.argv[1],'ab'); FlowWriter(out).add(f); out.close()"
+    ), str(flow)], check=True, capture_output=True, text=True)
+    subprocess.run(base + ["--proxy-host", "other-proxy", "--proxy-port", "9999",
+                           "--proxy-server", "http://other-proxy:9999", "--browser-profile-id", "second-profile",
+                           "--session-source", "second-source", "--note", "second-note"],
+                   check=True, capture_output=True, text=True)
+    with sqlite3.connect(store) as conn:
+        assert conn.execute("select runtime_host,browser_profile_id,session_source,note,proxy_host,proxy_port,request_count from lanes").fetchone() == (
+            "second-host", "second-profile", "second-source", "second-note", "other-proxy", 9999, 2)
+        assert conn.execute("select host,runtime_host,browser_profile_id,session_source,proxy_host,proxy_port from requests order by host").fetchall() == [
+            ("example.test", "second-host", "second-profile", "second-source", "other-proxy", 9999),
+            ("other.test", "second-host", "second-profile", "second-source", "other-proxy", 9999)]
+        before = [conn.execute(f"select * from {table} order by rowid").fetchall()
+                  for table in ("lanes", "requests", "params", "request_packets")]
+
+    # A malformed trailing flow must roll back the lane and earlier request
+    # updates too, rather than leaving attribution half-written.
+    with flow.open("ab") as output:
+        output.write(b"not a valid mitmproxy flow")
+    failed = subprocess.run(base + ["--runtime-host", "should-rollback", "--note", "should-rollback"],
+                            capture_output=True, text=True)
+    assert failed.returncode != 0
+    with sqlite3.connect(store) as conn:
+        after = [conn.execute(f"select * from {table} order by rowid").fetchall()
+                 for table in ("lanes", "requests", "params", "request_packets")]
+    assert after == before
+
+
+def test_reindex_legacy_lane_does_not_inherit_ambiguous_note(monkeypatch, tmp_path):
+    executable = shutil.which("mitmdump")
+    if not executable:
+        pytest.skip("real mitmproxy required")
+    assert executable is not None
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    for name, path in {"HOME": home, "TMPDIR": tmp_path, "XDG_CONFIG_HOME": home / "config",
+                       "XDG_CACHE_HOME": home / "cache", "XDG_DATA_HOME": home / "data",
+                       "XDG_STATE_HOME": home / "state", "HARNESS_SHARED_BASE": tmp_path / "shared",
+                       "HARNESS_BOUNTY_ARTIFACT_ROOT": tmp_path / "artifacts",
+                       "BROWSER_PROVISIONER_STATE": tmp_path / "manager.sqlite"}.items():
+        monkeypatch.setenv(name, str(path))
+    resolved = Path(executable).resolve()
+    python = resolved.open("rb").readline().decode().strip()[2:]
+    flow = tmp_path / "legacy.mitm"
+    subprocess.run([python, "-c", (
+        "import sys; from mitmproxy import http, connection; from mitmproxy.io import FlowWriter; "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',1234),sockname=('127.0.0.1',8080),timestamp_start=1), connection.Server(address=('example.test',80))); "
+        "f.request=http.Request.make('GET','http://example.test/legacy'); "
+        "out=open(sys.argv[1],'wb'); FlowWriter(out).add(f); out.close()"
+    ), str(flow)], check=True, capture_output=True, text=True)
+    db = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.execute("""create table lanes(lane text primary key, program text, task text, account text,
+                     profile_dir text, proxy_server text, flow_file text, raw_dir text,
+                     first_indexed_at real, last_indexed_at real, request_count integer default 0, note text)""")
+        conn.execute("insert into lanes(lane,first_indexed_at,note) values('legacy',123,'legacy-note')")
+    command = [python, *(["-s"] if str(resolved) == "/usr/bin/mitmdump" else []),
+               str(SCRIPT.parent / "proxy_store.py"), "--db", str(db), "--json", "index-lane",
+               "--lane", "legacy", "--lane-root", str(tmp_path), "--flow-file", str(flow)]
+    for _ in range(2):
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("select first_indexed_at,note,runtime_host,browser_profile_id,session_source,request_count from lanes").fetchone() == (
+            123, None, None, None, None, 1)
+        assert conn.execute("select count(*) from requests").fetchone() == (1,)
 
 
 def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):

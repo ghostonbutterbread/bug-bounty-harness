@@ -61,6 +61,8 @@
 - `mitm_lane.py` — local task MITM lane lifecycle.
 - `hoster_mitm_lane.py` — bounded Hoster-backed MITM lane lifecycle.
 - `proxy_store.py` — sanitized SQLite index for captured lane traffic.
+- `raw_history_search.py` — read-only, occurrence-oriented retained raw capture
+  search, independent of the collapsed request index (see below).
 - `mitm_chromium_profile.py` — imports the selected MITM CA into one Chromium
   profile.
 - `install.sh` — explicit package-manager installer for the required `certutil`
@@ -665,6 +667,15 @@ Do not use this command to bypass a refusal with a different account/slot.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_hoster_mitm_lane.py -q`
 - **Owner/scope:** Chromium Test skill.
 - **Last verified:** 2026-09-10.
+
+## `raw_history_search.py`
+
+- **Owner:** Chromium test / local proxy history. Last verified 2026-11-06.
+- **Invocation:** `bbh skills/chromium-test/scripts/raw_history_search.py --program <program> --lane <lane> --contains <text>`; use `--contains-hex <hex>` for arbitrary bytes and `--db <path>` for a nondefault index. Search terms in command arguments may be visible to other local processes; do not use secret terms in argv.
+- **Inputs and output:** a private temporary copy of the existing index (including WAL), plus retained capture files named by exact program/lane index metadata. JSON lines report source byte bounds, match occurrence and byte offsets, matching field names, then a summary. If a decoder raises an ordinary exception while reading a record, a `source-error` event identifies its source and starting byte offset with a fixed reason, never parser text or capture data; matches before that record remain valid and the process exits 2 after the incomplete summary. Memory exhaustion, interrupts, and exit signals are not converted to decoder errors; exceptions outside the decoder retain their existing behavior. Source paths and metadata can themselves be sensitive. Only with explicit `--show-raw` are full fields emitted in base64: these can include credentials and bodies; handle output as secrets. Search covers reconstructed request/status lines, URL, headers and raw bodies as separate fields; terms cannot span fields. Start lines use mitmproxy's retained byte components with synthetic separators, and status codes are serialized as decimal; the URL is reconstructed. These are not guaranteed wire-exact, particularly for HTTP/2 and HTTP/3, which do not have HTTP/1 start lines. Search does not reconstruct the entire original wire message. Body search uses stored raw content bytes, not decompressed bodies.
+- **Limitations:** the index is source discovery, not a per-occurrence authority: legacy UIDs collapsed duplicates, lane metadata can have been overwritten, and historical files have no original fingerprint. Every result is therefore `incomplete` as to historical provenance and coverage; a zero match never proves absence. Relative indexed paths and sources shared across program/lane owners (including hardlinks and symlinks) are not searched; malformed indexed paths fail discovery. `--capture <path>` searches an explicitly selected file with unknown provenance and never associates it with the selected program or lane. Missing, truncated, malformed, changed, or unretained content is reported incomplete. Each capture is bounded to its size at open; source identity and metadata are checked, but these checks cannot eliminate all concurrent/adversarial changes or establish original provenance. Offsets/timestamps describe the present file, not an attested historical time. Verify the final summary even after receiving matches. A summary with only the two historical uncertainty reasons retains exit 0 for compatibility; other incomplete conditions exit 2.
+- **Mutation boundary:** never writes captures, original database, WAL or SHM; it opens SQLite only on a private temporary copy, then deletes it. The temporary directory contains potentially sensitive indexed material. No allocator, indexer, replay, network, browser, or service is touched. Run with a compatible installed mitmproxy; if the BBH interpreter lacks it, the command uses the interpreter named by the installed `mitmdump` shebang, with user site disabled.
+- **Verification:** `/usr/bin/python3 -s agents/test_raw_history_search.py -v` with a private pre-import HOME/TMPDIR. Tests use mitmproxy's real reader/writer and the historical index producer; independent review remains required.
 
 ## `proxy_store.py`
 

@@ -10,6 +10,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -190,8 +191,14 @@ def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
         return {"status": "missing-flow-file", "flow_file": str(flow_file)}
 
     directory = lane_dir(root, args.lane)
-    replay_file = directory / f"replay-{int(time.time())}.mitm"
-    replay_log = directory / f"replay-{int(time.time())}.log"
+    # Each replay owns a new private directory, so older artifacts, including
+    # links or files with permissive modes, are never reused or truncated.
+    replay_dir = Path(tempfile.mkdtemp(prefix="replay-", dir=directory))
+    replay_file = replay_dir / "replay.mitm"
+    replay_log = replay_dir / "replay.log"
+    # mitmdump opens the output path itself; reserve it privately before launch.
+    fd = os.open(replay_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(fd)
     command = [
         args.mitmdump,
         "-n",
@@ -211,7 +218,9 @@ def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
         env=mitm_env(),
         timeout=args.timeout,
     )
-    replay_log.write_text(proc.stdout)
+    fd = os.open(replay_log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as log:
+        log.write(proc.stdout)
     return {
         "status": "replayed" if proc.returncode == 0 else "replay-failed",
         "returncode": proc.returncode,

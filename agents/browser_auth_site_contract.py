@@ -8,6 +8,7 @@ requesting the fixed check URL; verify_check_response is the post-request gate.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import stat
@@ -36,12 +37,14 @@ class SiteContract:
     account_alias: str
     allowed_origins: tuple[str, ...]
     check_url: str
-    principal_selector: str
+    principal_selector: str | None
     expected_principal: str
     local_storage_keys: tuple[str, ...]
     cookie_name: str
     cookie_domain: str
     cookie_path: str
+    state_mode: str = 'selected-cookie'
+    principal_json_key: str | None = None
 
 
 def _object(value: object, keys: set[str]) -> dict:
@@ -127,10 +130,12 @@ def load_site_contract(path: str | Path, *, program: str, auth_domain: str,
     Errors are safe to show publicly and contain no raw file content or path.
     """
     try:
-        data = _object(_safe_read(Path(path)), {
+        raw = _safe_read(Path(path))
+        mode = 'exact-origin' if type(raw) is dict and raw.get('state_mode') == 'exact-origin' else 'selected-cookie'
+        data = _object(raw, {
             'program', 'auth_domain', 'account_alias', 'allowed_origins',
-            'check', 'local_storage_keys', 'cookie_selector', 'disposable_fixture',
-        })
+            'check', 'disposable_fixture',
+        } | ({'state_mode'} if mode == 'exact-origin' else {'local_storage_keys', 'cookie_selector'}))
         fixture = data['disposable_fixture'] is True
         if type(data['disposable_fixture']) is not bool:
             raise SiteContractError("Invalid fixture designation")
@@ -149,16 +154,37 @@ def load_site_contract(path: str | Path, *, program: str, auth_domain: str,
         requested_origin, _ = _url(origin, origin=True, fixture=fixture)
         if requested_origin not in [base for base, _ in parsed_origins]:
             raise SiteContractError("Site contract origin mismatch")
-        check = _object(data['check'], {'url', 'method', 'principal_selector', 'expected_principal'})
+        check_fields = {'url', 'method', 'expected_principal'}
+        check = data['check']
+        if type(check) is not dict or len({'principal_selector', 'principal_json_key'} & set(check)) != 1:
+            raise SiteContractError("Unsupported site contract shape")
+        check = _object(check, check_fields | ({'principal_json_key'} if 'principal_json_key' in check
+                                               else {'principal_selector'}))
         if check['method'] != 'GET':
             raise SiteContractError("Unsupported login check method")
         check_base, _ = _url(check['url'], fixture=fixture)
         if check_base != requested_origin:
             raise SiteContractError("Login check must be same-origin")
-        selector = _text(check['principal_selector'])
-        if not re.fullmatch(r'#[A-Za-z][A-Za-z0-9_-]*|\[data-testid="[A-Za-z][A-Za-z0-9_-]*"\]', selector):
-            raise SiteContractError("Unsupported principal selector")
+        selector = None
+        json_key = None
+        if 'principal_selector' in check:
+            selector = _text(check['principal_selector'])
+            if not re.fullmatch(r'#[A-Za-z][A-Za-z0-9_-]*|\[data-testid="[A-Za-z][A-Za-z0-9_-]*"\]', selector):
+                raise SiteContractError("Unsupported principal selector")
+        else:
+            json_key = _text(check['principal_json_key'])
+            if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', json_key):
+                raise SiteContractError("Unsupported principal JSON key")
         expected = _text(check['expected_principal'])
+        if mode == 'exact-origin':
+            if fixture:
+                raise SiteContractError("Fixture cannot use exact-origin mode")
+            host = dict(parsed_origins)[requested_origin]
+            if ('.' not in host or host in _SECOND_LEVEL_SUFFIXES or
+                    all(part.isdigit() for part in host.split('.'))):
+                raise SiteContractError("Invalid cookie host")
+            return SiteContract(*pool, tuple(base for base, _ in parsed_origins),
+                                check['url'], selector, expected, (), '', host, '', mode, json_key)
         keys = data['local_storage_keys']
         if (type(keys) is not list or not keys or len(keys) > 16 or
                 any(not isinstance(k, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.:-]*', k) for k in keys) or
@@ -175,7 +201,8 @@ def load_site_contract(path: str | Path, *, program: str, auth_domain: str,
                 not cookie_path.startswith('/') or cookie_path.startswith('//')):
             raise SiteContractError("Invalid cookie selector")
         return SiteContract(*pool, tuple(base for base, _ in parsed_origins),
-                            check['url'], selector, expected, tuple(keys), name, domain, cookie_path)
+                            check['url'], selector, expected, tuple(keys), name, domain, cookie_path,
+                            principal_json_key=json_key)
     except SiteContractError:
         raise
     except (OSError, ValueError, TypeError, UnicodeError) as exc:
@@ -198,6 +225,83 @@ def verify_cookie_scope(contract: SiteContract, *, browser_domain: str,
     if (not (host_only is True or prefix_proof) or
             type(browser_domain) is not str or browser_domain != contract.cookie_domain):
         raise SiteContractError("Browser cookie scope is not host-only for selected domain")
+
+
+def exact_origin_cookie_params(cookies: object, host: str, origin: str) -> list[dict]:
+    """Convert only provably applicable, unpartitioned CDP cookies to setCookies params.
+
+    CDP cannot distinguish an exact-host Domain cookie from a host-only one:
+    import either as host-only at the reviewed origin, narrowing any Domain scope.
+    A strict parent domain still needs positive Domain-scope evidence.
+    """
+    if type(cookies) is not list or len(cookies) > 256:
+        raise SiteContractError("Cookie inventory is unsupported")
+    selected = []
+    identities = set()
+    total_bytes = 0
+    for cookie in cookies:
+        if type(cookie) is not dict or type(cookie.get('domain')) is not str:
+            raise SiteContractError("Cookie inventory is unsupported")
+        domain = cookie['domain'].lstrip('.')
+        if not (domain == host or host.endswith('.' + domain)):
+            continue
+        if (len(selected) >= 32 or
+                set(cookie) - {'name', 'value', 'domain', 'path', 'secure', 'httpOnly',
+                               'session', 'expires', 'size', 'sameSite', 'priority',
+                               'sameParty', 'sourceScheme', 'sourcePort', 'partitionKey',
+                               'partitionKeyOpaque', 'hostOnly'} or
+                type(cookie.get('name')) is not str or
+                type(cookie.get('value')) is not str or type(cookie.get('path')) is not str or
+                not cookie['path'].startswith('/') or cookie['path'].startswith('//') or
+                type(cookie.get('secure')) is not bool or type(cookie.get('httpOnly')) is not bool or
+                type(cookie.get('session')) is not bool or
+                (cookie.get('hostOnly') is not None and type(cookie['hostOnly']) is not bool) or
+                cookie.get('partitionKey') is not None or cookie.get('partitionKeyOpaque') is True or
+                cookie.get('sameParty') is True or
+                cookie.get('sourceScheme', 'Secure') not in ('Secure', 'NonSecure') or
+                ('sourcePort' in cookie and
+                 (type(cookie['sourcePort']) is not int or not -1 <= cookie['sourcePort'] <= 65535)) or
+                ('sameSite' in cookie and cookie['sameSite'] not in ('Strict', 'Lax', 'None')) or
+                ('priority' in cookie and cookie['priority'] not in ('Low', 'Medium', 'High'))):
+            raise SiteContractError("Cookie cannot be represented safely")
+        total_bytes += sum(len(cookie[k].encode()) for k in ('name', 'value', 'path', 'domain'))
+        if total_bytes > 131072:
+            raise SiteContractError("Cookie payload is unsupported")
+        if domain == host:
+            if ((cookie.get('hostOnly') is True and cookie['domain'] != host) or
+                    (cookie['name'].startswith('__Host-') and
+                     (cookie['domain'] != host or cookie.get('hostOnly') is False or
+                      not cookie['secure'] or cookie['path'] != '/'))):
+                raise SiteContractError("Cookie host scope is ambiguous")
+        elif cookie.get('hostOnly') is True or (
+                not cookie['domain'].startswith('.') and cookie.get('hostOnly') is not False):
+            # A parent cookie without domain-scope evidence might be an unrelated
+            # host-only cookie returned by getAllCookies, not applicable here.
+            raise SiteContractError("Cookie parent scope is ambiguous")
+        # Distinct source scopes can collapse to one host-only recipient cookie;
+        # even parent cookies with the same name/path are ambiguous at this URL.
+        identity = (cookie['name'], cookie['path'])
+        if identity in identities:
+            raise SiteContractError("Duplicate applicable cookie")
+        identities.add(identity)
+        params = {k: cookie[k] for k in ('name', 'value', 'path', 'secure', 'httpOnly')}
+        if domain == host:
+            params['url'] = origin + cookie['path']
+        else:
+            params['domain'] = cookie['domain']
+            params['url'] = origin + cookie['path']
+        for key in ('sameSite', 'priority', 'sourceScheme', 'sourcePort'):
+            if key in cookie:
+                params[key] = cookie[key]
+        if not cookie['session']:
+            expires = cookie.get('expires')
+            if type(expires) not in (float, int) or not math.isfinite(expires) or expires <= 0:
+                raise SiteContractError("Cookie expiry is unsupported")
+            params['expires'] = expires
+        selected.append(params)
+    if not selected:
+        raise SiteContractError("No applicable cookies")
+    return selected
 
 
 def verify_check_response(contract: SiteContract, *, response_url: str,

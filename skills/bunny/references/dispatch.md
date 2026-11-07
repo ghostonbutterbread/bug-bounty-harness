@@ -22,6 +22,21 @@ Spawn the subagents needed for the campaign and let them work. Use the current h
   Do not launch these collaborative role files or require a collaboration
   protocol.
 
+For browser-dependent assignments, Bunny selects the policy-permitted browser
+tier before dispatch. For a supported Bunny-owned team browser on the same
+trusted browser node as the worker, Bunny issues `team-grant` only at a safe
+checkpoint and sends its **private reference** to the exact worker/run through
+the trusted worker packet. The worker does not call the provisioner; its
+Chromium Test wrapper uses `team_browser(reference, worker, run)` to attach and
+disconnect; the packet contains no raw CDP URL. A worker on another host or
+without that wrapper does not have this direct-control route.
+Bunny reads `team-status` for the granted worker and adapter activity without
+asking the worker whether it is done. A quiet adapter is not release: after the
+worker's natural completion or a verified handoff checkpoint, Bunny calls
+`team-return` on its exact reference before granting another worker. If the
+route cannot grant or return safely, retain the owner-driver relay or queue the
+browser-dependent slice; do not release and re-provision merely to take turns.
+
 A worker's displayed name is not proof that it loaded its role and skills.
 Give it the canonical role and the selected checkout's `bunny-collaborative`
 paths, and have it read both before any target action. Verify the effective

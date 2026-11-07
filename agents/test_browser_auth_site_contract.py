@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from agents.browser_auth_site_contract import (
     SiteContractError, load_site_contract, verify_check_response, verify_cookie_scope,
+    exact_origin_cookie_params,
 )
 
 
@@ -72,6 +73,140 @@ class ContractTests(unittest.TestCase):
         contract = self.load(program='sample', auth_domain='login.example.org',
                              account_alias='owned', origin='https://app.example.org')
         self.assertEqual(contract.allowed_origins, ('https://app.example.org',))
+
+    def test_json_principal_key_accepts_exact_origin_and_expected_principal(self):
+        self.data.update(program='sample', auth_domain='example.org', account_alias='owned',
+                         disposable_fixture=False, allowed_origins=['https://app.example.org'],
+                         state_mode='exact-origin')
+        del self.data['local_storage_keys']
+        del self.data['cookie_selector']
+        self.data['check'] = {'url': 'https://app.example.org/1/member/me', 'method': 'GET',
+                              'principal_json_key': 'id', 'expected_principal': 'owned-id'}
+        contract = self.load(program='sample', auth_domain='example.org',
+                             account_alias='owned', origin='https://app.example.org')
+        self.assertIsNone(contract.principal_selector)
+        self.assertEqual(contract.principal_json_key, 'id')
+        verify_check_response(contract, response_url=contract.check_url,
+                              status=200, redirected=False, principal='owned-id')
+        with self.assertRaises(SiteContractError):
+            verify_check_response(contract, response_url=contract.check_url,
+                                  status=200, redirected=False, principal='other-id')
+
+    def test_json_principal_key_refuses_invalid_schema_and_untrusted_values(self):
+        self.data['check'] = {'url': 'http://localhost:8765/me', 'method': 'GET',
+                              'principal_json_key': 'id', 'expected_principal': 'anon'}
+        for label, change in (
+            ('both modes', lambda d: d.update(principal_selector='#identity')),
+            ('neither mode', lambda d: d.pop('principal_json_key')),
+            ('nested key', lambda d: d.update(principal_json_key='account.id')),
+            ('script key', lambda d: d.update(principal_json_key='id\"); alert(1)')),
+            ('empty key', lambda d: d.update(principal_json_key='')),
+            ('nonstring key', lambda d: d.update(principal_json_key=['id'])),
+            ('nonstring principal', lambda d: d.update(expected_principal=7)),
+            ('wrong method', lambda d: d.update(method='POST')),
+            ('query URL', lambda d: d.update(url='http://localhost:8765/me?secret=raw-value')),
+            ('other origin', lambda d: d.update(url='https://else.example.org/me')),
+            ('extra key', lambda d: d.update(script='raw-value')),
+        ):
+            with self.subTest(label=label):
+                data = json.loads(json.dumps(self.data))
+                change(data['check'])
+                self.data = data
+                with self.assertRaises(SiteContractError) as caught:
+                    self.load()
+                self.assertNotIn('raw-value', str(caught.exception))
+                self.assertNotIn('alert(1)', str(caught.exception))
+                self.data['check'] = {'url': 'http://localhost:8765/me', 'method': 'GET',
+                                      'principal_json_key': 'id', 'expected_principal': 'anon'}
+
+    def test_exact_origin_mode_needs_no_cookie_selector_or_storage_keys(self):
+        self.data.update(program='sample', auth_domain='example.org',
+                         account_alias='owned', disposable_fixture=False,
+                         allowed_origins=['https://app.example.org'],
+                         state_mode='exact-origin')
+        self.data['check'].update(url='https://app.example.org/me', expected_principal='owned')
+        del self.data['cookie_selector']
+        del self.data['local_storage_keys']
+        contract = self.load(program='sample', auth_domain='example.org',
+                             account_alias='owned', origin='https://app.example.org')
+        self.assertEqual(contract.state_mode, 'exact-origin')
+        self.assertEqual(contract.local_storage_keys, ())
+        self.data['cookie_selector'] = {'name': '__Host-token', 'domain': 'app.example.org', 'path': '/'}
+        with self.assertRaises(SiteContractError):
+            self.load(program='sample', auth_domain='example.org',
+                      account_alias='owned', origin='https://app.example.org')
+
+    def test_exact_origin_cookie_params_preserve_host_only_and_parent_domain(self):
+        cookies = [
+            {'name': '__Host-session', 'value': 'private', 'domain': 'auth.example.test',
+             'path': '/', 'secure': True, 'httpOnly': True, 'sameSite': 'Lax',
+             'session': True, 'priority': 'High', 'size': 42},
+            {'name': 'shared', 'value': 'parent', 'domain': '.example.test',
+             'path': '/account', 'secure': True, 'httpOnly': True, 'sameSite': 'Strict',
+             'session': False, 'expires': 2000000000, 'priority': 'Medium', 'size': 30},
+            {'name': 'other', 'value': 'leave', 'domain': '.else.test', 'path': '/'},
+        ]
+        params = exact_origin_cookie_params(cookies, 'auth.example.test', 'https://auth.example.test')
+        self.assertEqual(len(params), 2)
+        self.assertNotIn('domain', params[0])
+        self.assertEqual(params[0]['url'], 'https://auth.example.test/')
+        self.assertEqual(params[0]['sameSite'], 'Lax')
+        self.assertNotIn('expires', params[0])
+        self.assertEqual(params[1]['domain'], '.example.test')
+        self.assertEqual(params[1]['path'], '/account')
+        self.assertEqual(params[1]['expires'], 2000000000)
+        self.assertNotIn('size', params[1])
+
+    def test_exact_origin_unprefixed_exact_host_narrows_to_url_scope(self):
+        for spelling, metadata in (('auth.example.test', {}),
+                                   ('auth.example.test', {'hostOnly': False}),
+                                   ('.auth.example.test', {})):
+            with self.subTest(spelling=spelling, metadata=metadata):
+                cookie = {'name': 'session', 'value': 'private', 'domain': spelling,
+                          'path': '/account', 'secure': True, 'httpOnly': True,
+                          'sameSite': 'Strict', 'session': False, 'expires': 2000000000,
+                          **metadata}
+                params = exact_origin_cookie_params([cookie], 'auth.example.test',
+                                                     'https://auth.example.test')
+                self.assertEqual(params, [{
+                    'name': 'session', 'value': 'private', 'url': 'https://auth.example.test/account',
+                    'path': '/account', 'secure': True, 'httpOnly': True,
+                    'sameSite': 'Strict', 'expires': 2000000000,
+                }])
+
+    def test_exact_origin_cookie_params_refuse_partition_or_invalid_host(self):
+        cookie = {'name': '__Host-session', 'value': 'secret', 'domain': 'auth.example.test',
+                  'path': '/', 'secure': True, 'httpOnly': True, 'session': True}
+        for alteration in ({'domain': '.auth.example.test'},
+                           {'domain': '.example.test', 'hostOnly': True},
+                           {'domain': 'example.test', 'name': 'plain'},
+                           {'domain': 'auth.example.test', 'hostOnly': False},
+                           {'partitionKey': {'topLevelSite': 'https://example.test'}},
+                           {'sameParty': True}, {'sourceScheme': 'Unknown'},
+                           {'futureCookieConstraint': 'unrepresented'}):
+            with self.subTest(alteration=alteration), self.assertRaises(SiteContractError) as caught:
+                exact_origin_cookie_params([{**cookie, **alteration}],
+                                           'auth.example.test', 'https://auth.example.test')
+            self.assertNotIn('secret', str(caught.exception))
+
+    def test_exact_origin_refuses_name_path_collision_across_source_scopes(self):
+        base = {'name': 'session', 'value': 'private', 'path': '/', 'secure': True,
+                'httpOnly': True, 'session': True}
+        for scopes in ((('auth.example.test', None), ('.auth.example.test', None)),
+                       (('auth.example.test', True), ('.example.test', False)),
+                       (('auth.example.test', None), ('auth.example.test', None))):
+            with self.subTest(scopes=scopes), self.assertRaises(SiteContractError):
+                exact_origin_cookie_params([{
+                    **base, 'domain': domain, **({'hostOnly': scope} if scope is not None else {})
+                } for domain, scope in scopes],
+                                           'auth.example.test', 'https://auth.example.test')
+
+    def test_exact_origin_cookie_payload_is_bounded(self):
+        cookie = {'name': '__Host-session', 'value': 'x' * 131073,
+                  'domain': 'auth.example.test', 'path': '/', 'secure': True,
+                  'httpOnly': True, 'session': True}
+        with self.assertRaises(SiteContractError):
+            exact_origin_cookie_params([cookie], 'auth.example.test', 'https://auth.example.test')
 
     def test_explicit_default_port_is_not_an_origin_alias(self):
         self.data['allowed_origins'] = ['https://app.example.org:443']

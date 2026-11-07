@@ -429,6 +429,26 @@ def proxy_fixture(m, args, root):
     return c
 
 
+@pytest.mark.parametrize("executable,expected", [("/usr/bin/mitmdump", ["/usr/bin/python3", "-s"]),
+                                                 ("/opt/venv/bin/mitmdump", ["/usr/bin/python3"])])
+def test_finish_indexes_with_matching_user_site_policy(monkeypatch, tmp_path, capsys, executable, expected):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    Path(m.proxy_metadata(m.proxy_row(c, args))["flow_file"]).write_bytes(b"fixture")
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: (executable, "/usr/bin/python3"))
+    commands = []
+    monkeypatch.setattr(m.subprocess, "run", lambda cmd, **kw: commands.append(cmd) or
+                        argparse.Namespace(returncode=0, stdout='{"status":"indexed"}'))
+    with pytest.raises(SystemExit) as result:
+        m.finish_proxy(args)
+    assert result.value.code == 0
+    assert commands[0][:len(expected)] == expected
+    assert commands[0][len(expected)] == str(m.PROXY_STORE)
+
+
 def test_finish_rejects_startup_intent_before_cdp_and_allows_replay_after_release(monkeypatch, tmp_path, capsys):
     m = load(monkeypatch, tmp_path)
     args = start_args()
@@ -511,6 +531,125 @@ def test_task_mitm_does_not_fallback_to_external_or_ignore(monkeypatch, tmp_path
     assert exc.value.code == 2
 
 
+@pytest.mark.parametrize("header,detail", [
+    ("#!/bin/bash\n", "mitmdump shell wrapper unsupported; select a Python entrypoint"),
+    ("#!/usr/bin/env python3\n", "mitmdump Python interpreter is unavailable"),
+    ("not a shebang\n", "mitmdump Python interpreter is unavailable"),
+    ("#!/missing/private-interpreter\n", "mitmdump Python interpreter is unavailable"),
+])
+def test_mitm_runtime_rejects_non_python_or_malformed_shebang(monkeypatch, tmp_path, header, detail):
+    m = load(monkeypatch, tmp_path)
+    executable = tmp_path / "mitmdump"
+    executable.write_text(header)
+    executable.chmod(0o700)
+    monkeypatch.setattr(m.shutil, "which", lambda _: str(executable))
+    with pytest.raises(RuntimeError) as exc:
+        m.mitm_runtime()
+    assert str(exc.value) == detail
+
+
+def test_shell_wrapper_start_reports_guidance_and_releases_own_resources(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+    monkeypatch.setattr(profiles, "local_filesystem", lambda _: True)
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    executable = tmp_path / "secret-executable-name"
+    executable.write_text("#!/bin/bash\n# secret-wrapper-content\n")
+    executable.chmod(0o700)
+    monkeypatch.setattr(m.shutil, "which", lambda _: str(executable))
+    args = start_args()
+    args.account = "anon"
+    args.proxy, args.proxy_cert_mode = "mitm", "import"
+    acquired = {}
+    def acquire(_, action, *rest):
+        assert action == "acquire"
+        acquired.update(profiles.cmd_acquire(argparse.Namespace(
+            program="demo", account="anon", auth_domain=None, agent_id="agent",
+            run_id="run", purpose="test", ttl_seconds=60, state_dir=str(m.STATE.parent),
+            recover_profile=False, manager_id=m.manager_id())))
+        return acquired
+    monkeypatch.setattr(m, "lease", acquire)
+    c = m.db()
+    c.execute("insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state) values(?,?,?,?,?,?,?,?,?,?)",
+              ("other", "other-run", "demo", "anon", "test", "other-lane", 8081,
+               "other-unit", str(tmp_path / "other"), "running"))
+    c.commit()
+    reservation = {}
+    runtime = m.mitm_runtime
+    def observe_runtime():
+        reservation.update(dict(m.proxy_row(c, args)))
+        return runtime()
+    monkeypatch.setattr(m, "mitm_runtime", observe_runtime)
+
+    with pytest.raises(SystemExit) as exc:
+        m.start(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "proxy-failed",
+        "detail": "mitmdump shell wrapper unsupported; select a Python entrypoint",
+    }
+    assert acquired["status"] == "leased" and reservation["lane"] != "other-lane"
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        released = leases.execute("select status,profile_health from browser_profile_leases where lease_id=?",
+                                  (acquired["lease"]["lease_id"],)).fetchone()
+        assert tuple(released) == ("released", "healthy")
+    assert c.execute("select lane from task_proxies order by lane").fetchall()[0][0] == "other-lane"
+    assert c.execute("select count(*) from task_proxies").fetchone()[0] == 1
+    assert m.proxy_row(c, args) is None
+
+
+def test_custom_mitmdump_keeps_user_site(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    home = tmp_path / "custom-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONNOUSERSITE", raising=False)
+    site = Path(subprocess.run(["/usr/bin/python3", "-m", "site", "--user-site"],
+                               capture_output=True, text=True, check=True, timeout=20).stdout.strip())
+    assert site.is_relative_to(home)
+    site.mkdir(parents=True)
+    (site / "custom_dependency.py").write_text("VALUE = 'custom-user-site'\n")
+    interpreter = tmp_path / "custom-interpreter"
+    interpreter.symlink_to("/usr/bin/python3")
+    executable = tmp_path / "mitmdump"
+    executable.write_text(f"#!{interpreter}\nimport custom_dependency\nprint(custom_dependency.VALUE)\n")
+    executable.chmod(0o700)
+    monkeypatch.setattr(m.shutil, "which", lambda _: str(executable))
+    selected, python = m.mitm_runtime()
+    result = subprocess.run([selected], capture_output=True, text=True, check=True, timeout=20)
+    assert python == str(interpreter) and result.stdout.strip() == "custom-user-site"
+
+
+def test_system_mitmdump_unit_isolates_only_its_user_site(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    commands = []
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: ("/usr/bin/mitmdump", "/usr/bin/python3"))
+    monkeypatch.setattr(m, "unit_identity", lambda _: "invocation")
+    monkeypatch.setattr(m, "proxy_ready", lambda _: True)
+    monkeypatch.setattr(m.subprocess, "run", lambda cmd, **kw: commands.append(cmd) or argparse.Namespace(returncode=0))
+    m.start_proxy(c, start_args())
+    assert "--setenv=PYTHONNOUSERSITE=1" in commands[0][:commands[0].index("--")]
+
+
+def test_task_proxy_failed_dispatch_removes_its_reservation(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = m.db()
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: ("/usr/bin/mitmdump", "/usr/bin/python3"))
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=1))
+    with pytest.raises(RuntimeError, match="failed to start"):
+        m.start_proxy(c, args)
+    assert m.proxy_row(c, args) is None
+
+
 def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     args = start_args()
@@ -532,6 +671,7 @@ def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, t
     row, created = m.start_proxy(c, args)
     assert created and row["state"] == "running"
     assert commands[0][0] == "systemd-run" and "--listen-port" in commands[0]
+    assert "--setenv=PYTHONNOUSERSITE=1" not in commands[0]
     assert "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent" not in commands[0]
     assert Path(row["run_dir"]).stat().st_mode & 0o777 == 0o700
     assert (Path(row["run_dir"]) / "mitmproxy").stat().st_mode & 0o777 == 0o700
@@ -866,6 +1006,51 @@ def test_failed_ca_rollback_marks_reservation_recoverable(monkeypatch, tmp_path)
     assert m.proxy_row(c, args)["state"] == "cleanup-failed"
 
 
+def test_system_mitmdump_poisoned_user_site_still_indexes(monkeypatch, tmp_path, capsys):
+    if not Path("/usr/bin/mitmdump").is_file():
+        pytest.skip("system mitmdump unavailable")
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    home = tmp_path / "poison-home"
+    home.mkdir(mode=0o700)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONNOUSERSITE", raising=False)
+    site = subprocess.run(["/usr/bin/python3", "-m", "site", "--user-site"],
+                          capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    assert Path(site).is_relative_to(home)
+    poison = Path(site) / "OpenSSL"
+    poison.mkdir(parents=True)
+    (poison / "__init__.py").write_text('raise RuntimeError("fixture poisoned user site")\n')
+    baseline = subprocess.run(["/usr/bin/python3", "/usr/bin/mitmdump", "--version"],
+                              capture_output=True, text=True, timeout=120)
+    assert baseline.returncode != 0 and "fixture poisoned user site" in baseline.stderr
+    safe = subprocess.run(["/usr/bin/python3", "-s", "/usr/bin/mitmdump", "--version"],
+                          capture_output=True, text=True, timeout=120)
+    assert safe.returncode == 0, safe.stderr
+    flow = Path(m.proxy_metadata(m.proxy_row(c, args))["flow_file"])
+    fixture = (
+        "from mitmproxy import connection,http,io; import sys; "
+        "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',12345),"
+        "sockname=('127.0.0.1',8081),timestamp_start=1.0),"
+        "connection.Server(address=('example.test',443))); "
+        "f.request=http.Request.make('GET','https://example.test/check'); "
+        "o=open(sys.argv[1],'wb'); io.FlowWriter(o).add(f); o.close()"
+    )
+    subprocess.run(["/usr/bin/python3", "-s", "-c", fixture, str(flow)], check=True, timeout=120)
+    monkeypatch.setattr(m.shutil, "which", lambda _: "/usr/bin/mitmdump")
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    with pytest.raises(SystemExit) as outcome:
+        m.finish_proxy(args)
+    assert outcome.value.code == 0, capsys.readouterr().out
+    assert m.proxy_row(c, args) is None
+    db_path = home / ".local/share/ghost/proxy-store/proxy_store.sqlite"
+    with sqlite3.connect(db_path) as index:
+        assert index.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 1
+
+
 @pytest.mark.parametrize("recovery", [False, True])
 def test_task_proxy_completion_indexes_private_default_and_releases(
     monkeypatch, tmp_path, capsys, recovery,
@@ -890,8 +1075,7 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
         "from mitmproxy import connection, http, io; import sys; "
         "f=http.HTTPFlow(connection.Client(peername=('127.0.0.1',12345),"
         "sockname=('127.0.0.1',8081),timestamp_start=1.0), "
-        "connection.Server(peername=('example.test',443),"
-        "address=('example.test',443))); "
+        "connection.Server(address=('example.test',443))); "
         "f.request=http.Request.make('GET','https://example.test/check'); "
         "o=open(sys.argv[1],'wb'); io.FlowWriter(o).add(f); o.close()"
     )

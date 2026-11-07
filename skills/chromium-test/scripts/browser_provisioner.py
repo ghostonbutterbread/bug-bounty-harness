@@ -1320,9 +1320,12 @@ def mitm_runtime():
         raise RuntimeError("mitmdump is unavailable")
     resolved = Path(executable).resolve()
     shebang = resolved.open("rb").readline().decode("utf-8", errors="replace").strip()
-    if not shebang.startswith("#!/") or not Path(shebang[2:]).is_file():
+    interpreter = shebang[2:] if shebang.startswith("#!/") else ""
+    if not Path(interpreter).is_file():
         raise RuntimeError("mitmdump Python interpreter is unavailable")
-    return str(resolved), shebang[2:]
+    if Path(interpreter).resolve().name in {"sh", "bash", "dash", "zsh", "ksh", "fish"}:
+        raise RuntimeError("mitmdump shell wrapper unsupported; select a Python entrypoint")
+    return str(resolved), interpreter
 
 
 def proxy_ready(row):
@@ -1383,11 +1386,14 @@ def start_proxy(c, args):
         conf = root / "mitmproxy"
         conf.mkdir(mode=0o700)
         os.chmod(conf, 0o700)
-        cmd = [mitm_runtime()[0], "--listen-host", "127.0.0.1", "--listen-port", str(port),
+        executable, _ = mitm_runtime()
+        cmd = [executable, "--listen-host", "127.0.0.1", "--listen-port", str(port),
                "--set", f"confdir={conf}", "--set", "flow_detail=0", "-w", str(root / "flows.mitm")]
-        result = subprocess.run(["systemd-run", "--user", "--unit=" + row["unit"],
-                                 "--property=UMask=0077", "--property=MemoryMax=512M", "--", *cmd],
-                                capture_output=True, text=True, env=sysenv())
+        unit = ["systemd-run", "--user", "--unit=" + row["unit"],
+                "--property=UMask=0077", "--property=MemoryMax=512M"]
+        if executable == "/usr/bin/mitmdump":
+            unit.append("--setenv=PYTHONNOUSERSITE=1")
+        result = subprocess.run([*unit, "--", *cmd], capture_output=True, text=True, env=sysenv())
         if result.returncode:
             raise RuntimeError("task MITM service failed to start")
         invocation = unit_identity(row["unit"])
@@ -3393,11 +3399,11 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
     flow = Path(proxy_metadata(row)["flow_file"])
     if flow.exists() and flow.stat().st_size:
         try:
-            python = mitm_runtime()[1]
+            executable, python = mitm_runtime()
         except (RuntimeError, OSError):
             emit({"status": "proxy-index-failed", "lane": row["lane"],
                   "detail": "mitmdump Python unavailable; reservation retained"}, 2)
-        cmd = [python, str(PROXY_STORE), "--json", "index-lane", "--lane", row["lane"],
+        cmd = [python, *(["-s"] if executable == "/usr/bin/mitmdump" else []), str(PROXY_STORE), "--json", "index-lane", "--lane", row["lane"],
                "--lane-root", str(Path(row["run_dir"]).parent), "--flow-file", str(flow),
                "--program", row["program"], "--task", row["purpose"],
                "--agent-id", row["agent_id"], "--run-id", row["run_id"],

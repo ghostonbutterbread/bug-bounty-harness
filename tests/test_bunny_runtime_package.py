@@ -89,10 +89,12 @@ def test_team_messages_are_direct_with_explicit_relay_fallback():
 def test_operations_and_evidence_ownership_stay_separate():
     text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
     assert "Coordinator-owned operational support" in text
-    assert "share one team browser by default" in text
-    assert "one active controller at a time" in text
-    assert "owner remains its driver" in text
-    assert "another browser" in text
+    assert "Bunny owns provisioning" in text
+    assert "same-principal separate browsers" in text
+    assert "two approved accounts" in text
+    assert "one persistent team browser" in text
+    assert "used by one worker at a time" in text
+    assert "owner-driver relay" in text
     assert "unrelated productive work" in text
     assert "Evidence authorship stays with the producer" in text
     assert "not an implicit surface-lease transfer" in text
@@ -127,8 +129,9 @@ def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
         "delegate` immediately changes the ledger owner",
         "delegated but unacknowledged",
         "authorized reclaim path",
-        "supported transfer or release/re-provision",
-        "surface ACK alone never transfers browser control",
+        "return its exact private grant",
+        "no routine re-provisioning follows a compaction",
+        "never pretend a surface ACK grants browser control",
         "do not repeatedly rotate unmeasured replacements",
         "context-rotated successor, preserving the count",
     ):

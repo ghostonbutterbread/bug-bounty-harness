@@ -72,6 +72,7 @@ class PipeBrowser:
         self.roots = {}
         self.token = secrets.token_urlsafe(32)
         self.rotating = False
+        self.team_pending = False
         self.frozen = False
         self.transfer = None
         self.transfer_destination = False
@@ -84,6 +85,7 @@ class PipeBrowser:
         self.last_activity = time.time()
         self.last_use = time.monotonic()
         self.inflight = 0
+        self.meaningful_count = 0
         self.reserved_until = 0.0
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
@@ -251,6 +253,7 @@ class PipeBrowser:
                 self.inflight += 1
                 if activity:
                     self.mark_activity()
+                    self.meaningful_count += 1
                 try:
                     answer = await asyncio.wait_for(self.call(
                         command["method"], command.get("params"), session, generation, epoch
@@ -314,6 +317,7 @@ class PipeBrowser:
                 "idle_seconds": max(0, time.monotonic() - self.last_use),
                 "inflight": self.inflight,
                 "attached_clients": len(self.clients),
+                "meaningful_count": self.meaningful_count,
                 "reserved_seconds": max(0, self.reserved_until - time.monotonic()),
                 "frozen": self.frozen}
 
@@ -325,6 +329,7 @@ class PipeBrowser:
             "process_identity": process_identity(self.process.pid),
             "cdp_url": f"http://127.0.0.1:{self.port}/{self.token}",
             "available": not self.rotating and not self.frozen and not self.transfer and not self.quarantined,
+            "team_pending": self.team_pending,
             "quarantined": self.quarantined,
         })
 
@@ -394,6 +399,50 @@ class PipeBrowser:
             self.reserved_until = 0
             self.mark_activity()
 
+    async def team_fence(self, request):
+        """Private detached-only barrier; no worker identity or grant is issued.
+
+        The manager may use this only after it has an authenticated recipient
+        channel. Unlike idle takeover, elapsed time does not authorize eviction.
+        """
+        if self.team_pending:
+            # A previous call may have lost its reply or failed at the CDP
+            # barrier. Do not certify that generation until the barrier works.
+            if 'result' not in await self.call('Browser.getVersion'):
+                raise web.HTTPServiceUnavailable()
+            self.team_fence_verified = True
+            return web.json_response({'fenced': True,
+                                      'cdp_url': f'http://127.0.0.1:{self.port}/{self.token}'})
+        if (self.transfer or self.quarantined or self.rotating or self.frozen
+                or self.inflight or self.clients or self.reserved_until > time.monotonic()):
+            raise web.HTTPConflict()
+        self.rotating = True
+        self.token = secrets.token_urlsafe(32)
+        self.epoch += 1
+        self.team_pending = True
+        self.team_fence_verified = False
+        # On a failed barrier retain rotating=True: neither generation may
+        # drive until exact manager recovery (or the browser is stopped).
+        reply = await self.call('Browser.getVersion')
+        if 'result' not in reply:
+            raise web.HTTPServiceUnavailable()
+        # Do not expose an unpublished generation. Only the manager's exact
+        # canonical/launch/grant publication may reopen this adapter.
+        self.team_fence_verified = True
+        return web.json_response({'fenced': True,
+                                  'cdp_url': f'http://127.0.0.1:{self.port}/{self.token}'})
+
+    async def team_activate(self, request):
+        data = await request.json()
+        generation = f'http://127.0.0.1:{self.port}/{self.token}'
+        if (data.get('cdp_url') != generation or not self.team_pending
+                or not getattr(self, 'team_fence_verified', False)):
+            raise web.HTTPConflict()
+        self.team_pending = False
+        self.team_fence_verified = False
+        self.rotating = False
+        return web.json_response({'activated': True})
+
     async def transfer_begin(self, request):
         """Exclusive adapter generation for a synchronous manager transaction."""
         data = await request.json()
@@ -430,7 +479,7 @@ class PipeBrowser:
     async def transfer_call(self, request):
         data = await request.json()
         method = data.get("method")
-        if method not in {"Runtime.evaluate", "Network.getAllCookies",
+        if method not in {"Runtime.evaluate", "Network.getAllCookies", "Network.getCookies",
                           "Network.setCookies", "Network.deleteCookies"}:
             raise web.HTTPBadRequest()
         async with self.transfer_lock:
@@ -578,6 +627,8 @@ class PipeBrowser:
         control = web.Application()
         control.router.add_get("/identity", self.identity)
         control.router.add_post("/rotate", self.rotate)
+        control.router.add_post("/team/fence", self.team_fence)
+        control.router.add_post("/team/activate", self.team_activate)
         control.router.add_get("/activity", self.activity)
         control.router.add_post("/freeze", self.freeze)
         control.router.add_post("/thaw", self.thaw)
@@ -627,7 +678,7 @@ def activity_control(socket_path, action="activity", **data):
     import httpx
 
     with httpx.Client(transport=httpx.HTTPTransport(uds=str(socket_path)), timeout=5) as client:
-        response = (client.get("http://localhost/activity") if action == "activity"
+        response = (client.get("http://localhost/" + action) if action in ("activity", "identity")
                     else client.post("http://localhost/" + action, json=data))
         response.raise_for_status()
         return response.json()

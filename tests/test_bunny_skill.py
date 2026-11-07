@@ -11,6 +11,22 @@ GOALS = SKILLS / "bug-goals" / "SKILL.md"
 
 
 class BunnySkillTests(unittest.TestCase):
+    def test_collaborative_browser_tiers_and_passive_team_grants(self):
+        text = " ".join(COLLABORATIVE.read_text(encoding="utf-8").split())
+        dispatch = " ".join((SKILLS / "bunny" / "references" / "dispatch.md")
+                            .read_text(encoding="utf-8").split())
+        self.assertLess(text.index("same-principal separate browsers"),
+                        text.index("two approved accounts"))
+        self.assertLess(text.index("two approved accounts"),
+                        text.index("one persistent team browser"))
+        for phrase in ("Bunny owns provisioning", "team-status", "team-grant",
+                       "team-return", "not proof that a quiet worker is done",
+                       "no routine re-provisioning"):
+            self.assertIn(phrase, text)
+        for phrase in ("private reference", "team_browser", "exact worker/run",
+                       "no raw CDP URL", "worker does not call the provisioner"):
+            self.assertIn(phrase, dispatch)
+
     def test_default_route_and_explicit_offhand(self):
         router = ROUTER.read_text(encoding="utf-8")
         self.assertIn("name: bunny\n", router)

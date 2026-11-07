@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 from agents.test_browser_auth_site_contract import write_fixture_contract
+from agents.test_browser_generic_auth_transfer import contract_file, ORIGIN, POOL
 
 ROOT = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 spec = importlib.util.spec_from_file_location('browser_provisioner_activation_fault', ROOT / 'browser_provisioner.py')
@@ -22,13 +23,20 @@ import browser_profile_lease as profiles
                                    'published-readback-unavailable', 'published-interrupted-readback-exit',
                                    'published-fence-unavailable'])
 @pytest.mark.parametrize('stop_succeeds', [True, False])
-def test_activation_is_irreversible_only_after_verified_application(tmp_path, monkeypatch, fault, stop_succeeds):
+@pytest.mark.parametrize('generic', [False, True])
+def test_activation_is_irreversible_only_after_verified_application(tmp_path, monkeypatch, fault, stop_succeeds, generic):
+    if generic and (fault, stop_succeeds) not in ((None, True), ('published-fence-unavailable', False)):
+        pytest.skip('generic path uses the same state machine; exercise representative outcomes')
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
     old = 'http://127.0.0.1:9222/old-private-token'
     new = 'http://127.0.0.1:9222/new-private-token'
     secret = 'fixture-secret-must-not-appear'
-    origin = 'http://localhost:31337'
-    write_fixture_contract(tmp_path, origin)
+    origin = ORIGIN if generic else 'http://localhost:31337'
+    if generic:
+        contract_file(tmp_path, cookie='__Host-session', keys=('fixture-credential',))
+    else:
+        write_fixture_contract(tmp_path, origin)
+    pool = POOL if generic else ('fixture', 'fixture.invalid', 'anon')
     rows, infos = [], []
     with manager.db() as db, profiles.connect(tmp_path / 'browser_profile_leases.sqlite') as leases:
         profiles.init_db(leases)
@@ -38,10 +46,10 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                     'process_identity': {'pid': 77}, 'unit_invocation': side + '-inv'}
             manager.private_json(launch, info)
             db.execute('INSERT INTO browsers (lease_id,browser_id,program,account,auth_domain,agent_id,run_id,purpose,unit,profile_dir,launch_file,state,last_activity,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (side, side, 'fixture', 'anon', 'fixture.invalid', 'agent', side + '-run',
+                       (side, side, pool[0], pool[2], pool[1], 'agent', side + '-run',
                         'fixture', side + '-unit', str(tmp_path / side), str(launch), 'running', 1, 1, 1))
             leases.execute('INSERT INTO browser_profile_leases (lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,profile_dir,status,browser_status,cdp_url,service_unit,created_at,heartbeat_at,expires_at,manager_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                           (side, 'fixture', 'anon', 'fixture.invalid', 'agent', side + '-run', 'fixture',
+                           (side, pool[0], pool[2], pool[1], 'agent', side + '-run', 'fixture',
                             str(tmp_path / side), 'active', 'running', old, side + '-unit', 1, 1, 9999999999,
                             manager.manager_id()))
             rows.append(db.execute('SELECT * FROM browsers WHERE lease_id=?', (side,)).fetchone())
@@ -117,7 +125,7 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                 return Response({'finalized': True})
             method = json['method']
             if method == 'Network.getAllCookies':
-                return Response({'result': {'cookies': [{'domain': 'localhost', 'name': '__Host-session',
+                return Response({'result': {'cookies': [{'domain': 'auth.example.test' if generic else 'localhost', 'name': '__Host-session',
                             'path': '/', 'httpOnly': True, 'secure': True, 'value': secret}] if s['cookie'] else []}})
             if method == 'Network.setCookies': s['cookie'] = True; return Response({'result': {}})
             if method == 'Network.deleteCookies': s['cookie'] = False; return Response({'result': {}})
@@ -125,10 +133,12 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
             expression = json['params']['expression']
             if expression == 'location.origin': value = origin
             elif expression == 'location.href': value = origin + '/app'
+            elif expression == 'localStorage.length': value = 0 if not s['storage'] else 1
+            elif expression == 'sessionStorage.length': value = 0
             elif expression.startswith('(async () => {') and 'DOMParser' in expression:
                 authenticated = s['cookie'] and s['storage']
                 value = {'url': origin + '/me', 'status': 200 if authenticated else 401,
-                         'redirected': False, 'principal': 'anon' if authenticated else 'guest'}
+                         'redirected': False, 'principal': ('blue' if generic else 'anon') if authenticated else 'guest'}
             elif expression.startswith('localStorage.getItem'): value = 'approved' if s['storage'] else None
             elif expression.startswith('localStorage.setItem'): s['storage'] = True; value = None
             elif expression.startswith('localStorage.removeItem'): s['storage'] = False; value = None
@@ -154,11 +164,17 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     monkeypatch.setattr(httpx, 'Client', Client)
     monkeypatch.setattr(httpx, 'get', lambda url, **kwargs: Response({
         'webSocketDebuggerUrl': new.replace('http:', 'ws:') + '/devtools/browser'}))
+    def attempt():
+        if generic:
+            return manager.manager_approved_auth_transfer('source', 'destination', origin=origin,
+                source_owner_agent_id='agent', source_owner_run_id='source-run',
+                destination_owner_agent_id='agent', destination_owner_run_id='destination-run')
+        return manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
     if fault in ('before', 'secondary-stop', 'secondary-readback', 'readback-exit',
                  'stop-exit', 'published-readback-exit', 'published-interrupted-readback-exit'):
         expected = SystemExit if fault in ('readback-exit', 'stop-exit', 'published-readback-exit') else KeyboardInterrupt
         with pytest.raises(expected) as interrupted:
-            manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+            attempt()
         notes = str(interrupted.value.__notes__)
         assert 'before verified activation' in notes or 'terminal activation uncertain' in notes
         assert 'destination=' + ('disposed' if stop_succeeds and fault not in ('secondary-stop', 'stop-exit') else 'cleanup-incomplete') in notes
@@ -172,31 +188,31 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
             assert 'public-exposure=possible' in notes
         assert stopped == ['destination']
     elif fault == 'published-fence-unavailable' and not stop_succeeds:
-        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
-        assert result == {'status': 'fixture-auth-transfer-terminal-uncertain',
+        result = attempt()
+        assert result == {'status': 'auth-transfer-terminal-uncertain' if generic else 'fixture-auth-transfer-terminal-uncertain',
                           'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
                           'public_exposure': 'possible'}
         assert stopped == ['destination']
         assert state['destination']['phase'] == 'activated' and not state['destination']['quarantined']
     elif fault == 'published-readback-unavailable' and not stop_succeeds:
-        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        result = attempt()
         assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-fenced-after-activation-uncertainty',
                           'source': 'owner-preserved', 'destination': 'fenced'}
         assert stopped == ['destination']
         assert secret not in str(result)
     elif fault == 'finalize-unproved' and not stop_succeeds:
-        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        result = attempt()
         assert result == {'status': 'auth-clone-unavailable',
                           'reason': 'destination-fenced-after-activation-uncertainty',
                           'source': 'owner-preserved', 'destination': 'fenced'}
         assert stopped == ['destination']
     elif fault in ('published-readback-unavailable', 'published-fence-unavailable', 'finalize-unproved'):
-        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        result = attempt()
         assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-disposed-after-end-uncertainty'}
         assert stopped == ['destination']
     else:
-        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
-        assert result == {'status': 'fixture-auth-transferred'}
+        result = attempt()
+        assert result == {'status': 'auth-transferred' if generic else 'fixture-auth-transferred'}
         assert stopped == []
         assert state['destination']['available'] and not state['destination']['quarantined']
         assert secret not in str(result)

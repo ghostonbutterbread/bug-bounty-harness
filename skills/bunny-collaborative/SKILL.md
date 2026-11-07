@@ -30,16 +30,25 @@ For an interactive CLI worker, send one bounded turn at a time through the same 
 
 The coordinator owns productive conditions: dependency ordering, resource
 placement, browser/proxy provisioning, login recovery, and collision resolution
-through the existing owning skills. A worker reports the concrete prerequisite
-and a non-secret identity alias; it does not become its own provisioning agent.
-For compatible work, share one team browser by default, with one active controller at a time.
-The browser's owner remains its driver; other workers ask that owner for browser
-actions and receive observations. Bunny coordinates these requests through the
-existing worker channels; a parent-owned endpoint is not automatically a child
-lease. If it is busy or a separate identity or concurrent work needs isolation,
-provision another browser under the appropriate identity when policy and
-capacity permit; otherwise queue the work. Keep ownership and cleanup explicit,
-and pass private references rather than raw credentials.
+through the existing owning skills. Bunny owns provisioning; a worker reports a
+concrete prerequisite and non-secret identity alias, never calls the provisioner.
+Choose browser allocation in this order for browser-dependent parallel work:
+**same-principal separate browsers** when program/account session policy and an
+approved reusable seed permit independent principal-verified instances (a live
+manager clone is not Bunny-callable merely because a manager pilot passed);
+**two approved accounts** only when both tasks permit their assigned principals;
+otherwise **one persistent team browser**, owned by Bunny for the campaign and
+used by one worker at a time. Do not change an agent's account to fill a slot.
+Under the supported headless pipe-fenced team route, Bunny reads `team-status`
+for passive adapter activity, issues `team-grant` to the exact worker/run via a
+private reference, and uses `team-return` at a natural completed checkpoint
+before granting the next worker. Connected clients and in-flight commands show
+browser use; silence is not proof that a quiet worker is done. Never evict on idle
+time alone or do routine re-provisioning just to change workers. A headed/native
+input or unverified grant route stays with its owner-driver relay or queues the
+browser-dependent work; a parent-owned endpoint alone is not a child lease.
+Keep each browser/profile/proxy owner and cleanup explicit; pass no raw controller,
+credentials or writable profile to the worker.
 
 Inspect a conflicting resource's owner before acting. Do not take over another
 worker's controller, account session, port, or live process; allocate an isolated
@@ -123,11 +132,14 @@ impersonate either worker or silently disclose private content to a replacement.
 Carry forward the remaining aggregate budget, browser/account
 ownership, and negative-challenge feedback count; rotation does not reset any
 of them. Record old and new worker/session IDs and why the change occurred.
-Before the old browser driver exits, identify its controller and arrange the
-owning provisioner's supported transfer or release/re-provision with verified
-lease state. If another team driver remains, the successor asks that owner for
-browser actions instead; surface ACK alone never transfers browser control.
-If neither route is available, the browser-dependent slice stays blocked.
+For a Bunny-owned team browser, keep its Chrome/profile/proxy alive across this
+worker rotation. At the safe checkpoint, confirm the outgoing worker has stopped
+driving, return its exact private grant and grant the same browser to the
+preassigned successor; no routine re-provisioning follows a compaction. For a
+worker-owned browser, use only its separately supported ownership route; never
+pretend a surface ACK grants browser control. If a safe direct grant is not
+available, keep a continuing owner-driver relay or block the browser-dependent
+slice rather than silently transferring a controller.
 Confirm the old worker's exit or stop before admitting its replacement, then
 spawn a fresh same-role session with the original scope/rules and checked
 model/provider/approval gate, a **separate Attempt stream**, and only the

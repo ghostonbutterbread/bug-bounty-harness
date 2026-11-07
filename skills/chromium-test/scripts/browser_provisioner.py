@@ -91,6 +91,12 @@ def db():
         lease_id TEXT PRIMARY KEY, program TEXT NOT NULL, auth_domain TEXT NOT NULL,
         account TEXT NOT NULL, generation INTEGER NOT NULL,
         state TEXT NOT NULL CHECK(state IN ('pending','applying','applied')))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS team_grants (
+        lease_id TEXT PRIMARY KEY, grant_id TEXT NOT NULL,
+        worker_agent_id TEXT NOT NULL, worker_run_id TEXT NOT NULL,
+        reference TEXT NOT NULL, generation TEXT NOT NULL,
+        process_identity TEXT NOT NULL, baseline INTEGER NOT NULL DEFAULT 0)""")
+    c.execute('CREATE TABLE IF NOT EXISTS team_pending (lease_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
     return c
 
 
@@ -304,28 +310,32 @@ def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
             # generation. Do not materialize an auth_generation, identity, or grant.
             return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
 
-def _fixture_policy_pool(manager_db, leases, source_id, destination_id):
-    """Read-only exact fixture pool evidence before any browser health probe.
+def _transfer_policy_pool(manager_db, leases, source_id, destination_id, *, fixture_only=True):
+    """Read-only exact pool evidence before any browser health probe.
 
     A mismatch defers to the full candidate gate; it never grants transfer.
     Called only under the manager node lock and canonical write transaction.
     """
     if not source_id or not destination_id or source_id == destination_id:
         return None
+    rows = []
     for lid in (source_id, destination_id):
         row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
         canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
         if (not row or not canonical or row['state'] != 'running'
                 or canonical['status'] != 'active' or canonical['browser_status'] != 'running'
                 or canonical['expires_at'] <= now()
-                or tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
+                or (fixture_only and tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL)
                 or any(canonical[k] != v for k, v in (
                     ('program', row['program']), ('auth_domain', row['auth_domain']),
                     ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
                     ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
                     ('service_unit', row['unit']), ('manager_id', manager_id())))):
             return None
-    return FIXTURE_POOL
+        rows.append(row)
+    source, dest = rows
+    key = ('program', 'auth_domain', 'account')
+    return tuple(source[k] for k in key) if all(source[k] == dest[k] for k in key) else None
 
 
 def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticketed=False):
@@ -430,18 +440,50 @@ def _fixture_site_contract(origin):
         raise SiteContractError('Unsupported fixture state')
     return contract
 
+def _auth_contract_filename(pool):
+    """Opaque, deterministic manager-only filename for an exact three-part pool."""
+    digest = hashlib.sha256(json.dumps(pool, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
+    return digest + '.json'
 
-def _fixture_check_expression(contract):
-    # Fixed manager code: URL and selector are JSON data, not executable caller code.
+def _approved_site_contract(pool, origin):
+    if str(ROOT.parents[2]) not in sys.path:
+        sys.path.insert(0, str(ROOT.parents[2]))
+    from agents.browser_auth_site_contract import load_site_contract, SiteContractError
+    contract = load_site_contract(STATE.parent / 'auth-site-contracts' / _auth_contract_filename(pool),
+        program=pool[0], auth_domain=pool[1], account_alias=pool[2], origin=origin)
+    if pool == FIXTURE_POOL or not origin.startswith('https://'):
+        raise SiteContractError('Approved transfer requires a non-fixture HTTPS origin')
+    return contract
+
+
+def _fixture_check_expression(contract, *, omit_credentials=False):
+    # Fixed manager code: URL and selector/key are JSON data, not caller code.
+    credential_mode = "'omit'" if omit_credentials else "'same-origin'"
+    if contract.principal_json_key is not None:
+        key = json.dumps(contract.principal_json_key)
+        return """(async () => {
+            const response = await fetch(%s, {redirect: 'manual', credentials: %s});
+            const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
+            if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
+            let principal = '';
+            try {
+                const data = await response.json();
+                if (data !== null && typeof data === 'object' && !Array.isArray(data) &&
+                    Object.prototype.hasOwnProperty.call(data, %s) && typeof data[%s] === 'string') {
+                    principal = data[%s];
+                }
+            } catch (_) { /* malformed JSON is an unauthenticated observation */ }
+            return {url: response.url, status: response.status, redirected: false, principal};
+        })()""" % (json.dumps(contract.check_url), credential_mode, key, key, key)
     return """(async () => {
-        const response = await fetch(URL, {redirect: 'manual', credentials: 'same-origin'});
+        const response = await fetch(%s, {redirect: 'manual', credentials: %s});
         const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
         if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
         const html = await response.text();
-        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(SELECTOR);
+        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(%s);
         return {url: response.url, status: response.status, redirected: false,
                 principal: element ? element.textContent.trim() : ''};
-    })()""".replace('URL', json.dumps(contract.check_url)).replace('SELECTOR', json.dumps(contract.principal_selector))
+    })()""" % (json.dumps(contract.check_url), credential_mode, json.dumps(contract.principal_selector))
 
 
 def _fixture_verified_observation(contract, observation):
@@ -614,24 +656,49 @@ def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, own
 
 
 def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
-    """Private fixture-only synchronous transfer; never a CLI or generic site API.
+    """Compatibility entry: disposable localhost pool only, unchanged receipt."""
+    if not _fixture_origin(origin):
+        return {'status': 'auth-clone-unavailable', 'reason': 'site-contract-unavailable'}
+    return _manager_auth_transfer(source_lease_id, destination_lease_id, origin=origin,
+                                  fixture_only=True)
 
-    Only the disposable pool is supported. The manager selects a private
-    fixture contract; the caller cannot supply selectors, scripts or a path.
+def manager_approved_auth_transfer(source_lease_id, destination_lease_id, *, origin,
+                                   source_owner_agent_id, source_owner_run_id,
+                                   destination_owner_agent_id, destination_owner_run_id):
+    """Privileged coordinator operation for an approved HTTPS pool, empty recipient.
+
+    Lease and owner arguments are assertions, not credentials. Only invoke from
+    a manager-controlled process, never expose this as an agent RPC. The private
+    contract path and actual pool are derived from canonical manager records.
     """
-    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(origin)
+        valid = (parsed.scheme == 'https' and parsed.hostname and
+                 parsed.netloc == (parsed.hostname + (f':{parsed.port}' if parsed.port else ''))
+                 and parsed.port != 443 and origin == f'https://{parsed.netloc}')
+    except (TypeError, ValueError):
+        valid = False
+    if not valid:
+        return {'status': 'auth-clone-unavailable', 'reason': 'site-contract-unavailable'}
+    owners = ((source_owner_agent_id, source_owner_run_id),
+              (destination_owner_agent_id, destination_owner_run_id))
+    if any(not isinstance(value, str) or not value for pair in owners for value in pair):
+        return {'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
+    return _manager_auth_transfer(source_lease_id, destination_lease_id, origin=origin,
+                                  fixture_only=False, expected_owners=owners)
+
+def _manager_auth_transfer(source_lease_id, destination_lease_id, *, origin,
+                           fixture_only, expected_owners=None):
+    """Single fenced transaction for both fixture and approved-origin transfer."""
     import browser_profile_lease as profiles
     import httpx
     if str(ROOT.parents[2]) not in sys.path:
         sys.path.insert(0, str(ROOT.parents[2]))
-    from agents.browser_auth_site_contract import (SiteContractError, load_site_contract,
-        verify_check_response, verify_cookie_scope)
+    from agents.browser_auth_site_contract import SiteContractError, verify_cookie_scope, exact_origin_cookie_params
     unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
-    parsed = urlsplit(origin) if isinstance(origin, str) else None
-    if (not parsed or parsed.scheme != 'http' or parsed.hostname != 'localhost'
-            or not parsed.port or parsed.path or parsed.query or parsed.fragment
-            or origin != f'http://localhost:{parsed.port}'
-            or not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)):
+    if (not isinstance(source_lease_id, str) or not source_lease_id or
+            not isinstance(destination_lease_id, str) or not destination_lease_id or
+            source_lease_id == destination_lease_id):
         return unavailable('site-contract-unavailable')
 
     class TransferError(Exception):
@@ -662,8 +729,8 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         require('exceptionDetails' not in result, 'app-check-failed')
         return result.get('result', {}).get('value')
 
-    def app_check(client, ticket):
-        observation = eval_js(client, ticket, check)
+    def app_check(client, ticket, *, unauthenticated=False):
+        observation = eval_js(client, ticket, negative_check if unauthenticated else check)
         return _fixture_verified_observation(contract, observation)
     with node_lock(STATE):
         with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
@@ -676,15 +743,27 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             # Policy flips must deny before healthy() probes either CDP endpoint.
             # This read-only gate verifies both exact owners in manager/canonical
             # rows; the full process, socket and health gate still follows.
-            pool = _fixture_policy_pool(manager_db, leases, source_lease_id, destination_lease_id)
+            pool = _transfer_policy_pool(manager_db, leases, source_lease_id, destination_lease_id,
+                                        fixture_only=fixture_only)
+            if not fixture_only and not pool:
+                return unavailable('manager-identity-unverified')
+            if expected_owners and pool:
+                rows = [manager_db.execute('SELECT agent_id,run_id FROM browsers WHERE lease_id=?',
+                                           (lid,)).fetchone() for lid in (source_lease_id, destination_lease_id)]
+                if any(row is None or (row['agent_id'], row['run_id']) != owner
+                       for row, owner in zip(rows, expected_owners)):
+                    return unavailable('manager-identity-unverified')
             if pool and profiles.single_browser_policy(leases, pool[0], pool[2], pool[1]):
                 return unavailable('single-browser-policy')
             candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
             if not candidates:
                 return unavailable('manager-identity-unverified')
-            if any((row['program'], row['auth_domain'], row['account']) !=
-                   ('fixture', 'fixture.invalid', 'anon') for row, _, _ in candidates):
+            if fixture_only and any(tuple(row[k] for k in ('program','auth_domain','account')) != FIXTURE_POOL
+                                    for row, _, _ in candidates):
                 return unavailable('site-contract-unavailable')
+            if expected_owners and any((row['agent_id'], row['run_id']) != owner
+                                       for (row, _, _), owner in zip(candidates, expected_owners)):
+                return unavailable('manager-identity-unverified')
             if any(info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
                    for row, info, _ in candidates):
                 return unavailable('manager-identity-unverified')
@@ -696,13 +775,21 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                               source_row['account'], source_row['auth_domain']):
                 return unavailable('single-browser-policy')
             try:
-                contract = _fixture_site_contract(origin)
+                actual_pool = tuple(source_row[k] for k in ('program', 'auth_domain', 'account'))
+                contract = (_fixture_site_contract(origin) if fixture_only else
+                            _approved_site_contract(actual_pool, origin))
             except SiteContractError:
                 return unavailable('site-contract-unavailable')
             check = _fixture_check_expression(contract)
+            negative_check = (_fixture_check_expression(contract, omit_credentials=True)
+                              if not fixture_only else check)
+            def reaches_origin(cookie):
+                domain = cookie.get('domain', '').lstrip('.')
+                return (contract.cookie_domain == domain or
+                        contract.cookie_domain.endswith('.' + domain))
 
-            # This is deliberately a fixture boundary, not a transport for
-            # authenticated production accounts or arbitrary origins.
+            # The approved contract remains a selector, not proof of login:
+            # each independently fenced browser must attest its own principal.
             clients = []
             tickets = []
             uncertain_begin = set()
@@ -720,6 +807,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             reason = None
             interruption = None
             cleanup_failure = None
+            exact_mode = False
+            selected = []
+            storage = {}
+            entries = []
             def published_receipt(probe, phase):
                 status = control(probe, 'status', {'ticket': tickets[1]})
                 identity = probe.get('http://localhost/identity')
@@ -785,34 +876,127 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     # Destination must already be provisioned and at the exact origin;
                     # never overwrite an authenticated or populated destination.
                     require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
-                    require(not app_check(destination, dt), 'destination-not-empty')
-                    require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
+                    if not fixture_only:
+                        require(eval_js(destination, dt, 'localStorage.length') == 0 and
+                                eval_js(destination, dt, 'sessionStorage.length') == 0,
+                                'destination-not-empty')
+                        require(not any(reaches_origin(c) for c in
+                                        call(destination, dt, 'Network.getAllCookies')['cookies']),
+                                'destination-not-empty')
+                    require(not app_check(destination, dt, unauthenticated=not fixture_only),
                             'destination-not-empty')
+                    if not fixture_only:
+                        require(eval_js(destination, dt, 'localStorage.length') == 0 and
+                                eval_js(destination, dt, 'sessionStorage.length') == 0 and
+                                not any(reaches_origin(c) for c in
+                                        call(destination, dt, 'Network.getAllCookies')['cookies']),
+                                'destination-not-empty')
+                    for key in contract.local_storage_keys:
+                        require(eval_js(destination, dt, 'localStorage.getItem(' + json.dumps(key) + ')') is None,
+                                'destination-not-empty')
                     cookies = call(source, st, 'Network.getAllCookies')['cookies']
-                    selected = [c for c in cookies if c['domain'] == contract.cookie_domain
-                                and c['name'] == contract.cookie_name and c.get('path') == contract.cookie_path]
-                    require(len(selected) == 1 and selected[0].get('httpOnly') is True,
-                            'source-cookie-unverified')
-                    try:
-                        verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
-                            host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
-                            browser_path=selected[0].get('path'))
-                    except SiteContractError:
-                        raise TransferError('source-cookie-unverified') from None
+                    exact_mode = not fixture_only and contract.state_mode == 'exact-origin'
+                    source_cookie_snapshot = {}
+                    if exact_mode:
+                        try:
+                            selected = exact_origin_cookie_params(cookies, contract.cookie_domain, origin)
+                        except SiteContractError:
+                            raise TransferError('source-cookie-unverified') from None
+                        # Conversion can narrow an exact-host Domain cookie to
+                        # host-only. Retain its raw scope/attributes as well so
+                        # that a later source scope change cannot compare equal.
+                        source_cookie_snapshot = {
+                            (c['name'], c['path']): dict(c) for c in cookies if reaches_origin(c)
+                        }
+                    else:
+                        selected = [c for c in cookies if c['domain'] == contract.cookie_domain
+                                    and c['name'] == contract.cookie_name and c.get('path') == contract.cookie_path]
+                        require(len(selected) == 1 and selected[0].get('httpOnly') is True,
+                                'source-cookie-unverified')
+                        try:
+                            verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
+                                host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
+                                browser_path=selected[0].get('path'))
+                        except SiteContractError:
+                            raise TransferError('source-cookie-unverified') from None
                     existing = call(destination, dt, 'Network.getAllCookies')['cookies']
-                    require(not any(c['domain'] == contract.cookie_domain for c in existing), 'destination-not-empty')
-                    storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
-                    require(storage == 'approved', 'source-storage-unverified')
+                    require(not any(reaches_origin(c) if not fixture_only else
+                                    c['domain'] == contract.cookie_domain for c in existing),
+                            'destination-not-empty')
+                    if exact_mode:
+                        require(eval_js(source, st, 'sessionStorage.length') == 0,
+                                'source-storage-unverified')
+                        entries = eval_js(source, st, 'Object.entries(localStorage)')
+                        require(type(entries) is list and len(entries) <= 64 and
+                                all(type(pair) is list and len(pair) == 2 and
+                                    all(type(item) is str for item in pair) for pair in entries),
+                                'source-storage-unverified')
+                        storage = dict(entries)
+                        require(len(storage) == len(entries) and
+                                sum(len(k.encode()) + len(v.encode()) for k, v in storage.items()) <= 65536,
+                                'source-storage-unverified')
+                    else:
+                        storage = {key: eval_js(source, st, 'localStorage.getItem(' + json.dumps(key) + ')')
+                                   for key in contract.local_storage_keys}
+                        require(all(isinstance(value, str) and value and
+                                    (not fixture_only or value == 'approved') for value in storage.values()),
+                                'source-storage-unverified')
                     imported = True  # cleanup even if the CDP write succeeds but its reply is lost
                     call(destination, dt, 'Network.setCookies', {'cookies': selected})
-                    eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
-                    require(app_check(destination, dt), 'destination-app-check-failed')
-                    # Any failure in the post-import source recheck must dispose the
-                    # imported recipient, including a lost source command reply.
+                    for key, value in storage.items():
+                        eval_js(destination, dt, 'localStorage.setItem(' + json.dumps(key) + ',' + json.dumps(value) + ')')
+                    if exact_mode:
+                        try:
+                            copied = exact_origin_cookie_params(
+                                call(destination, dt, 'Network.getAllCookies')['cookies'],
+                                contract.cookie_domain, origin)
+                        except SiteContractError:
+                            raise TransferError('destination-cookie-unverified') from None
+                        host_only = {(c['name'], c['path']) for c in selected if 'domain' not in c}
+                        if host_only:
+                            child = origin.replace('://', '://probe.', 1)
+                            child_cookies = call(destination, dt, 'Network.getCookies',
+                                {'urls': [child + c['path'] for c in selected if 'domain' not in c]})['cookies']
+                            require(type(child_cookies) is list and
+                                    all(type(c) is dict and (c.get('name'), c.get('path')) not in host_only
+                                        for c in child_cookies), 'destination-cookie-unverified')
+                        require(copied == selected and
+                                eval_js(destination, dt, 'Object.entries(localStorage)') == entries,
+                                'destination-state-unverified')
+                    # Even a failed or interrupted recipient check must be followed
+                    # by source principal/state proof before rollback can release
+                    # an imported recipient. Preserve the original interruption.
                     source_recheck_failed = True
-                    require(app_check(source, st) and eval_js(source, st, 'location.href') == source_url,
-                            'source-changed')
-                    source_recheck_failed = False
+                    recipient_check_error = None
+                    try:
+                        recipient_passed = app_check(destination, dt)
+                    except BaseException as exc:
+                        recipient_passed = False
+                        recipient_check_error = exc
+                    source_unchanged = False
+                    try:
+                        source_unchanged = (app_check(source, st) and
+                                            eval_js(source, st, 'location.href') == source_url)
+                        if source_unchanged and exact_mode:
+                            try:
+                                rechecked_cookies = call(source, st, 'Network.getAllCookies')['cookies']
+                                source_unchanged = (exact_origin_cookie_params(
+                                    rechecked_cookies, contract.cookie_domain, origin) == selected and
+                                    {(c['name'], c['path']): c for c in rechecked_cookies
+                                     if reaches_origin(c)} == source_cookie_snapshot)
+                            except SiteContractError:
+                                source_unchanged = False
+                            if source_unchanged:
+                                source_unchanged = eval_js(source, st, 'Object.entries(localStorage)') == entries
+                    except BaseException:
+                        if recipient_check_error is None:
+                            raise
+                    if source_unchanged:
+                        source_recheck_failed = False
+                    if recipient_check_error is not None:
+                        raise recipient_check_error.with_traceback(recipient_check_error.__traceback__)
+                    require(source_unchanged, 'source-changed')
+                    require(recipient_passed, 'destination-app-check-failed')
                     require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
                                                       ticketed=True)),
                             'manager-identity-changed')
@@ -829,14 +1013,23 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     active_failure = sys.exc_info()[1]
                     if imported:
                         try:
-                            if reason:
+                            if reason or active_failure is not None:
                                 destination, dt = clients[1], tickets[1]
-                                call(destination, dt, 'Network.deleteCookies',
-                                     {'name': contract.cookie_name, 'url': origin + '/'})
-                                eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
-                                cleaned = (not app_check(destination, dt) and
-                                           eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
-                                           not any(c['domain'] == contract.cookie_domain for c in
+                                for cookie in (selected if exact_mode else [{'name': contract.cookie_name,
+                                                                               'url': origin + contract.cookie_path,
+                                                                               'path': contract.cookie_path}]):
+                                    call(destination, dt, 'Network.deleteCookies',
+                                         {k: cookie[k] for k in ('name', 'url', 'domain', 'path') if k in cookie})
+                                for key in storage:
+                                    eval_js(destination, dt, 'localStorage.removeItem(' + json.dumps(key) + ')')
+                                cleaned = (not app_check(destination, dt, unauthenticated=not fixture_only) and
+                                           ((eval_js(destination, dt, 'localStorage.length') == 0 and
+                                             eval_js(destination, dt, 'sessionStorage.length') == 0)
+                                            if not fixture_only else
+                                            all(eval_js(destination, dt, 'localStorage.getItem(' + json.dumps(key) + ')') is None
+                                                for key in contract.local_storage_keys)) and
+                                           not any(reaches_origin(c) if not fixture_only else
+                                                   c['domain'] == contract.cookie_domain for c in
                                                    call(destination, dt, 'Network.getAllCookies')['cookies']))
                         except BaseException as exc:
                             cleaned = False
@@ -874,7 +1067,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             if active_failure is None and interruption is None and cleanup_failure is None:
                                 cleanup_failure = exc
                 if cleanup_failure is not None:
-                    raise cleanup_failure.with_traceback(cleanup_failure.__traceback__)
+                    if isinstance(cleanup_failure, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                        reason = 'destination-cleanup-incomplete'
+                    else:
+                        raise cleanup_failure.with_traceback(cleanup_failure.__traceback__)
                 if uncertain_begin:
                     # A missing ticket or lost source-end reply is not proof of
                     # release. Check only this manager-recorded process/generation;
@@ -896,6 +1092,23 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             pass
                     if not imported:
                         cleaned = True
+                # An end ACK does not prove the source is usable. Independently
+                # read the exact original process and public generation before
+                # publishing the recipient; never alter or stop the source.
+                if imported and not fixture_only and 0 not in uncertain_begin:
+                    try:
+                        with httpx.Client(transport=httpx.HTTPTransport(
+                                uds=candidates[0][1]['control_socket']), timeout=15) as source_probe:
+                            reply = source_probe.get('http://localhost/identity')
+                            reply.raise_for_status()
+                            observed = reply.json()
+                            info = candidates[0][1]
+                            if not (observed.get('available') is True and observed.get('quarantined') is False
+                                    and observed.get('cdp_url') == info['cdp_url']
+                                    and observed.get('process_identity') == info['process_identity']):
+                                uncertain_begin.add(0)
+                    except BaseException:
+                        uncertain_begin.add(0)
                 source_unproved = 0 in uncertain_begin
                 if interruption is not None:
                     interruption.add_note(
@@ -1003,7 +1216,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     destination_end_unverified = not activated
                     if activated:
                         interruption = None
-                if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
+                if imported and (source_unproved or source_recheck_failed or destination_end_unverified or not cleaned):
                     # The end may have applied even when its reply was lost. Its
                     # ticket cannot be relied on to fence an imported destination.
                     # Dispose only the exact recorded unit, while still holding the
@@ -1046,12 +1259,15 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                 'destination': 'disposed' if disposed else 'cleanup-incomplete'}
                     if disposed:
                         return unavailable('destination-disposed-after-end-uncertainty')
+                    if not cleaned:
+                        return {'status': 'auth-clone-unavailable', 'reason': 'destination-cleanup-incomplete',
+                                'source': 'owner-preserved', 'destination': 'cleanup-incomplete'}
                     if activation_attempted:
                         if activation_fenced:
                             return {'status': 'auth-clone-unavailable',
                                     'reason': 'destination-fenced-after-activation-uncertainty',
                                     'source': 'owner-preserved', 'destination': 'fenced'}
-                        return {'status': 'fixture-auth-transfer-terminal-uncertain',
+                        return {'status': 'fixture-auth-transfer-terminal-uncertain' if fixture_only else 'auth-transfer-terminal-uncertain',
                                 'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
                                 'public_exposure': 'possible'}
                     return unavailable('destination-cleanup-incomplete')
@@ -1059,7 +1275,8 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')
                 if not cleaned:
                     return unavailable('destination-cleanup-unverified')
-                return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
+                return unavailable(reason) if reason else {'status':
+                    'fixture-auth-transferred' if fixture_only else 'auth-transferred'}
             finally:
                 failure = sys.exc_info()[1]
                 if failure is not None and imported and not activated and not terminal_disposition:
@@ -1720,7 +1937,23 @@ def fenced_stop_release(c, lease_id, agent_id, *, disposition='cancelled', healt
             # stop proof, exact released row, and terminal root/CDP evidence.
         c.execute("update browsers set state='stopped',updated=? where lease_id=? and state='running'",
                   (now(), lease_id))
+        # Exact terminal root/unit/CDP proof invalidates any outstanding worker
+        # capability or interrupted publication; a stopped browser cannot hand off.
+        references = [r[0] for r in c.execute('SELECT reference FROM team_grants WHERE lease_id=?', (lease_id,))]
+        pending = _team_pending(c, lease_id)
+        if pending and pending.get('reference'):
+            references.append(pending['reference'])
+        c.execute('DELETE FROM team_grants WHERE lease_id=?', (lease_id,))
+        c.execute('DELETE FROM team_pending WHERE lease_id=?', (lease_id,))
         c.commit()
+        for reference in references:
+            path = Path(reference)
+            if path.name == 'reference.json' and path.parent.parent == STATE.parent / 'team-grants':
+                try:
+                    path.unlink(missing_ok=True)
+                    path.parent.rmdir()
+                except OSError:
+                    pass
         return True
 
 
@@ -1964,6 +2197,380 @@ def activity_snapshot(row):
         return {"unavailable": True}
 
 
+def team_control_status(lease_id, coordinator_agent_id, coordinator_run_id):
+    """Passive coordinator view; activity is attributed to the current generation."""
+    with node_lock(STATE):
+        with db() as store:
+            row = store.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+            if (not row or row['agent_id'] != coordinator_agent_id
+                    or row['run_id'] != coordinator_run_id or not canonical_owner(row)):
+                return {'status': 'not-owner'}
+            info = record_info(row)
+            activity = activity_snapshot(row) if row['state'] == 'running' else None
+            if (row['state'] != 'running' or info.get('control_mode') != 'pipe-fenced'
+                    or info.get('driving_mode') not in (None, 'agent-driven')
+                    or not info.get('activity_tracking') or not cleanup_headless(row)
+                    or not healthy(row) or activity is None or activity.get('unavailable')
+                    or not all(key in activity for key in (
+                        'last_activity', 'idle_seconds', 'attached_clients', 'inflight',
+                        'reserved_seconds', 'frozen'))):
+                return {'status': 'unavailable', 'reason': 'control-or-activity-unverified'}
+            import browser_profile_lease as profiles
+            with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+                canonical = leases.execute('SELECT cdp_url,expires_at FROM browser_profile_leases WHERE lease_id=?',
+                                           (lease_id,)).fetchone()
+            if (not canonical or canonical['expires_at'] <= now()
+                    or canonical['cdp_url'] != info.get('cdp_url')):
+                return {'status': 'unavailable', 'reason': 'control-or-activity-unverified'}
+            grant = store.execute('SELECT * FROM team_grants WHERE lease_id=?', (lease_id,)).fetchone()
+            if grant and (grant['generation'] != info['cdp_url'] or
+                    grant['process_identity'] != json.dumps(info.get('process_identity'), sort_keys=True) or
+                    not _team_reference(grant['reference'], grant['worker_agent_id'], grant['worker_run_id'], store)):
+                return {'status': 'unavailable', 'reason': 'control-or-activity-unverified'}
+            reason = next((key for key in ('frozen', 'attached_clients', 'inflight', 'reserved_seconds')
+                           if activity.get(key)), None)
+            return {'status': 'ok', 'browser_id': row['browser_id'],
+                    'coordinator': {'agent_id': row['agent_id'], 'run_id': row['run_id']},
+                    'granted_worker': ({'agent_id': grant['worker_agent_id'], 'run_id': grant['worker_run_id']}
+                                       if grant else None), 'activity': activity,
+                    'worker_delivery': 'private-reference' if grant else 'unavailable',
+                    'grant_activity_count': (max(0, activity['meaningful_count'] - grant['baseline'])
+                                              if grant and isinstance(activity.get('meaningful_count'), int) else None),
+                    'controller_quiescent': reason is None, 'controller_reason': reason}
+
+
+def _team_attestation(store, lease_id, coordinator_agent_id=None, coordinator_run_id=None):
+    """Re-read the exact coordinator lease, process and private adapter generation."""
+    from browser_control import activity_control
+    row = store.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+    if not row or (coordinator_agent_id is not None and
+                   (row['agent_id'], row['run_id']) != (coordinator_agent_id, coordinator_run_id)):
+        return None, None, None, 'not-owner'
+    info = record_info(row)
+    if (row['state'] != 'running' or not canonical_owner(row) or not cleanup_headless(row)
+            or info.get('control_mode') != 'pipe-fenced' or not info.get('activity_tracking')
+            or info.get('driving_mode') not in (None, 'agent-driven')
+            or not isinstance(info.get('process_identity'), dict)
+            or not info.get('unit_invocation') or not healthy(row)):
+        return None, None, None, 'unavailable'
+    try:
+        if (process_identity(info['process_identity']['pid']) != info['process_identity']
+                or unit_identity(row['unit']) != info['unit_invocation']):
+            return None, None, None, 'unavailable'
+        with sqlite3.connect(f"file:{STATE.parent / 'browser_profile_leases.sqlite'}?mode=ro", uri=True) as leases:
+            canonical = leases.execute('SELECT cdp_url,expires_at FROM browser_profile_leases WHERE lease_id=?',
+                                       (lease_id,)).fetchone()
+        if not canonical or canonical[0] != info.get('cdp_url') or canonical[1] <= now():
+            return None, None, None, 'unavailable'
+        observed = activity_control(info['control_socket'], 'identity')
+        activity = activity_control(info['control_socket'])
+        if (observed.get('available') is not True or observed.get('cdp_url') != info['cdp_url']
+                or observed.get('process_identity') != info['process_identity']
+                or not all(k in activity for k in ('attached_clients', 'inflight', 'reserved_seconds', 'frozen'))):
+            return None, None, None, 'unavailable'
+        return row, info, activity, None
+    except Exception:
+        return None, None, None, 'unavailable'
+
+
+def _team_reference(reference, worker_agent_id, worker_run_id, store):
+    """Possession of a manager-created private file is the trusted same-UID channel."""
+    import stat
+    path = Path(reference)
+    root = STATE.parent / 'team-grants'
+    try:
+        if (path.parent.parent != root or path.name != 'reference.json'
+                or path.is_symlink() or path.parent.is_symlink() or root.is_symlink()
+                or any(p.stat().st_uid != os.getuid() for p in (root, path.parent))
+                or any(stat.S_IMODE(p.stat().st_mode) != 0o700 for p in (root, path.parent))):
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as stream:
+            file_stat = os.fstat(stream.fileno())
+            if file_stat.st_uid != os.getuid() or stat.S_IMODE(file_stat.st_mode) != 0o600:
+                return None
+            ref = json.load(stream)
+        if (ref.get('worker_agent_id'), ref.get('worker_run_id')) != (worker_agent_id, worker_run_id):
+            return None
+        grant = store.execute('SELECT * FROM team_grants WHERE lease_id=?', (ref['lease_id'],)).fetchone()
+        if not grant or any(ref.get(key) != grant[column] for key, column in (
+                ('grant_id', 'grant_id'), ('generation', 'generation'),
+                ('worker_agent_id', 'worker_agent_id'), ('worker_run_id', 'worker_run_id'))):
+            return None
+        if grant['reference'] != str(path):
+            return None
+        return ref
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        return None
+
+
+def _team_worker_url(reference, worker_agent_id, worker_run_id):
+    with node_lock(STATE):
+        with db() as store:
+            ref = _team_reference(reference, worker_agent_id, worker_run_id, store)
+            if not ref:
+                return None
+            row, info, _, error = _team_attestation(store, ref['lease_id'])
+            grant = store.execute('SELECT * FROM team_grants WHERE lease_id=?', (ref['lease_id'],)).fetchone()
+            if (error or grant['process_identity'] != json.dumps(info['process_identity'], sort_keys=True)
+                    or grant['generation'] != info['cdp_url']):
+                return None
+            return info['cdp_url']
+
+
+def team_consume(reference, worker_agent_id, worker_run_id):
+    """Safe preflight for the worker CLI; use team_browser() to drive CDP."""
+    return {'status': 'ready' if _team_worker_url(reference, worker_agent_id, worker_run_id) else 'unavailable'}
+
+
+@contextlib.contextmanager
+def team_browser(reference, worker_agent_id, worker_run_id):
+    """Worker Playwright controller. Raw CDP stays inside this API, not stdout."""
+    url = _team_worker_url(reference, worker_agent_id, worker_run_id)
+    if not url:
+        raise RuntimeError('team browser reference unavailable')
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.connect_over_cdp(url)
+        except Exception:
+            raise RuntimeError('team browser connection unavailable') from None
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
+def _team_publish(store, row, info, successor, grant):
+    """Reconcile the private launch file and both registries under node lock."""
+    info['cdp_url'] = successor
+    private_json(row['launch_file'], info)
+    store.execute('ATTACH DATABASE ? AS canonical', (str(STATE.parent / 'browser_profile_leases.sqlite'),))
+    store.execute('BEGIN IMMEDIATE')
+    try:
+        changed = store.execute('UPDATE canonical.browser_profile_leases SET cdp_url=? '
+            'WHERE lease_id=? AND cdp_url IN (?,?) AND status=? AND browser_status=? '
+            'AND owner_agent_id=? AND owner_run_id=? AND manager_id=? AND program=? '
+            'AND account_alias=? AND auth_domain=? AND profile_dir=? AND service_unit=? '
+            'AND expires_at>?',
+            (successor, row['lease_id'], grant['previous'], successor, 'active', 'running',
+             row['agent_id'], row['run_id'], manager_id(), row['program'], row['account'],
+             row['auth_domain'], row['profile_dir'], row['unit'], now()))
+        if changed.rowcount != 1:
+            raise RuntimeError('canonical generation changed')
+        if grant and not grant.get('remove'):
+            store.execute('INSERT OR REPLACE INTO team_grants '
+                '(lease_id,grant_id,worker_agent_id,worker_run_id,reference,generation,process_identity,baseline) '
+                'VALUES (?,?,?,?,?,?,?,?)', (row['lease_id'], grant['id'], grant['agent'], grant['run'],
+                grant['reference'], successor, json.dumps(info['process_identity'], sort_keys=True), grant['baseline']))
+        else:
+            store.execute('DELETE FROM team_grants WHERE lease_id=?', (row['lease_id'],))
+        store.commit()
+    except BaseException:
+        store.rollback()
+        raise
+    finally:
+        store.execute('DETACH DATABASE canonical')
+
+
+def _team_pending(store, lease_id):
+    row = store.execute('SELECT payload FROM team_pending WHERE lease_id=?', (lease_id,)).fetchone()
+    return json.loads(row['payload']) if row else None
+
+
+def _team_complete(store, lease_id, pending):
+    """Recover a fenced transition only for its exact recorded owner/runtime."""
+    from browser_control import activity_control
+    row = store.execute('SELECT * FROM browsers WHERE lease_id=?', (lease_id,)).fetchone()
+    if not row or row['state'] != 'running' or not canonical_owner(row):
+        return {'status': 'cleanup-incomplete'}
+    info = record_info(row)
+    if (not cleanup_headless(row) or info.get('cdp_url') not in (pending['previous'], pending.get('successor'))
+            or info.get('process_identity') != pending['process_identity']
+            or info.get('unit_invocation') != pending['unit_invocation']):
+        return {'status': 'cleanup-incomplete'}
+    try:
+        if (process_identity(pending['process_identity']['pid']) != pending['process_identity']
+                or unit_identity(row['unit']) != pending['unit_invocation']):
+            return {'status': 'cleanup-incomplete'}
+        observed = activity_control(info['control_socket'], 'identity')
+        if observed.get('process_identity') != pending['process_identity']:
+            return {'status': 'cleanup-incomplete'}
+        barrier_proved = False
+        if observed.get('cdp_url') == pending['previous'] and observed.get('available') is True:
+            try:
+                fenced = activity_control(info['control_socket'], 'team/fence')
+            except Exception as exc:
+                from httpx import HTTPStatusError
+                if isinstance(exc, HTTPStatusError) and exc.response.status_code == 409:
+                    # A rejected fence never rotated; allow a fresh attempt.
+                    store.execute('DELETE FROM team_pending WHERE lease_id=?', (lease_id,))
+                    store.commit()
+                    if pending['kind'] == 'grant':
+                        try:
+                            Path(pending['reference']).parent.rmdir()
+                        except OSError:
+                            pass
+                    return {'status': 'busy'}
+                return {'status': 'cleanup-incomplete'}
+            if fenced.get('fenced') is not True:
+                return {'status': 'cleanup-incomplete'}
+            observed = activity_control(info['control_socket'], 'identity')
+            barrier_proved = fenced.get('cdp_url') == observed.get('cdp_url')
+            if not barrier_proved:
+                return {'status': 'cleanup-incomplete'}
+        successor = observed.get('cdp_url')
+        if (not successor or successor == pending['previous']
+                or observed.get('process_identity') != pending['process_identity']):
+            return {'status': 'cleanup-incomplete'}
+        if pending.get('successor') and successor != pending['successor']:
+            return {'status': 'cleanup-incomplete'}
+        if not pending.get('successor'):
+            pending['successor'] = successor
+            store.execute('UPDATE team_pending SET payload=? WHERE lease_id=?',
+                          (json.dumps(pending), lease_id))
+            store.commit()
+        if observed.get('team_pending') is True and not barrier_proved:
+            # Even when a prior fence rotated before a failed/lost CDP barrier,
+            # its exact generation is not publishable until the adapter retries
+            # and confirms that barrier on the same token.
+            fenced = activity_control(info['control_socket'], 'team/fence')
+            if fenced.get('fenced') is not True or fenced.get('cdp_url') != successor:
+                return {'status': 'cleanup-incomplete'}
+            observed = activity_control(info['control_socket'], 'identity')
+        if observed.get('team_pending') is not True:
+            # Only a committed generation may be available after a lost reply.
+            if observed.get('available') is not True or info.get('cdp_url') != successor:
+                return {'status': 'cleanup-incomplete'}
+        else:
+            if observed.get('available') is not False:
+                return {'status': 'cleanup-incomplete'}
+        if pending['kind'] == 'grant':
+            reference = Path(pending['reference'])
+            private_json(reference, {'lease_id': lease_id, 'grant_id': pending['id'],
+                'worker_agent_id': pending['agent'], 'worker_run_id': pending['run'],
+                'generation': successor})
+        if observed.get('team_pending') is True:
+            grant = {**pending, 'remove': pending['kind'] == 'return'}
+            _team_publish(store, row, info, successor, grant)
+            activated = activity_control(info['control_socket'], 'team/activate', cdp_url=successor)
+            if activated.get('activated') is not True:
+                return {'status': 'cleanup-incomplete'}
+        verified = activity_control(info['control_socket'], 'identity')
+        if (verified.get('cdp_url') != successor or verified.get('process_identity') != pending['process_identity']
+                or verified.get('available') is not True or verified.get('team_pending') is not False
+                or record_info(row).get('cdp_url') != successor):
+            return {'status': 'cleanup-incomplete'}
+        with sqlite3.connect(f"file:{STATE.parent / 'browser_profile_leases.sqlite'}?mode=ro", uri=True) as leases:
+            canonical = leases.execute(
+                'SELECT cdp_url,status,browser_status,owner_agent_id,owner_run_id,manager_id,'
+                'program,account_alias,auth_domain,profile_dir,service_unit,expires_at '
+                'FROM browser_profile_leases WHERE lease_id=?', (lease_id,)).fetchone()
+            expected = (successor, 'active', 'running', row['agent_id'], row['run_id'],
+                        manager_id(), row['program'], row['account'], row['auth_domain'],
+                        row['profile_dir'], row['unit'])
+            if not canonical or canonical[:-1] != expected or canonical[-1] <= now():
+                return {'status': 'cleanup-incomplete'}
+        if pending['kind'] == 'grant':
+            if not _team_reference(pending['reference'], pending['agent'], pending['run'], store):
+                return {'status': 'cleanup-incomplete'}
+        else:
+            if store.execute('SELECT 1 FROM team_grants WHERE lease_id=?', (lease_id,)).fetchone():
+                return {'status': 'cleanup-incomplete'}
+        store.execute('DELETE FROM team_pending WHERE lease_id=?', (lease_id,))
+        store.commit()
+        if pending['kind'] == 'return':
+            old = Path(pending['reference'])
+            try:
+                old.unlink(missing_ok=True)
+                old.parent.rmdir()
+            except OSError:
+                pass  # DB and adapter have already revoked the old capability.
+            return {'status': 'returned'}
+        return {'status': 'granted', 'reference': pending['reference'], 'browser_id': row['browser_id']}
+    except Exception:
+        # Journal and adapter remain fenced (or published) for an exact retry.
+        return {'status': 'cleanup-incomplete'}
+
+
+def team_grant(lease_id, coordinator_agent_id, coordinator_run_id, worker_agent_id, worker_run_id):
+    """Fence the idle controller at a checkpoint; never transfer profile/proxy ownership."""
+    if not worker_agent_id or not worker_run_id or (worker_agent_id, worker_run_id) == (coordinator_agent_id, coordinator_run_id):
+        return {'status': 'unavailable'}
+    with node_lock(STATE):
+        with db() as store:
+            pending = _team_pending(store, lease_id)
+            if pending:
+                if ((pending['owner'], pending['owner_run'], pending['agent'], pending['run'], pending['kind'])
+                        != (coordinator_agent_id, coordinator_run_id, worker_agent_id, worker_run_id, 'grant')):
+                    return {'status': 'busy'}
+                return _team_complete(store, lease_id, pending)
+            row, info, activity, error = _team_attestation(store, lease_id, coordinator_agent_id, coordinator_run_id)
+            if error:
+                return {'status': error}
+            grant = store.execute('SELECT * FROM team_grants WHERE lease_id=?', (lease_id,)).fetchone()
+            if grant:
+                # Lost successful reply: return only the same verified capability.
+                if ((grant['worker_agent_id'], grant['worker_run_id']) == (worker_agent_id, worker_run_id)
+                        and grant['generation'] == info['cdp_url']
+                        and grant['process_identity'] == json.dumps(info['process_identity'], sort_keys=True)
+                        and _team_reference(grant['reference'], worker_agent_id, worker_run_id, store)):
+                    return {'status': 'granted', 'reference': grant['reference'], 'browser_id': row['browser_id']}
+                return {'status': 'busy'}
+            if any(activity[k] for k in ('attached_clients', 'inflight', 'reserved_seconds', 'frozen')):
+                return {'status': 'busy'}
+            root = STATE.parent / 'team-grants'
+            try:
+                root.mkdir(mode=0o700, exist_ok=True)
+                if root.is_symlink() or root.stat().st_uid != os.getuid() or root.stat().st_mode & 0o777 != 0o700:
+                    return {'status': 'unavailable'}
+                grant_id = uuid.uuid4().hex
+                directory = root / grant_id
+                directory.mkdir(mode=0o700)
+                pending = {'kind': 'grant', 'previous': info['cdp_url'], 'id': grant_id,
+                    'agent': worker_agent_id, 'run': worker_run_id,
+                    'owner': coordinator_agent_id, 'owner_run': coordinator_run_id,
+                    'reference': str(directory / 'reference.json'),
+                    'baseline': activity.get('meaningful_count', 0),
+                    'process_identity': info['process_identity'], 'unit_invocation': info['unit_invocation']}
+                store.execute('INSERT INTO team_pending VALUES (?,?)', (lease_id, json.dumps(pending)))
+                store.commit()  # Recoverable intent must precede adapter fence.
+                return _team_complete(store, lease_id, pending)
+            except Exception:
+                return {'status': 'cleanup-incomplete'}
+
+
+def team_return(reference, worker_agent_id, worker_run_id):
+    with node_lock(STATE):
+        with db() as store:
+            try:
+                lease_id = json.loads(Path(reference).read_text())['lease_id']
+            except (OSError, ValueError, KeyError):
+                return {'status': 'unavailable'}
+            pending = _team_pending(store, lease_id)
+            if pending:
+                if (pending['kind'], pending['reference'], pending['agent'], pending['run']) != (
+                        'return', str(reference), worker_agent_id, worker_run_id):
+                    return {'status': 'busy'}
+                return _team_complete(store, lease_id, pending)
+            ref = _team_reference(reference, worker_agent_id, worker_run_id, store)
+            if not ref:
+                return {'status': 'unavailable'}
+            row, info, activity, error = _team_attestation(store, lease_id)
+            if error:
+                return {'status': 'unavailable'}
+            if any(activity[k] for k in ('attached_clients', 'inflight', 'reserved_seconds', 'frozen')):
+                return {'status': 'busy'}
+            pending = {'kind': 'return', 'previous': info['cdp_url'], 'id': '',
+                'agent': worker_agent_id, 'run': worker_run_id,
+                'owner': row['agent_id'], 'owner_run': row['run_id'],
+                'reference': str(reference), 'baseline': 0,
+                'process_identity': info['process_identity'], 'unit_invocation': info['unit_invocation']}
+            store.execute('INSERT INTO team_pending VALUES (?,?)', (lease_id, json.dumps(pending)))
+            store.commit()
+            return _team_complete(store, lease_id, pending)
+
+
 def freeze_idle(row, seconds, *, require_detached=False):
     from browser_control import activity_control
     try:
@@ -1995,7 +2602,9 @@ def cleanup_headless(row):
 def cleanup_unused(c):
     stopped_ids = []
     for row in c.execute("SELECT * FROM browsers WHERE state='running'").fetchall():
-        if (not canonical_owner(row) or not cleanup_headless(row)
+        if (c.execute('SELECT 1 FROM team_grants WHERE lease_id=?', (row['lease_id'],)).fetchone()
+                or _team_pending(c, row['lease_id'])
+                or not canonical_owner(row) or not cleanup_headless(row)
                 or owner_state(metadata(c, row).get("owner")) != "terminal"):
             continue
         activity = activity_snapshot(row)
@@ -2059,6 +2668,9 @@ def cleanup(args):
             reason = "unit-identity-unverified"
         elif not unit_active(row["unit"]) or not healthy(row):
             reason = "runtime-unverified"
+        elif (c.execute('SELECT 1 FROM team_grants WHERE lease_id=?', (row['lease_id'],)).fetchone()
+              or _team_pending(c, row['lease_id'])):
+            reason = "worker-grant-outstanding"
         elif owner_state(meta.get("owner")) != "terminal":
             reason = "owner-active-or-unverified"
         else:
@@ -2295,6 +2907,10 @@ def lifecycle_state(c, row):
         if activity.get("unavailable"):
             return "activity-unavailable"
         if activity["inflight"] or activity["reserved_seconds"]:
+            return "active"
+        # Coordinator death and detached CDP are not evidence of worker return.
+        if (c.execute('SELECT 1 FROM team_grants WHERE lease_id=?', (row['lease_id'],)).fetchone()
+                or _team_pending(c, row['lease_id'])):
             return "active"
         if owner_state(meta.get("owner")) == "terminal":
             return "terminal"
@@ -3767,6 +4383,21 @@ def main():
     q = sub.add_parser("status")
     q.add_argument("--lease-id", required=True)
     q.add_argument("--agent-id", required=True)
+    team = sub.add_parser('team-status', help='Passively inspect coordinator-owned CDP activity; does not issue worker control')
+    team.add_argument('--lease-id', required=True)
+    team.add_argument('--agent-id', required=True)
+    team.add_argument('--run-id', required=True)
+    grant = sub.add_parser('team-grant', help='Fence and hand a private worker reference to an exact run')
+    grant.add_argument('--lease-id', required=True)
+    grant.add_argument('--agent-id', required=True, help='Coordinator agent')
+    grant.add_argument('--run-id', required=True, help='Coordinator run')
+    grant.add_argument('--worker-agent-id', required=True)
+    grant.add_argument('--worker-run-id', required=True)
+    for name in ('team-consume', 'team-return'):
+        worker = sub.add_parser(name, help='Use the privately delivered worker reference')
+        worker.add_argument('--reference', required=True)
+        worker.add_argument('--worker-agent-id', required=True)
+        worker.add_argument('--worker-run-id', required=True)
     clean = sub.add_parser("cleanup", help="Inspect capacity and eligible terminal idle browsers; dry-run unless --apply")
     clean.add_argument("--apply", action="store_true")
     res = sub.add_parser("resume", help="Reconnect the exact healthy running browser ID or safely reprovision a verified stopped ID")
@@ -3852,6 +4483,17 @@ def main():
         touch(args)
     if args.cmd == "status":
         status(args)
+    if args.cmd == 'team-status':
+        result = team_control_status(args.lease_id, args.agent_id, args.run_id)
+        emit(result, 0 if result['status'] == 'ok' else 2)
+    if args.cmd == 'team-grant':
+        result = team_grant(args.lease_id, args.agent_id, args.run_id,
+                            args.worker_agent_id, args.worker_run_id)
+        emit(result, 0 if result['status'] == 'granted' else 2)
+    if args.cmd in ('team-consume', 'team-return'):
+        result = (team_consume if args.cmd == 'team-consume' else team_return)(
+            args.reference, args.worker_agent_id, args.worker_run_id)
+        emit(result, 0 if result['status'] in ('ready', 'returned') else 2)
     if args.cmd == "cleanup":
         cleanup(args)
     if args.cmd == "resume":

@@ -167,6 +167,16 @@ image CAPTCHA, read mounted asset lists, and released leases verifying
 `state: stopped` with CDP unreachable. So the runtime lease path demonstrably
 works even while these suites fail.
 
+**Additional isolated evidence:** on fetched `origin/beta` at `ffbf641c`,
+`test_browser_transfer_source_end_uncertainty.py -k lost-end-unit-active`
+reproduces `destination='disposed'` versus expected `cleanup-incomplete` using
+baseline provisioner code loaded in memory. This synthetic test mocks
+`unit_active` but not `unit_inactive`; `stop_recorded` checks `stopped()` via
+`unit_inactive`, so a missing/inactive host unit can prove stopped despite the
+mocked active state. Six analogous `unit-active` cases fail in this feature's
+focused sweep. This is a separate deterministic fixture-model inconsistency,
+not evidence that the new generic path disposed an active browser.
+
 **Impact:** beta's suite health cannot be read as a signal while this cluster is
 red, and a genuine regression in browser transfer would be masked by it. First
 task is to run this cluster **with** a provisioned CDP browser and record whether

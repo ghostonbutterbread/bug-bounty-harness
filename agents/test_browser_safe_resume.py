@@ -191,7 +191,7 @@ def test_adapter_reports_attached_socket_even_without_session(monkeypatch, tmp_p
     browser_control = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(browser_control)
     adapter = SimpleNamespace(last_activity=0, last_use=time.monotonic() - 8000,
-        inflight=0, reserved_until=0, frozen=False, clients={object(): set()})
+        inflight=0, meaningful_count=0, reserved_until=0, frozen=False, clients={object(): set()})
     assert browser_control.PipeBrowser.activity_status(adapter)['attached_clients'] == 1
 
 

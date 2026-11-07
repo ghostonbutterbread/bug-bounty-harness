@@ -5,13 +5,52 @@
 - `browser_manager_row_repair.py` — read-only cohort plans and explicitly gated
   historical positional/idle-stopped manager-row repair; see below.
 - `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
-  request path.
+  request path. `team-status --lease-id ID --agent-id COORDINATOR --run-id RUN`
+  checks the exact coordinator owner and adapter activity, reports the current
+  granted worker/run and meaningful command count on that grant's CDP generation
+  (not authenticated per-command worker identity or an idle expiry).
+  `team-grant --lease-id ID --agent-id COORDINATOR --run-id RUN --worker-agent-id WORKER
+  --worker-run-id RUN` fences the existing headless pipe-controlled Chrome at a
+  detached checkpoint and returns a **private reference path**, not a CDP URL.
+  Deliver that path only to the named worker run via a trusted coordinator channel.
+  The worker uses `team-consume --reference PATH --worker-agent-id WORKER
+  --worker-run-id RUN` as a safe preflight, then the `team_browser(PATH, WORKER,
+  RUN)` Python context manager to drive Playwright without printing a CDP URL.
+  Close the context before `team-return` with the same reference and worker/run.
+  A subsequent grant requires that return; detachment or idle time alone is
+  not permission to supersede a working agent. A lost grant reply can be retried
+  with the same coordinator and worker/run to recover the same verified private
+  reference; another worker remains busy. Return revokes the old reference
+  and CDP generation. A dead coordinator does not retire an outstanding grant;
+  explicit return or exact terminal browser proof clears it. Browser,
+  profile, canonical lease and task proxy remain coordinator-owned. The private
+  manager state and reference directories must be on the same trusted node;
+  mode-0700 directories and mode-0600 references are capability delivery within
+  a **trusted same-UID boundary**, not hostile same-UID worker isolation. A worker
+  label alone is not authentication. Headed/native KasmVNC input is unsupported;
+  occupied/inflight/reserved or changed owner/process is refused. No idle-age
+  handoff or worker-triggered browser/proxy release is implied. On an uncertain
+  fence/publication, the adapter stays closed and an exact same-request retry
+  recovers its recorded transition. Owner/runtime drift blocks recovery; preserve
+  the browser and investigate rather than regranting or using stale refs.
+  Worker-side Python (inside the selected BBH checkout) uses the delivered path:
+  ```python
+  from browser_provisioner import team_browser
+  with team_browser(reference_path, worker_agent_id, worker_run_id) as browser:
+      page = browser.contexts[0].pages[0]
+      title = page.title()
+  ```
+  This does not create or release a Chrome process; the coordinator separately
+  releases its original provisioner lease and task proxy at run completion.
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
 - `browser_profile_lease.py` — exclusive owned-account/profile lease registry.
 - `browser_control.py` — internal Chromium pipe/CDP adapter and control fencing.
+  Private `/team/fence` is only the manager's detached barrier, never a standalone
+  managed-browser handoff: it leaves the new generation closed until the manager
+  has published both URL records and grant state and calls `/team/activate`.
   Its private mode-0600 Unix socket also provides read-only `GET /identity`:
   exact `process_identity`, current generation `cdp_url`, and `available`
-  (false during freeze/rotation). This is for exact local handoff validation,
+  (false during freeze/rotation or pending team publication). This is for exact local handoff validation,
   not a public status endpoint: the URL is a capability and must not be logged
   or exposed by consumers. It makes no CDP call and does not update activity.
   The existing same-UID trust boundary is unchanged. Deterministic verification:

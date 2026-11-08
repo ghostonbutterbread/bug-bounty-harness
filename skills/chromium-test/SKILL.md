@@ -468,14 +468,20 @@ the launcher before Chromium spawns. The launcher imports that CA into the
 isolated profile; readiness requires a trusted import receipt. Browser release
 does **not** stop the task proxy: direct replay may continue through the
 returned `task_proxy.proxy_server` using `task_proxy.ca_cert` as the origin CA
-(`curl --cacert`, not `--proxy-cacert`). At task completion:
+(`curl --cacert`, not `--proxy-cacert`). Save the original provisioning
+receipt's `task_proxy.lane` for this generation; use it for finish and recovery:
 
 ```bash
 bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-status --agent-id <agent-id> --run-id <run-id>
-bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-finish --agent-id <agent-id> --run-id <run-id>
-bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-recover --agent-id <agent-id> --run-id <run-id>
+bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-finish --agent-id <agent-id> --run-id <run-id> --expected-lane <original-task-proxy-lane>
+bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-recover --agent-id <agent-id> --run-id <run-id> --expected-lane <original-task-proxy-lane>
 ```
 
+The expected lane fences stale retries against newer generations, including
+receipts. The legacy syntax without it remains accepted but is **not** fenced.
+Status shows the current lane, not proof that it belongs to an earlier caller;
+if startup was interrupted before a lane receipt, independently establish the
+current generation's ownership before recovery rather than adopting it blindly.
 Finish rejects an active/starting browser, verifies listener stop, removes only
 matching task CA trust from stopped persistent profiles, then indexes the
 private flow. Stop/index/CA errors retain the reservation for recovery. If
@@ -716,9 +722,10 @@ path is not yet known; do not use a different path to bypass a named lease.
    longer in use. Never infer cleanup from directory deletion alone.
 7. Continue bounded direct HTTP replay through the same task MITM when needed.
    At task completion call `browser_provisioner.py task-proxy-finish --agent-id
-   <agent-id> --run-id <run-id>`; it stops and verifies the listener, removes
+   <agent-id> --run-id <run-id> --expected-lane <original-task-proxy-lane>`; it stops and verifies the listener, removes
    matching task CA trust from stopped profiles, indexes flows, and releases
-   the port. Use `task-proxy-recover` only for an interrupted/failed cleanup.
+   the port. Use `task-proxy-recover` with the same expected lane only for an
+   interrupted/failed cleanup.
 8. Save screenshots, request notes, and reproduction details under the program evidence directory.
 
 ### Hoster Lifecycle Contract

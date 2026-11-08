@@ -177,6 +177,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             request_count INTEGER DEFAULT 0,
             note TEXT
         );
+        CREATE TABLE IF NOT EXISTS capture_lane_aliases (
+            generation_lane TEXT PRIMARY KEY,
+            logical_lane TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_capture_lane_alias_logical ON capture_lane_aliases(logical_lane);
         CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             flow_uid TEXT NOT NULL UNIQUE,
@@ -285,6 +290,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             "account_label": "TEXT",
             "browser_profile_id": "TEXT",
             "session_source": "TEXT",
+            "capture_dev": "INTEGER",
+            "capture_ino": "INTEGER",
         },
     )
     ensure_columns(
@@ -300,6 +307,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             "transport": "TEXT",
             "browser_profile_id": "TEXT",
             "session_source": "TEXT",
+            "capture_dev": "INTEGER",
+            "capture_ino": "INTEGER",
         },
     )
     conn.commit()
@@ -477,6 +486,15 @@ def upsert_request(conn: sqlite3.Connection, record: dict[str, Any]) -> int:
     ]
     placeholders = ",".join("?" for _ in columns)
     updates = ",".join(f"{column}=excluded.{column}" for column in columns if column != "flow_uid")
+    # A retained packet belongs to the old capture, not merely its flow UID.
+    # Invalidate it before replacing that association; a full index writes a
+    # fresh packet in the same transaction. IS NOT also handles legacy NULLs.
+    conn.execute(
+        """DELETE FROM request_packets WHERE request_id IN (
+             SELECT id FROM requests WHERE flow_uid=?
+             AND (capture_dev IS NOT ? OR capture_ino IS NOT ?))""",
+        (record["flow_uid"], record.get("capture_dev"), record.get("capture_ino")),
+    )
     conn.execute(
         f"""
         INSERT INTO requests ({",".join(columns)})
@@ -571,10 +589,7 @@ def metadata_from_args(args: argparse.Namespace, lane_state: dict[str, Any]) -> 
         "runtime_host": getattr(args, "runtime_host", None) or lane_state.get("runtime_host"),
         "proxy_host": proxy_host,
         "proxy_port": int(proxy_port) if proxy_port is not None else None,
-        "transport": ((getattr(args, "transport", None) if getattr(args, "transport", None) is not None
-                       else lane_state.get("transport") if lane_state.get("transport") is not None else "browser")
-                      if getattr(args, "lane", None) == "hoster-default-8080"
-                      else getattr(args, "transport", None) or lane_state.get("transport") or "browser"),
+        'transport': ((getattr(args, 'transport', None) if getattr(args, 'transport', None) is not None else lane_state.get('transport') if lane_state.get('transport') is not None else None if getattr(args, 'receipt_metadata', False) else 'browser') if getattr(args, 'lane', None) == 'hoster-default-8080' else getattr(args, 'transport', None) or lane_state.get('transport') or (None if getattr(args, 'receipt_metadata', False) else 'browser')),
         "browser_profile_id": (
             getattr(args, "browser_profile_id", None)
             or lane_state.get("browser_profile_id")
@@ -593,8 +608,12 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
     lane_state = read_lane_state(root, args.lane)
     source_path = args.flow_file or lane_state.get("flow_file")
     flow_file = Path(source_path).expanduser() if source_path else None
-    if flow_file is None or not flow_file.is_file():
+    flow_fd = getattr(args, 'flow_fd', None)
+    if flow_fd is not None and flow_file is not None:
+        flow_file = Path(os.path.abspath(flow_file))  # Persistent logical path, never /proc/self/fd.
+    if flow_file is None or (flow_fd is None and not flow_file.is_file()):
         return {"status": "missing-flow-file", "flow_file": str(flow_file) if flow_file else "", "lane": args.lane}
+    resolved_flow = getattr(args, 'flow_resolved', None) or str(flow_file if flow_fd is not None else flow_file.resolve())
 
     program = args.program or lane_state.get("program")
     task = args.task or lane_state.get("task")
@@ -605,6 +624,14 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
     with connect(db_path) as conn:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
+        logical_lane = lane_state.get('lane')
+        if lane_state.get('index_lane') == args.lane and isinstance(logical_lane, str) and logical_lane:
+            conn.execute('INSERT OR IGNORE INTO capture_lane_aliases(generation_lane, logical_lane) VALUES (?, ?)',
+                         (args.lane, logical_lane))
+            mapped = conn.execute('SELECT logical_lane FROM capture_lane_aliases WHERE generation_lane=?',
+                                  (args.lane,)).fetchone()
+            if mapped[0] != logical_lane:
+                raise ValueError('capture generation is already associated with another lane')
         now = time.time()
         prior = conn.execute("SELECT * FROM lanes WHERE lane=?", (args.lane,)).fetchone()
         # A lane name and even a reused file path do not identify its owner.
@@ -613,7 +640,8 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
         same_capture = bool(
             prior and prior["flow_file"]
             and Path(prior["flow_file"]).is_absolute()
-            and Path(prior["flow_file"]).expanduser().resolve() == flow_file.resolve()
+            and (str(Path(prior["flow_file"]).expanduser()) if flow_fd is not None
+                 else str(Path(prior["flow_file"]).expanduser().resolve())) == resolved_flow
             and all(value and prior[key] == value for key, value in identity.items())
         )
         if same_capture:
@@ -643,7 +671,7 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
                 metadata.get("account_label"),
                 lane_state.get("profile_dir"),
                 metadata.get("proxy_server"),
-                str(flow_file.resolve()),
+                resolved_flow,
                 str(flow_file.parent),
                 now,
                 now,
@@ -670,13 +698,18 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
                 args.lane,
             ),
         )
-        with flow_file.open("rb") as handle:
+        with (os.fdopen(os.dup(flow_fd), 'rb') if flow_fd is not None else flow_file.open("rb")) as handle:
+            capture = os.fstat(handle.fileno())
+            # Only descriptor-based indexing has an established capture identity.
+            identity = (capture.st_dev, capture.st_ino) if flow_fd is not None else (None, None)
+            conn.execute('UPDATE lanes SET capture_dev=?, capture_ino=? WHERE lane=?', (*identity, args.lane))
             reader = FlowReader(handle)
             for flow in reader.stream():
                 record = flow_record(flow, args.lane, program, task, flow_file, metadata)
                 if not record:
                     skipped += 1
                     continue
+                record['capture_dev'], record['capture_ino'] = identity
                 request_id = upsert_request(conn, record)
                 if args.store_full_requests:
                     packet = request_packet_record(flow, record["flow_uid"])
@@ -710,8 +743,15 @@ def query_requests(args: argparse.Namespace) -> dict[str, Any]:
         clauses.append("program = ?")
         values.append(args.program)
     if args.lane:
-        clauses.append("lane = ?")
-        values.append(args.lane)
+        # Old databases have no alias table; keep their read-only query path.
+        with connect(db_path, read_only=True) as conn:
+            aliases = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='capture_lane_aliases'").fetchone()
+        if aliases:
+            clauses.append("(lane = ? OR lane IN (SELECT generation_lane FROM capture_lane_aliases WHERE logical_lane = ?))")
+            values.extend((args.lane, args.lane))
+        else:
+            clauses.append("lane = ?")
+            values.append(args.lane)
     if args.run_id:
         clauses.append("run_id = ?")
         values.append(args.run_id)
@@ -750,8 +790,13 @@ def query_requests(args: argparse.Namespace) -> dict[str, Any]:
     """
     values.append(args.limit)
     with connect(db_path, read_only=True) as conn:
+        columns = {r['name'] for r in conn.execute('PRAGMA table_info(requests)')}
+        if {'capture_dev', 'capture_ino'} <= columns:
+            sql = sql.replace('tags_json, raw_flow_file', 'tags_json, raw_flow_file, capture_dev, capture_ino')
         rows = [dict(row) for row in conn.execute(sql, values).fetchall()]
     for row in rows:
+        dev, ino = row.pop('capture_dev', None), row.pop('capture_ino', None)
+        row['capture_identity'] = 'recorded-not-checked' if dev is not None and ino is not None else 'unavailable-legacy'
         for key in ("query_names_json", "body_field_names_json", "tags_json"):
             row[key.removesuffix("_json")] = json.loads(row.pop(key))
     return {"status": "ok", "db": str(db_path), "count": len(rows), "rows": rows}
@@ -930,9 +975,12 @@ def export_request_packet(args: argparse.Namespace) -> dict[str, Any]:
     if not clauses:
         return {"status": "missing-selector", "db": str(db_path)}
     with connect(db_path, read_only=True) as conn:
+        columns = {r['name'] for r in conn.execute('PRAGMA table_info(requests)')}
+        identity_sql = ('r.capture_dev, r.capture_ino, r.raw_flow_file' if {'capture_dev', 'capture_ino'} <= columns
+                        else 'NULL AS capture_dev, NULL AS capture_ino, r.raw_flow_file')
         row = conn.execute(
             f"""
-            SELECT p.*, r.lane, r.program, r.task
+            SELECT p.*, r.lane, r.program, r.task, {identity_sql}
             FROM request_packets p
             JOIN requests r ON r.id = p.request_id
             WHERE {' AND '.join(clauses)}
@@ -943,6 +991,20 @@ def export_request_packet(args: argparse.Namespace) -> dict[str, Any]:
     if not row:
         return {"status": "not-found", "db": str(db_path)}
     packet = dict(row)
+    identity = (packet.pop('capture_dev'), packet.pop('capture_ino'))
+    path = packet.pop('raw_flow_file')
+    if identity != (None, None):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            try:
+                details = os.fstat(fd)
+                if not stat.S_ISREG(details.st_mode) or (details.st_dev, details.st_ino) != identity:
+                    raise OSError('capture identity changed')
+            finally:
+                os.close(fd)
+        except (OSError, TypeError, ValueError):
+            return {'status': 'capture-unavailable', 'db': str(db_path)}
+    packet['capture_identity'] = 'verified' if identity != (None, None) else 'unavailable-legacy'
     body = packet.pop("body") or b""
     packet["headers"] = json.loads(packet.pop("headers_json"))
     packet["body_base64"] = base64.b64encode(body).decode("ascii")
@@ -953,9 +1015,9 @@ def export_request_packet(args: argparse.Namespace) -> dict[str, Any]:
         output = Path(args.output).expanduser()
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered)
-        return {"status": "exported", "db": str(db_path), "output": str(output), "request_id": packet["request_id"]}
+        return {"status": "exported", "db": str(db_path), "output": str(output), "request_id": packet["request_id"], "capture_identity": packet['capture_identity']}
     print(rendered, end="")
-    return {"status": "printed", "db": str(db_path), "request_id": packet["request_id"]}
+    return {"status": "printed", "db": str(db_path), "request_id": packet["request_id"], "capture_identity": packet['capture_identity']}
 
 
 def parse_args() -> argparse.Namespace:
@@ -970,6 +1032,7 @@ def parse_args() -> argparse.Namespace:
     index.add_argument("--lane", required=True)
     index.add_argument("--lane-root", default=str(DEFAULT_LANE_ROOT))
     index.add_argument("--flow-file")
+    index.add_argument("--flow-fd", type=int, help=argparse.SUPPRESS)
     index.add_argument("--program")
     index.add_argument("--task")
     index.add_argument("--run-id")
@@ -979,7 +1042,9 @@ def parse_args() -> argparse.Namespace:
     index.add_argument("--proxy-host")
     index.add_argument("--proxy-port", type=int)
     index.add_argument("--proxy-server")
-    index.add_argument("--transport", default=argparse.SUPPRESS)
+    index.add_argument('--transport', default=argparse.SUPPRESS)
+    index.add_argument('--receipt-metadata', action='store_true', help=argparse.SUPPRESS)
+    index.add_argument('--flow-resolved', help=argparse.SUPPRESS)
     index.add_argument("--browser-profile-id")
     index.add_argument("--session-source")
     index.add_argument("--note")
@@ -1055,8 +1120,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     args = parser.parse_args()
-    if args.func is index_lane and not hasattr(args, "transport"):
-        args.transport = None if args.lane == "hoster-default-8080" else "browser"
+    if args.func is index_lane and not hasattr(args, 'transport'):
+        args.transport = None if args.lane == 'hoster-default-8080' or args.receipt_metadata else 'browser'
     return args
 
 
@@ -1071,7 +1136,7 @@ def main() -> int:
             print(json.dumps(result["lease"], sort_keys=True))
         for row in result.get("rows", result.get("lanes", result.get("leases", []))):
             print(json.dumps(row, sort_keys=True))
-    return 0 if result.get("status") not in {"missing-flow-file", "missing-db", "missing-output", "missing-selector", "not-found", "task-port-reserved"} else 2
+    return 0 if result.get("status") not in {"missing-flow-file", "missing-db", "missing-output", "missing-selector", "not-found", "task-port-reserved", "capture-unavailable"} else 2
 
 
 if __name__ == "__main__":

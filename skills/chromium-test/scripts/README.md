@@ -548,14 +548,36 @@ Do not use this command to bypass a refusal with a different account/slot.
   partial or unverifiable stops remain frozen pending explicit reconciliation.
   Browser `release` leaves the task MITM running for replay. Run
   `task-proxy-status --agent-id <agent> --run-id <run>` to inspect its lease and
-  `task-proxy-finish --agent-id <agent> --run-id <run>` after browser release and
+  `task-proxy-finish --agent-id <agent> --run-id <run> --expected-lane <original-lane>` after browser release and
   replay completion. Finish verifies stop, removes only the matching task CA
   from stopped profiles (skipping a nickname replaced by a different CA), and
   indexes private flows; incomplete cleanup retains the reservation.
-  `task-proxy-recover --agent-id <agent> --run-id <run>` retries interrupted
+  New managed task captures prefer the existing exact program directory on the
+  local `/mnt/bounty` mount, under `web/proxy/flows/<capture>/flows.mitm`; an
+  unavailable or unsuitable mount uses a private local task directory instead.
+  No program slug or Shared directory is used. The selected path and physical
+  generation are recorded before startup: if the mount or capture disappears or
+  changes, finish/recovery reports `proxy-capture-unavailable` and retains the
+  reservation until the recorded capture is restored. Older rows without a
+  recorded capture continue to use their original `run_dir/flows.mitm`. The CA
+  and global index remain in their existing private local stores.
+  `task-proxy-recover --agent-id <agent> --run-id <run> --expected-lane <original-lane>` retries interrupted
   startup/cleanup after the browser stops; stopping a still-live unit requires
   matching invocation, 7200 seconds of quiet flow and no replay clients. Finish retries
   stop/CA/index phases and is idempotent for completed runs (14-day receipt).
+  Retain `task_proxy.lane` from the original provisioning receipt: the expected
+  lane fences active rows and latest receipts against stale retries. Legacy calls
+  without it remain accepted but are not generation-fenced. Status reports the
+  current lane, not proof of ownership after a lost startup receipt; independently
+  establish ownership before recovering an unreceipted startup.
+  A recovered start that never reached admission returns `status: aborted` and
+  its attempted lane, not a previous finished lane; retries report the same
+  result. For legacy interrupted rows where admission cannot be established,
+  cleanup returns `admission-unknown` instead of inventing a finish receipt.
+  The prior finished receipt is retained, even past its normal 14-day expiry,
+  until a newer admitted lane finishes; unrelated expired receipts still expire.
+  Reuse of a listener with a recorded process owner requires the same verified
+  owner identity, including when a caller omits `--owner-pid`.
   `reap-idle` additionally closes task listeners after 7200 seconds only with
   terminal recorded owner, quiet flow, no live browser, and no connected replay
   client. Ownerless reservations remain for explicit cleanup; no timer is added.
@@ -649,11 +671,26 @@ Do not use this command to bypass a refusal with a different account/slot.
 - **Purpose:** Create, inspect, and stop a task-owned local mitmproxy lane.
 - **Inputs:** Lane identifier, local port/state root, and lifecycle subcommand.
 - **Outputs:** JSON lane state and proxy endpoint metadata.
-- **Mutates:** The selected local lane process and state directory for lifecycle
-  operations.
-- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_mitm_lane.py -q`
+- **Mutates:** The selected local lane process and state directory; new flows
+  use the exact existing `<BOUNTY_ARTIFACT_ROOT>/<program>/web` on an eligible
+  local mount, otherwise a private local generation. General and absent program
+  remain local. Config/CA and the global SQLite index remain in their existing
+  locations. Completed generation receipts are retained on lane reuse; retry
+  an older generation with `index-store --flow-file <recorded-absolute-path>`
+  or `replay-flows --flow-file <recorded-absolute-path>`. Receipt-associated
+  missing or replaced captures fail closed instead of redirecting to a new path.
+  An explicit unassociated `replay-flows --flow-file` is operator supplied and
+  cannot be authenticated against managed indexed identity; not all direct
+  replay has verified provenance. Indexing a
+  legacy symlink records the descriptor's resolved file path, checked against
+  the opened inode; that path is provenance at indexing time, not a durable
+  guarantee that the name cannot later be changed. Readback pins an inode, not
+  its contents: indexing and replay are allowed while a capture is active, so
+  concurrent appends or in-place writes may be observed and are not an immutable
+  snapshot. Stop the capture before readback when a quiescent file is required.
+- **Verification:** fenced `agents/test_standalone_fd_independent_review.py`, `agents/test_standalone_exact_mount.py`, `agents/test_mitm_lane.py`, and `agents/test_hoster_mitm_lane.py`.
 - **Owner/scope:** Chromium Test skill.
-- **Last verified:** 2026-09-10.
+- **Last verified:** 2026-11-07.
 
 ## `hoster_mitm_lane.py`
 
@@ -689,6 +726,17 @@ Do not use this command to bypass a refusal with a different account/slot.
   directories; it does not move or copy SQLite data. Explicit `--db` remains
   available for another private, non-symlinked store.
 - **Outputs:** Sanitized indexed request metadata and query results.
+- **Capture identity:** Descriptor-based indexing records the opened file's
+  device and inode alongside the logical path, per lane and per request. Query
+  labels this `recorded-not-checked`; packet export verifies an opened capture
+  descriptor and fails with `capture-unavailable` if it is missing or replaced.
+  Old rows and pathname-only indexing are `unavailable-legacy`, not attested.
+  Indexed raw-history search checks recorded identity before reading; ambiguous
+  old/new identities are not searched. Explicit `--capture` is unassociated.
+  Device/inode checks do not detect in-place writes, inode reuse, or create an
+  atomic transaction spanning the filesystem and SQLite. Direct path replay via
+  `mitm_lane.py replay-flows --flow-file` is a separate standalone consumer:
+  without a matching standalone receipt it does not consult the managed index.
 - **Mutates:** The selected SQLite store for ingest/update operations; queries
   are read-only.
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_proxy_store.py -q`

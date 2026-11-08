@@ -7,8 +7,14 @@ import argparse
 import fcntl
 import hashlib
 import ipaddress
+
+
+from contextlib import ExitStack
+import fcntl
 import json
 import os
+import re
+import stat
 import shutil
 import shlex
 import re
@@ -16,6 +22,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -25,10 +32,198 @@ from typing import Any
 
 DEFAULT_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
 DEFAULT_MITMDUMP = "mitmdump"
+HOSTER_BOUNTY_ROOT = Path('/mnt/bounty')
 DEFAULT_SHARED_LANE = "hoster-default-8080"
 PROC_ROOT = Path('/proc')
 CGROUP_ROOT = Path('/sys/fs/cgroup')
 LEGACY_UNIT = 'hoster-mitm-default-8080.service'
+
+
+LOCAL_FILESYSTEMS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "zfs", "tmpfs", "overlay"}
+
+
+def _outside_shared(path: Path) -> bool:
+    shared = (Path.home() / "Shared", Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser())
+    lexical = Path(os.path.abspath(path))
+    try:
+        resolved = path.resolve()
+        resolved_shared = tuple(p.resolve() for p in shared)
+        if any(candidate.is_relative_to(base)
+               for candidate, bases in ((lexical, shared), (resolved, resolved_shared))
+               for base in bases):
+            return False
+        mounts = []
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            left, _ = line.split(' - ', 1)
+            fields = left.split()
+            def unescape(value):
+                return Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), value))
+            mounts.append((unescape(fields[4]), fields[2], unescape(fields[3])))
+        def backing(candidate):
+            matches = [entry for entry in mounts if candidate.is_relative_to(entry[0])]
+            depth = max(len(entry[0].parts) for entry in matches)
+            choices = [entry for entry in matches if len(entry[0].parts) == depth]
+            if len(choices) != 1:
+                raise ValueError('ambiguous mount')
+            target, device, root = choices[0]
+            return device, root / candidate.relative_to(target)
+        device, underlying = backing(resolved)
+        for base in resolved_shared:
+            shared_device, shared_underlying = backing(base)
+            if device == shared_device and underlying.is_relative_to(shared_underlying):
+                return False
+        return True
+    except (OSError, RuntimeError, ValueError, IndexError):
+        return False
+
+
+def _local_filesystem(path: Path) -> bool:
+    """Inspect the deepest mount, including a nested network mount below the root."""
+    path = path.resolve()
+    matches = []
+    try:
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            left, right = line.split(' - ', 1)
+            mount = Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), left.split()[4]))
+            if path.is_relative_to(mount):
+                matches.append((len(mount.parts), right.split()[0]))
+        deepest = max(depth for depth, _ in matches)
+        return {kind for depth, kind in matches if depth == deepest} <= LOCAL_FILESYSTEMS
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def _safe_existing_directories(path: Path) -> bool:
+    """Reject symlinks and replaceable ancestors, including extended ACLs."""
+    current = Path('/')
+    private_fence = False
+    try:
+        for component in path.absolute().parts[1:]:
+            current /= component
+            info = current.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
+                    or (info.st_mode & 0o022 and not private_fence)):
+                return False
+            try:
+                os.getxattr(current, 'system.posix_acl_access', follow_symlinks=False)
+                if not private_fence:
+                    return False  # conservatively refuse nontrivial access ACLs
+            except OSError as exc:
+                import errno
+                if exc.errno not in (errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP):
+                    return False
+            if info.st_uid == os.geteuid() and not info.st_mode & 0o077:
+                private_fence = True
+        return True
+    except OSError:
+        return False
+
+
+def _safe_mounted_directories(path: Path) -> bool:
+    """Apply the managed capture path's owner-approved ACL trust policy."""
+    scripts = str(Path(__file__).resolve().parent)
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from browser_provisioner import _capture_open_dir
+    try:
+        fd = _capture_open_dir(path)
+        os.close(fd)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def capture_destination(root: Path, lane: str, program: str | None) -> tuple[Path, str | None]:
+    """Reserve a private generation, using only an exact existing mounted lane.
+
+    This local API can be replaced at integration by the managed route's shared
+    selector: it returns (reserved flow path, selected mount or None).
+    """
+    if not lane or lane in ('.', '..') or '/' in lane or '\0' in lane:
+        raise ValueError('lane must be one path component')
+    directory = lane_dir(root, lane)
+    if not _outside_shared(directory) or not _local_filesystem(directory):
+        raise ValueError('lane state must be on a local filesystem outside Shared')
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not _safe_existing_directories(directory):
+        raise ValueError('lane state directory is not owner-controlled')
+    raw = os.environ.get('BOUNTY_ARTIFACT_ROOT', '/mnt/bounty')
+    artifact = Path(raw).expanduser()
+    exact = (program and program != 'general' and program not in ('.', '..')
+             and '/' not in program and '\0' not in program)
+    if exact and artifact.is_absolute():
+        safe_directories = (_safe_mounted_directories if artifact == HOSTER_BOUNTY_ROOT
+                            else _safe_existing_directories)
+        web = artifact / program / 'web'
+        try:
+            if (os.path.ismount(artifact) and _outside_shared(web) and _local_filesystem(web)
+                    and safe_directories(web) and os.access(web, os.W_OK | os.X_OK)):
+                parent = web
+                for name in ('proxy', 'flows'):
+                    child = parent / name
+                    child.mkdir(mode=0o700, exist_ok=True)
+                    if not safe_directories(child) or not _local_filesystem(child):
+                        raise PermissionError('unsafe capture directory')
+                    parent = child
+                capture = Path(tempfile.mkdtemp(prefix='standalone-', dir=parent))
+                return capture / 'flows.mitm', str(artifact)
+        except OSError:
+            pass  # An unusable mounted destination falls back, never to Shared.
+    return Path(tempfile.mkdtemp(prefix='capture-', dir=directory)) / 'flows.mitm', None
+
+
+def _mount_id(fd: int) -> int:
+    """Linux mount identity for an open descriptor, including bind mounts."""
+    for line in Path(f'/proc/self/fdinfo/{fd}').read_text().splitlines():
+        if line.startswith('mnt_id:'):
+            return int(line.split(':', 1)[1].strip())
+    raise OSError('mount ID unavailable')
+
+
+def verify_recorded_capture(state: dict[str, Any]) -> dict[str, Any] | None:
+    mount = state.get('capture_mount')
+    try:
+        if mount:
+            info = Path(mount).stat()
+            if (not os.path.ismount(mount) or [info.st_dev, info.st_ino] != state.get('mount_identity')
+                    or not _local_filesystem(Path(state['flow_file']))):
+                raise OSError('recorded mount unavailable')
+        if state.get('capture_identity'):
+            info = Path(state['flow_file']).lstat()
+            if (not stat.S_ISREG(info.st_mode) or [info.st_dev, info.st_ino] != state['capture_identity']):
+                raise OSError('recorded capture replaced')
+    except (OSError, KeyError):
+        return {'status': 'capture-unavailable', 'flow_file': state.get('flow_file')}
+    return None
+
+
+def open_readback(state: dict[str, Any], flow_file: Path, verify: bool) -> tuple[int | None, dict[str, Any] | None]:
+    """Open once and bind the read to the recorded inode, not a later path lookup."""
+    if verify:
+        failure = verify_recorded_capture(state)
+        if failure:
+            return None, failure
+    fd = None
+    try:
+        recorded_identity = state.get('capture_identity') if verify else None
+        flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
+        # Historical/explicit paths may be symlinks; recorded generations may not.
+        if recorded_identity:
+            flags |= os.O_NOFOLLOW
+        fd = os.open(flow_file, flags)
+        opened = os.fstat(fd)
+        named = flow_file.stat()
+        identity = [opened.st_dev, opened.st_ino]
+        if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(named.st_mode)
+                or identity != [named.st_dev, named.st_ino]
+                or (recorded_identity and identity != recorded_identity)):
+            raise OSError('capture identity changed')
+        return fd, None
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+        status = 'capture-unavailable' if verify and state.get('capture_identity') else 'missing-flow-file'
+        return None, {'status': status, 'flow_file': str(flow_file)}
 
 
 def lane_dir(root: Path, lane: str) -> Path:
@@ -85,10 +280,42 @@ def read_state(root: Path, lane: str) -> dict[str, Any]:
     return state
 
 
+def state_for_flow(root: Path, lane: str, override: str | None) -> dict[str, Any] | None:
+    """Resolve an explicitly named older generation without changing its identity."""
+    state = read_state(root, lane)
+    if not override or not state.get('index_lane'):
+        return state
+    requested = str(Path(override).expanduser().absolute())
+    if requested == state.get('flow_file'):
+        return state
+    for receipt in lane_dir(root, lane).glob('receipt-*/state.json'):
+        try:
+            saved = json.loads(receipt.read_text())
+            if isinstance(saved, dict) and saved.get('flow_file') == requested:
+                return saved
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def write_state(root: Path, lane: str, state: dict[str, Any]) -> None:
     path = state_path(root, lane)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    if lane == DEFAULT_SHARED_LANE:
+        # Preserve the shared supervisor's pre-submission publication protocol.
+        path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+        return
+    fd, temporary = tempfile.mkstemp(prefix=".state-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(state, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def publish_running_state(root: Path, lane: str, state: dict[str, Any]) -> None:
@@ -306,7 +533,6 @@ def legacy_start_lane(args: argparse.Namespace) -> dict[str, Any]:
                 "detail": "enable user linger and a working user systemd manager before starting"}
 
     directory = lane_dir(root, args.lane)
-    directory.mkdir(parents=True, exist_ok=True)
     confdir = directory / "mitmproxy"
     confdir.mkdir(parents=True, exist_ok=True)
     combined_ca = confdir / 'mitmproxy-ca.pem'
@@ -935,11 +1161,19 @@ def stop_lane(args: argparse.Namespace) -> dict[str, Any]:
 
 def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
     root = Path(args.root).expanduser()
-    state = read_state(root, args.lane)
+    state = state_for_flow(root, args.lane, args.flow_file)
+    if state is None:
+        return {'status': 'capture-conflict', 'lane': args.lane}
     flow_file = Path(args.flow_file or state.get("flow_file", "")).expanduser()
-    if not flow_file.exists():
-        return {"status": "missing-flow-file", "flow_file": str(flow_file)}
+    capture_fd, failure = open_readback(state, flow_file, not args.flow_file or bool(state.get('index_lane')))
+    if failure:
+        return failure
+    assert capture_fd is not None
+    with os.fdopen(capture_fd, 'rb') as capture:
+        return _replay_open_capture(args, root, flow_file, capture.fileno())
 
+
+def _replay_open_capture(args: argparse.Namespace, root: Path, flow_file: Path, capture_fd: int) -> dict[str, Any]:
     directory = lane_dir(root, args.lane)
     # Each replay owns a new private directory, so older artifacts, including
     # links or files with permissive modes, are never reused or truncated.
@@ -959,6 +1193,7 @@ def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
         "--set",
         "flow_detail=0",
     ]
+    command[command.index('-C') + 1] = f'/proc/self/fd/{capture_fd}'
     proc = subprocess.run(
         command,
         check=False,
@@ -967,6 +1202,7 @@ def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
         stderr=subprocess.STDOUT,
         env=mitm_env(),
         timeout=args.timeout,
+        pass_fds=(capture_fd,),
     )
     fd = os.open(replay_log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as log:
@@ -987,21 +1223,64 @@ def index_store(args: argparse.Namespace) -> dict[str, Any]:
     executable = shutil.which(args.mitmdump)
     if not executable:
         return {"status": "mitmdump-interpreter-unavailable"}
-    shebang = Path(executable).resolve().open("rb").readline().decode("utf-8", errors="replace").strip()
+    shebang = Path(executable).resolve().open("rb").readline(256).decode("utf-8", errors="replace").strip()
     python = shebang[2:] if shebang.startswith("#!/") else ""
     if not Path(python).is_file():
         return {"status": "mitmdump-interpreter-unavailable"}
-    command = [python, str(script), "--json", "--db", args.db,
-               "index-lane", "--lane", args.lane, "--lane-root", args.root]
-    for name in ("flow_file", "program", "task", "run_id", "agent_id",
+    system_reader = (Path(executable).resolve() == Path('/usr/bin/mitmdump'))
+    if Path(python).resolve().name in {'sh', 'bash', 'dash', 'zsh', 'ksh', 'fish'}:
+        if not Path('/usr/bin/mitmdump').is_file() or not Path('/usr/bin/python3').is_file():
+            return {"status": "mitmdump-interpreter-unavailable"}
+        python = '/usr/bin/python3'
+        system_reader = True
+    state = state_for_flow(Path(args.root).expanduser(), args.lane, getattr(args, 'flow_file', None))
+    if state is None:
+        return {'status': 'capture-conflict', 'lane': args.lane}
+    index_lane = state.get("index_lane") or args.lane
+    selected_flow = getattr(args, "flow_file", None) or state.get("flow_file")
+    command = [python, *(['-s'] if system_reader else []), str(script), "--json", "--db", args.db,
+               "index-lane", "--lane", index_lane]
+    for name in ("program", "task", "run_id", "agent_id",
                  "account_label", "runtime_host", "proxy_host", "proxy_port",
                  "proxy_server", "transport", "browser_profile_id", "session_source", "note"):
         value = getattr(args, name, None)
+        if value is None:
+            value = state.get(name)
         if value is not None:
             command.extend(("--" + name.replace("_", "-"), str(value)))
     if not args.store_full_requests:
         command.append("--no-full-requests")
-    result = subprocess.run(command, capture_output=True, text=True, env=mitm_env(), check=False)
+    # Give the indexer precisely the selected generation's recorded state.
+    # Reading the logical lane directory here would borrow the current owner's
+    # metadata when retrying an older, especially legacy, capture.
+    with tempfile.TemporaryDirectory(prefix='mitm-index-state-') as temporary:
+        write_state(Path(temporary), index_lane, state)
+        command.extend(("--lane-root", temporary, "--receipt-metadata"))
+        if not selected_flow:
+            return {'status': 'missing-flow-file', 'flow_file': '', 'lane': index_lane}
+        capture_fd, failure = open_readback(state, Path(selected_flow).expanduser(),
+                                           not getattr(args, 'flow_file', None) or bool(state.get('index_lane')))
+        if failure:
+            return failure
+        assert capture_fd is not None
+        try:
+            # Resolve provenance from the open file, never from a prior symlink
+            # lookup. Verify the descriptor's name still names that inode; an
+            # unlinked or renamed-away capture cannot supply reliable metadata.
+            try:
+                resolved_flow = os.readlink(f'/proc/self/fd/{capture_fd}')
+                opened = os.fstat(capture_fd)
+                named = os.stat(resolved_flow)
+                if not os.path.isabs(resolved_flow) or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+                    raise OSError('capture path no longer identifies open file')
+            except OSError:
+                return {'status': 'capture-unavailable', 'flow_file': str(selected_flow)}
+            command.extend(('--flow-file', resolved_flow, '--flow-fd', str(capture_fd),
+                            '--flow-resolved', resolved_flow))
+            result = subprocess.run(command, capture_output=True, text=True, env=mitm_env(),
+                                    check=False, pass_fds=(capture_fd,))
+        finally:
+            os.close(capture_fd)
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -1109,19 +1388,97 @@ def legacy_wait_for_port(port: int, timeout: float = 8.0) -> bool:
 
 
 def task_start_lane(args: argparse.Namespace) -> dict[str, Any]:
+    root = Path(args.root).expanduser().absolute()
+    if not args.lane or args.lane in ('.', '..') or '/' in args.lane or '\0' in args.lane:
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    directory = lane_dir(root, args.lane)
+    if not _outside_shared(directory) or not _local_filesystem(directory):
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not _safe_existing_directories(directory):
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    fd = os.open(directory / '.start.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return _start_lane_locked(args, root)
+    finally:
+        os.close(fd)
+
+
+def task_status_lane(args: argparse.Namespace) -> dict[str, Any]:
     root = Path(args.root).expanduser()
-    current = legacy_read_state(root, args.lane)
+    state = legacy_read_state(root, args.lane)
+    if not state:
+        return {"status": "not-found", "lane": args.lane}
+    state["alive"] = pid_alive(state.get("pid"))
+    if state.get("port"):
+        state["port_open"] = not can_bind_localhost(int(state["port"]))
+    return state
+
+
+def task_stop_lane(args: argparse.Namespace) -> dict[str, Any]:
+    root = Path(args.root).expanduser().absolute()
+    if not args.lane or args.lane in ('.', '..') or '/' in args.lane or '\0' in args.lane:
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    directory = lane_dir(root, args.lane)
+    if not directory.exists():
+        return {'status': 'not-found', 'lane': args.lane}
+    if not _outside_shared(directory) or not _local_filesystem(directory) or not _safe_existing_directories(directory):
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    fd = os.open(directory / '.start.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return _stop_lane_locked(args, root)
+    finally:
+        os.close(fd)
+
+
+
+def _start_lane_locked(args: argparse.Namespace, root: Path) -> dict[str, Any]:
+    with ExitStack() as resources:
+        return _start_lane_with_resources(args, root, resources)
+
+
+def _start_lane_with_resources(args: argparse.Namespace, root: Path, resources: ExitStack) -> dict[str, Any]:
+    current = read_state(root, args.lane)
+    if current.get("status") in ("starting", "corrupt-state") and not current.get("pid"):
+        return {"status": "state-unavailable", "lane": args.lane}
     if pid_alive(current.get("pid")):
         current["status"] = "already-running"
         return current
+    if current.get('index_lane') and current.get('status') != 'stopped':
+        return {'status': 'capture-recovery-required', 'lane': args.lane,
+                'flow_file': current.get('flow_file')}
     if not can_bind_localhost(args.port):
         return {"status": "port-unavailable", "lane": args.lane, "port": args.port}
 
     directory = lane_dir(root, args.lane)
-    directory.mkdir(parents=True, exist_ok=True)
     confdir = directory / "mitmproxy"
-    confdir.mkdir(parents=True, exist_ok=True)
-    flow_file = directory / "flows.mitm"
+    log_file = directory / "mitmdump.log"
+    if any(not _outside_shared(p) or not _local_filesystem(p) for p in (confdir, log_file)):
+        return {'status': 'capture-unavailable', 'lane': args.lane}
+    confdir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Pin the prospective mount before choosing or reserving a destination.
+    # A missing root may still use the normal local fallback.
+    mount_fd = None
+    try:
+        artifact = Path(os.environ.get('BOUNTY_ARTIFACT_ROOT', '/mnt/bounty')).expanduser()
+        if artifact.is_absolute():
+            mount_fd = os.open(artifact, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+            resources.callback(os.close, mount_fd)
+    except OSError:
+        pass
+    try:
+        flow_file, capture_mount = capture_destination(root, args.lane, args.program)
+        capture_fd = os.open(flow_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        resources.callback(os.close, capture_fd)
+        if capture_mount and (mount_fd is None or _mount_id(mount_fd) != _mount_id(capture_fd)):
+            raise OSError('capture destination does not belong to pinned mount')
+        capture_info = os.fstat(capture_fd)
+        mount_info = os.fstat(mount_fd) if mount_fd is not None and capture_mount else None
+    except (OSError, ValueError) as exc:
+        return {'status': 'capture-unavailable', 'lane': args.lane, 'detail': str(exc)}
+    index_lane = "capture-" + uuid.uuid4().hex
     log_file = directory / "mitmdump.log"
 
     command = [
@@ -1137,17 +1494,8 @@ def task_start_lane(args: argparse.Namespace) -> dict[str, Any]:
         "-w",
         str(flow_file),
     ]
-    log_handle = log_file.open("ab")
-    proc = subprocess.Popen(
-        command,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        env=mitm_env(),
-        start_new_session=True,
-    )
-    started = legacy_wait_for_port(args.port)
     state = {
-        "status": "running" if started else "start-timeout",
+        "status": "starting",
         "lane": args.lane,
         "program": args.program,
         "task": args.task,
@@ -1162,7 +1510,11 @@ def task_start_lane(args: argparse.Namespace) -> dict[str, Any]:
         "transport": args.transport,
         "browser_profile_id": args.browser_profile_id or args.profile_dir,
         "session_source": args.session_source,
-        "pid": proc.pid,
+        "pid": None,
+        "index_lane": index_lane,
+        "capture_mount": capture_mount,
+        "capture_identity": [capture_info.st_dev, capture_info.st_ino],
+        "mount_identity": ([mount_info.st_dev, mount_info.st_ino] if mount_info else None),
         "port": args.port,
         "listen_host": args.listen_host,
         "proxy_server": f"http://{args.proxy_host}:{args.port}",
@@ -1173,24 +1525,53 @@ def task_start_lane(args: argparse.Namespace) -> dict[str, Any]:
         "log_file": str(log_file),
         "command": command,
     }
+    if current:
+        # Retain the previous generation, including legacy state, before reuse.
+        receipt_dir = Path(tempfile.mkdtemp(prefix='receipt-', dir=directory))
+        receipt = receipt_dir / 'state.json'
+        fd = os.open(receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(current, handle, indent=2, sort_keys=True)
+            handle.write('\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+    write_state(root, args.lane, state)
+    failure = verify_recorded_capture(state)
+    if capture_mount and not failure:
+        try:
+            check_fd = os.open(capture_mount, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if (mount_fd is None or _mount_id(check_fd) != _mount_id(mount_fd)
+                        or not _outside_shared(flow_file)):
+                    failure = {'status': 'capture-unavailable'}
+            finally:
+                os.close(check_fd)
+        except (OSError, ValueError):
+            failure = {'status': 'capture-unavailable'}
+    if failure:
+        state['status'] = 'capture-unavailable'
+        write_state(root, args.lane, state)
+        return state
+    # The subprocess reopens this inherited descriptor, never the mutable mount
+    # pathname. Even lazy unmount/replacement cannot redirect capture writes.
+    launch_command = command[:-1] + [f'/proc/self/fd/{capture_fd}']
+    try:
+        with log_file.open("ab") as log_handle:
+            proc = subprocess.Popen(launch_command, stdout=log_handle, stderr=subprocess.STDOUT,
+                                    env=mitm_env(), start_new_session=True, pass_fds=(capture_fd,))
+    except OSError:
+        state["status"] = "start-failed"
+        write_state(root, args.lane, state)
+        raise
+    state["pid"] = proc.pid
+    write_state(root, args.lane, state)
+    state["status"] = "running" if wait_for_port(args.port) else "start-timeout"
     write_state(root, args.lane, state)
     return state
 
 
-def task_status_lane(args: argparse.Namespace) -> dict[str, Any]:
-    root = Path(args.root).expanduser()
-    state = legacy_read_state(root, args.lane)
-    if not state:
-        return {"status": "not-found", "lane": args.lane}
-    state["alive"] = pid_alive(state.get("pid"))
-    if state.get("port"):
-        state["port_open"] = not can_bind_localhost(int(state["port"]))
-    return state
-
-
-def task_stop_lane(args: argparse.Namespace) -> dict[str, Any]:
-    root = Path(args.root).expanduser()
-    state = legacy_read_state(root, args.lane)
+def _stop_lane_locked(args: argparse.Namespace, root: Path) -> dict[str, Any]:
+    state = read_state(root, args.lane)
     pid = state.get("pid")
     if pid_alive(pid):
         os.killpg(pid, signal.SIGTERM)
@@ -1200,16 +1581,15 @@ def task_stop_lane(args: argparse.Namespace) -> dict[str, Any]:
             time.sleep(0.1)
         if pid_alive(pid):
             os.killpg(pid, signal.SIGKILL)
-    state["status"] = "stopped"
     state["alive"] = pid_alive(pid)
+    state["status"] = "stop-failed" if state["alive"] else "stopped"
     write_state(root, args.lane, state)
     return state
-
 
 def main() -> int:
     args = parse_args()
     result = args.func(args)
-    if args.lane != DEFAULT_SHARED_LANE and getattr(args, 'command', None) in {'start', 'status', 'stop', 'replay-flows', 'index-store'}:
+    if getattr(args, 'lane', None) != DEFAULT_SHARED_LANE and getattr(args, 'command', None) in {'start', 'status', 'stop', 'replay-flows', 'index-store'}:
         if args.json:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
@@ -1217,7 +1597,9 @@ def main() -> int:
             for key in ("proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
                 if result.get(key) is not None:
                     print(f"{key}: {result[key]}")
-        return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed"} else 2
+        if result.get('index_lane') and result.get('status') in {'start-timeout', 'start-failed'}:
+            return 2
+        return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed", "missing-proxy-store", "state-unavailable", "corrupt-state", "capture-conflict", "capture-unavailable", "capture-recovery-required", "stop-failed"} else 2
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
@@ -1225,7 +1607,7 @@ def main() -> int:
         for key in ("detail", "unit", "cleanup", "proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
             if result.get(key) is not None:
                 print(f"{key}: {result[key]}")
-    return 0 if result.get("status") not in {"port-unavailable", "ca-pending", "start-outcome-unknown", "start-timeout", "start-failed", "start-cleanup-failed", "unsupported-runtime", "unsupported-listen-host", "unsupported-proxy-host", "supervisor-unavailable", "unknown-state", "corrupt-state", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed", "unmanaged-start-unsupported", "unmanaged-stop-unsupported", "tls-verification-failed", "tls-timeout", "tls-unavailable"} else 2
+    return 0 if result.get('status') not in {'port-unavailable', 'ca-pending', 'start-outcome-unknown', 'start-timeout', 'start-failed', 'start-cleanup-failed', 'unsupported-runtime', 'unsupported-listen-host', 'unsupported-proxy-host', 'supervisor-unavailable', 'unknown-state', 'corrupt-state', 'missing-flow-file', 'missing-proxy-store', 'replay-failed', 'mitmdump-interpreter-unavailable', 'index-failed', 'unmanaged-start-unsupported', 'unmanaged-stop-unsupported', 'tls-verification-failed', 'tls-timeout', 'tls-unavailable', 'state-unavailable', 'capture-conflict', 'capture-unavailable', 'capture-recovery-required', 'stop-failed'} else 2
 
 
 if __name__ == "__main__":

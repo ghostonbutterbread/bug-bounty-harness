@@ -44,6 +44,7 @@ def test_task_lane_start_stop_remain_legacy_without_real_services(monkeypatch, t
     monkeypatch.setattr(module, 'pid_alive', lambda _pid: False)
     monkeypatch.setattr(module, 'can_bind_localhost', lambda _port: True)
     monkeypatch.setattr(module, 'legacy_wait_for_port', lambda _port: True)
+    monkeypatch.setattr(module, 'wait_for_port', lambda _port: True)
     monkeypatch.setattr(module.subprocess, 'Popen', lambda cmd, **kw: commands.append(cmd) or FakeProcess())
     args = shared_start_args(tmp_path, lane='fixture-task', port=8081, program='fixture',
                              agent_id='a', run_id='r', transport='tool', session_source='fixture-session')
@@ -246,6 +247,58 @@ def test_stop_does_not_signal_unowned_pid_or_alter_state(monkeypatch, tmp_path):
     assert state.read_text() == original
 
 
+def test_new_capture_does_not_truncate_or_overwrite_index_lane(monkeypatch, tmp_path):
+    module = load_mitm_lane()
+    monkeypatch.setattr(module, 'pid_alive', lambda _: False)
+    monkeypatch.setattr(module, 'can_bind_localhost', lambda _: True)
+    monkeypatch.setattr(module, 'wait_for_port', lambda _: True)
+    commands = []
+    def launch(command, **kwargs):
+        state = module.read_state(tmp_path, 'named')
+        assert Path(state['flow_file']).stat().st_ino == Path(command[-1]).stat().st_ino
+        assert int(command[-1].rsplit('/', 1)[1]) in kwargs['pass_fds']
+        assert state['index_lane'] != 'named'
+        commands.append(command)
+        Path(command[-1]).write_bytes(b'capture')
+        return argparse.Namespace(pid=123)
+    monkeypatch.setattr(module.subprocess, 'Popen', launch)
+    args = argparse.Namespace(root=str(tmp_path), lane='named', port=8081, mitmdump='fake',
+        listen_host='127.0.0.1', proxy_host='127.0.0.1', program='Exact Name', task='test',
+        account='fixture', account_label=None, profile_dir=None, run_id='run', agent_id='agent',
+        runtime_host='fixture', transport='browser', browser_profile_id=None, session_source=None)
+    first = module.start_lane(args)
+    first_file = Path(first['flow_file'])
+    assert module.start_lane(args)['status'] == 'capture-recovery-required'
+    assert module.stop_lane(args)['status'] == 'stopped'
+    second = module.start_lane(args)
+    assert first_file.read_bytes() == b'capture'
+    assert first_file != Path(second['flow_file'])
+    assert first['index_lane'] != second['index_lane']
+
+
+def test_index_store_uses_saved_capture_identity(monkeypatch, tmp_path):
+    module = load_mitm_lane()
+    state = {'index_lane': 'capture-one', 'flow_file': str(tmp_path / 'capture.mitm'),
+             'program': 'Exact Name', 'task': 'test'}
+    Path(state['flow_file']).write_bytes(b'fixture')
+    module.write_state(tmp_path, 'named', state)
+    executable = tmp_path / 'mitmdump'
+    executable.write_text(f'#!{sys.executable}\n')
+    monkeypatch.setattr(module.shutil, 'which', lambda _: str(executable))
+    commands = []
+    def run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, '{"status":"indexed"}', '')
+    monkeypatch.setattr(module.subprocess, 'run', run)
+    args = argparse.Namespace(mitmdump='fake', db=str(tmp_path / 'db'), lane='named',
+                              root=str(tmp_path), flow_file=None, store_full_requests=True)
+    assert module.index_store(args)['status'] == 'indexed'
+    command = commands[0]
+    assert command[command.index('--lane') + 1] == 'capture-one'
+    assert command[command.index('--flow-file') + 1] == state['flow_file']
+    assert command[command.index('--program') + 1] == state['program']
+
+
 def test_index_store_uses_mitmdump_runtime_when_checkout_lacks_mitmproxy(tmp_path):
     if os.environ.get('SHARED_DEFAULT_KERNEL_FENCE') == '1':
         pytest.skip('real mitmdump execution is outside the fake-subprocess-only fence')
@@ -269,6 +322,9 @@ def test_index_store_passes_full_request_option(monkeypatch, tmp_path):
     mitmdump = tmp_path / "mitmdump"
     mitmdump.write_text(f"#!{sys.executable}\n")
     monkeypatch.setattr(module.shutil, "which", lambda _: str(mitmdump))
+    flow_file = tmp_path / 'capture.mitm'
+    flow_file.write_bytes(b'fixture')
+    module.write_state(tmp_path / 'lanes', 'lane-a', {'flow_file': str(flow_file)})
 
     def run(command, **_kwargs):
         captured["command"] = command

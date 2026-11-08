@@ -55,7 +55,10 @@ generated CA, then imports that exact CA into the isolated Chromium profile
 before launching Chrome. The agent receives `task_proxy` metadata to inspect
 its own traffic. A missing proxy or failed CA import aborts provisioning; it
 never silently falls back to shared 8080, Caido, or certificate-ignore. Release
-the browser when done, then run `task-proxy-finish` after any direct replay.
+the browser when done, then run `task-proxy-finish` after any direct replay,
+passing `--expected-lane` with the `task_proxy.lane` saved from the original
+provisioning receipt. Use the same lane for recovery; unfenced legacy calls can
+affect a later generation using the same agent/run IDs.
 The launcher includes Chromium's CDP origin compatibility flag by default:
 
 ```text

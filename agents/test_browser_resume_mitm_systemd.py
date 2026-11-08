@@ -247,7 +247,8 @@ def test_stopped_resume_default_task_mitm():
                                      "--cacert", str(ca), "-x", proxy["proxy_server"], local_url],
                                     capture_output=True, text=True, timeout=10)
             assert replay.returncode == 0 and replay.stdout == "local-mitm-resume-ok", replay.stderr
-            result = command("task-proxy-finish", "--agent-id", agent, "--run-id", run)
+            result = command("task-proxy-finish", "--agent-id", agent, "--run-id", run,
+                             "--expected-lane", proxy["lane"])
             assert result["status"] == "finished" and result["lane"] == proxy["lane"]
             assert proxy_row() is None and not socket_open(int(proxy["proxy_server"].rsplit(":", 1)[1]))
             assert listener_ports() == ports_before
@@ -255,7 +256,8 @@ def test_stopped_resume_default_task_mitm():
                                             "--property=ActiveState", "--value"],
                                            capture_output=True, text=True, check=True, timeout=10)
             assert stopped_proxy.stdout.strip() in {"inactive", "failed"}
-            assert command("task-proxy-finish", "--agent-id", agent, "--run-id", run)["already_finished"] is True
+            assert command("task-proxy-finish", "--agent-id", agent, "--run-id", run,
+                           "--expected-lane", proxy["lane"])["already_finished"] is True
             cert_check = subprocess.run(["certutil", "-d", f"sql:{old['profile_dir']}", "-L", "-n", "mitmproxy"],
                                         capture_output=True, text=True, timeout=10)
             assert cert_check.returncode != 0
@@ -272,9 +274,12 @@ def test_stopped_resume_default_task_mitm():
                         release(receipt)
                 current = proxy_row() if state.exists() else None
                 if current is not None and not any(row(receipt)["state"] == "running" for receipt in records):
-                    # Exact run only; a failed stop keeps the fixture root for recovery.
+                    # This unique, isolated test fixture owns its only run even
+                    # if request failed before returning a provisioning receipt.
                     action = "task-proxy-recover" if current["state"] != "running" else "task-proxy-finish"
-                    cleanup = command(action, "--agent-id", agent, "--run-id", run)
+                    lane = records[0]["task_proxy"]["lane"] if records else current["lane"]
+                    cleanup = command(action, "--agent-id", agent, "--run-id", run,
+                                      "--expected-lane", lane)
                     assert cleanup["status"] == "finished"
                 if state.exists():
                     assert proxy_row() is None

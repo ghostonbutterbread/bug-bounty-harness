@@ -324,7 +324,8 @@ def test_acquire_start_runs_lease_then_remote_start(monkeypatch):
     assert "lease-acquire" in calls[0]
     assert "start" in calls[1]
     assert "--listen-host" in calls[1]
-    assert "0.0.0.0" in calls[1]
+    assert '0.0.0.0' in calls[1]
+    assert calls[1][calls[1].index('--program') + 1] == 'demo'
 
 
 def test_acquire_start_releases_lease_when_remote_start_fails(monkeypatch):

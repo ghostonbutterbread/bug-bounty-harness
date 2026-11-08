@@ -556,6 +556,369 @@ def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile
         assert tuple(released) == ('released', 'healthy')
 
 
+@pytest.mark.parametrize('failure', ['exhausted', 'conflict', 'exception'])
+def test_proxy_unavailable_releases_acquired_unstarted_lease(monkeypatch, tmp_path, capsys, failure):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+    args = start_args()
+    args.account, args.proxy, args.proxy_cert_mode = 'anon', 'mitm', 'import'
+    acquired = {}
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'DEFAULT_STORE', tmp_path / 'missing-standalone.sqlite')
+    monkeypatch.setattr(m, 'port_open', lambda _: True)
+    monkeypatch.setattr(m, 'stop_unit', lambda _: pytest.fail('no unit was started'))
+    if failure == 'conflict':
+        proxy_fixture(m, args, tmp_path)
+    elif failure == 'exception':
+        def failed_proxy(*_):
+            raise RuntimeError('sensitive-proxy-fixture')
+        monkeypatch.setattr(m, 'start_proxy', failed_proxy)
+    def acquire(_, action, *rest):
+        assert action == 'acquire'
+        acquired.update(profiles.cmd_acquire(argparse.Namespace(
+            program='demo', account='anon', auth_domain=None, agent_id='agent',
+            run_id='run', purpose='test', ttl_seconds=60, state_dir=str(m.STATE.parent),
+            recover_profile=False, manager_id=m.manager_id())))
+        return acquired
+    monkeypatch.setattr(m, 'lease', acquire)
+
+    with pytest.raises(SystemExit) as exc:
+        m.start(args)
+
+    assert exc.value.code == 2
+    output = capsys.readouterr()
+    assert json.loads(output.out)['status'] == {
+        'exhausted': 'proxy-unavailable', 'conflict': 'proxy-conflict', 'exception': 'proxy-failed'
+    }[failure]
+    assert output.err == ''
+    assert 'sensitive-proxy-fixture' not in output.out
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        row = leases.execute('SELECT status, browser_status, profile_health FROM browser_profile_leases WHERE lease_id=?',
+                             (acquired['lease']['lease_id'],)).fetchone()
+        assert tuple(row) == ('released', 'stopped', 'healthy')
+    assert m.db().execute('SELECT count(*) FROM browsers').fetchone()[0] == 0
+    task = m.proxy_row(m.db(), args)
+    if failure == 'conflict':
+        assert task['lane'] == 'task-fixture' and task['state'] == 'running'
+    else:
+        assert task is None
+
+
+def test_request_accepts_only_fixed_cleanup_signal_and_does_not_retry(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.wait_seconds = 60
+    monkeypatch.setattr(m, 'maintain', lambda _: None)
+    monkeypatch.setattr(m.time, 'sleep', lambda _: pytest.fail('uncertain cleanup must not retry'))
+    signal = json.dumps(m.LEASE_RELEASE_UNVERIFIED)
+    responses = [
+        argparse.Namespace(returncode=2, stdout='{"status":"queued"}', stderr='secret\n' + signal + '\n'),
+        argparse.Namespace(returncode=2, stdout='{"status":"proxy-failed"}',
+                           stderr=signal[:-1] + ', "secret": "secret-value"}\n'),
+    ]
+    monkeypatch.setattr(m.subprocess, 'run', lambda *_a, **_k: responses.pop(0))
+    with pytest.raises(SystemExit):
+        m.request(args)
+    first = capsys.readouterr()
+    assert json.loads(first.out)['cleanup']['status'] == 'cleanup-incomplete'
+    assert first.err == '' and 'secret' not in first.out
+    with pytest.raises(SystemExit):
+        m.request(args)
+    second = capsys.readouterr()
+    assert 'cleanup' not in json.loads(second.out)
+    assert second.err == '' and 'secret' not in second.out
+
+
+@pytest.mark.parametrize('child_stdout', ['[]', '"unexpected"', '7', 'false'])
+def test_request_rejects_non_object_json_with_cleanup_signal(monkeypatch, tmp_path, capsys, child_stdout):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.wait_seconds = 0
+    monkeypatch.setattr(m, 'maintain', lambda _: None)
+    response = argparse.Namespace(returncode=7, stdout=child_stdout,
+                                  stderr=json.dumps(m.LEASE_RELEASE_UNVERIFIED) + '\nsecret\n')
+    monkeypatch.setattr(m.subprocess, 'run', lambda *_a, **_k: response)
+    with pytest.raises(SystemExit) as exc:
+        m.request(args)
+    output = capsys.readouterr()
+    assert exc.value.code == 2
+    result = json.loads(output.out)
+    assert result['status'] == 'launch-failed'
+    assert result['cleanup']['status'] == 'cleanup-incomplete'
+    assert output.err == '' and 'secret' not in output.out
+
+
+@pytest.mark.parametrize('failure_kind', ['exit', 'exception', 'exit-without-json', 'exit-with-null-json', 'exit-zero'])
+@pytest.mark.parametrize('release_outcome', ['refused', 'error', 'released'])
+def test_request_reports_proxy_cleanup_across_real_start_subprocess(
+        monkeypatch, tmp_path, capsys, failure_kind, release_outcome):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.account, args.proxy, args.proxy_cert_mode, args.wait_seconds = 'anon', 'mitm', 'import', 0
+    monkeypatch.setattr(m, 'maintain', lambda _: None)
+    real_run = subprocess.run
+    # Exercise request's real subprocess boundary and the actual start function,
+    # while injecting only the external admission/proxy/release failure seams.
+    fixture = '''
+import argparse, importlib.util, sys
+script, failure, outcome = sys.argv[1:4]
+sys.argv = [script] + sys.argv[4:]
+spec = importlib.util.spec_from_file_location("fixture_provisioner", script)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+import browser_profile_lease as profiles
+m.sweep_rows = lambda *a: ([], [])
+m.admission = lambda *a: {"status": "admitted"}
+m.port_open = lambda *a: True
+m.DEFAULT_STORE = m.STATE.parent / "missing-standalone.sqlite"
+def acquire(args, action, *rest):
+    assert action == "acquire"
+    return profiles.cmd_acquire(argparse.Namespace(
+        program=args.program, account=args.account, auth_domain=None, agent_id=args.agent_id,
+        run_id=args.run_id, purpose=args.purpose, ttl_seconds=args.ttl_seconds,
+        state_dir=str(m.STATE.parent), recover_profile=False, manager_id=m.manager_id()))
+m.lease = acquire
+def failed_proxy(*args):
+    print("sensitive-arbitrary-stderr", end="", file=sys.stderr)
+    if failure in ("exit", "exit-zero"):
+        m.emit({"status": "proxy-unavailable", "detail": "no task proxy ports"}, 7 if failure == "exit" else 0)
+    if failure == "exit-without-json":
+        raise SystemExit(7)
+    if failure == "exit-with-null-json":
+        print("null", flush=True)
+        raise SystemExit(7)
+    raise RuntimeError("sensitive-proxy-exception")
+m.start_proxy = failed_proxy
+if outcome != "released":
+    def failed_release(*args):
+        if outcome == "error":
+            raise RuntimeError("sensitive-release-exception")
+        return False
+    m.release_lease = failed_release
+m.main()
+'''
+    def run_start(cmd, **kwargs):
+        assert cmd[1] == str(SCRIPT.resolve()) and cmd[2] == 'start'
+        return real_run([cmd[0], '-c', fixture, cmd[1], failure_kind, release_outcome, *cmd[2:]], **kwargs)
+    monkeypatch.setattr(m.subprocess, 'run', run_start)
+
+    with pytest.raises(SystemExit) as exc:
+        m.request(args)
+    output = capsys.readouterr()
+    result = json.loads(output.out)
+    assert exc.value.code == {'exit': 7, 'exit-zero': 0, 'exception': 2, 'exit-without-json': 2, 'exit-with-null-json': 2}[failure_kind]
+    assert result['status'] == {
+        'exit': 'proxy-unavailable', 'exit-zero': 'proxy-unavailable', 'exception': 'proxy-failed',
+        'exit-without-json': 'launch-failed', 'exit-with-null-json': 'launch-failed',
+    }[failure_kind]
+    if failure_kind in ('exit', 'exit-zero'):
+        assert result['detail'] == 'no task proxy ports'
+    if release_outcome == 'released':
+        assert 'cleanup' not in result
+    else:
+        assert result['cleanup'] == {
+            'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified',
+            'action': 'Inspect the canonical lease for this agent and run; resolve it only after verifying ownership and browser state.',
+        }
+    if failure_kind not in ('exit-without-json', 'exit-with-null-json'):
+        assert result['attempts'] == 1
+    assert output.err == ''
+    assert 'sensitive-' not in output.out
+    with sqlite3.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        rows = leases.execute('SELECT status, browser_status FROM browser_profile_leases').fetchall()
+    assert rows == [('released', 'stopped') if release_outcome == 'released' else ('active', 'not-started')]
+    assert m.db().execute('SELECT count(*) FROM browsers').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('previous_health', ['needs-refresh', 'unknown'])
+@pytest.mark.parametrize('failure_kind', ['exit', 'exception'])
+def test_proxy_failure_preserves_unrepaired_profile_health(monkeypatch, tmp_path, capsys, previous_health, failure_kind):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+    args = start_args()
+    args.account, args.proxy, args.proxy_cert_mode = 'anon', 'mitm', 'import'
+    args.recover_profile = True
+    req = argparse.Namespace(program='demo', account='anon', auth_domain=None,
+                             agent_id='agent', run_id='run', purpose='test', ttl_seconds=60,
+                             state_dir=str(m.STATE.parent), recover_profile=False,
+                             manager_id=m.manager_id())
+    previous = profiles.cmd_acquire(req)
+    assert previous['status'] == 'leased'
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        leases.execute('BEGIN IMMEDIATE')
+        row = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                             (previous['lease']['lease_id'],)).fetchone()
+        profiles.release_owned_in_transaction(leases, row, disposition='failed', profile_health=previous_health)
+        leases.commit()
+    assert profiles.cmd_acquire(req)['status'] == 'account-unavailable'
+    req.recover_profile = True
+    if failure_kind == 'exception':
+        def failed_proxy(*_):
+            raise RuntimeError('sensitive-proxy-fixture')
+        monkeypatch.setattr(m, 'start_proxy', failed_proxy)
+    acquired = {}
+    def acquire(*_):
+        acquired.update(profiles.cmd_acquire(req))
+        return acquired
+    monkeypatch.setattr(m, 'lease', acquire)
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'DEFAULT_STORE', tmp_path / 'missing-standalone.sqlite')
+    monkeypatch.setattr(m, 'port_open', lambda _: True)
+    with pytest.raises(SystemExit) as exc:
+        m.start(args)
+    assert exc.value.code == 2
+    output = capsys.readouterr()
+    assert json.loads(output.out)['status'] == ('proxy-unavailable' if failure_kind == 'exit' else 'proxy-failed')
+    assert acquired['status'] == 'leased'
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        row = leases.execute('SELECT status, profile_health FROM browser_profile_leases WHERE lease_id=?',
+                             (acquired['lease']['lease_id'],)).fetchone()
+        assert tuple(row) == ('released', previous_health)
+    assert 'sensitive-proxy-fixture' not in output.out + output.err
+    req.recover_profile = False
+    assert profiles.cmd_acquire(req)['status'] == 'account-unavailable'
+
+
+@pytest.mark.parametrize('failure_kind', ['exit', 'exception'])
+def test_proxy_failure_does_not_release_already_owned_lease(monkeypatch, tmp_path, capsys, failure_kind):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+    args = start_args()
+    args.account, args.proxy, args.proxy_cert_mode = 'anon', 'mitm', 'import'
+    req = argparse.Namespace(program='demo', account='anon', auth_domain=None,
+                             agent_id='agent', run_id='run', purpose='test', ttl_seconds=60,
+                             state_dir=str(m.STATE.parent), recover_profile=False,
+                             manager_id=m.manager_id())
+    previous = profiles.cmd_acquire(req)
+    assert previous['status'] == 'leased'
+    if failure_kind == 'exception':
+        def failed_proxy(*_):
+            raise RuntimeError('sensitive-proxy-fixture')
+        monkeypatch.setattr(m, 'start_proxy', failed_proxy)
+    reacquired = {}
+    def acquire(*_):
+        reacquired.update(profiles.cmd_acquire(req))
+        return reacquired
+    monkeypatch.setattr(m, 'lease', acquire)
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'DEFAULT_STORE', tmp_path / 'missing-standalone.sqlite')
+    monkeypatch.setattr(m, 'port_open', lambda _: True)
+    with pytest.raises(SystemExit) as exc:
+        m.start(args)
+    assert exc.value.code == 2
+    output = capsys.readouterr()
+    assert json.loads(output.out)['status'] == ('proxy-unavailable' if failure_kind == 'exit' else 'proxy-failed')
+    assert output.err == ''
+    assert reacquired['status'] == 'already-owned'
+    assert reacquired['lease']['lease_id'] == previous['lease']['lease_id']
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        row = leases.execute('SELECT status, browser_status, profile_health FROM browser_profile_leases WHERE lease_id=?',
+                             (previous['lease']['lease_id'],)).fetchone()
+        assert tuple(row) == ('active', 'not-started', 'unknown')
+    assert 'sensitive-proxy-fixture' not in output.out + output.err
+
+
+@pytest.mark.parametrize('failure_kind', ['exit', 'exception'])
+@pytest.mark.parametrize('case', ['wrong-owner', 'wrong-run', 'browser-started', 'release-error', 'interrupt'])
+def test_proxy_failure_preserves_uncertain_lease_and_original_error(monkeypatch, tmp_path, capsys, case, failure_kind):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+    args = start_args()
+    args.account, args.proxy, args.proxy_cert_mode = 'anon', 'mitm', 'import'
+    acquired = {}
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'admission', lambda *_: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'DEFAULT_STORE', tmp_path / 'missing-standalone.sqlite')
+    monkeypatch.setattr(m, 'port_open', lambda _: True)
+    monkeypatch.setattr(m, 'stop_unit', lambda _: pytest.fail('must not stop a unit'))
+    def acquire(_, action, *rest):
+        assert action == 'acquire'
+        acquired.update(profiles.cmd_acquire(argparse.Namespace(
+            program='demo', account='anon', auth_domain=None, agent_id='agent',
+            run_id='run', purpose='test', ttl_seconds=60, state_dir=str(m.STATE.parent),
+            recover_profile=False, manager_id=m.manager_id())))
+        with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            if case == 'wrong-owner':
+                leases.execute("UPDATE browser_profile_leases SET owner_agent_id='other' WHERE lease_id=?",
+                               (acquired['lease']['lease_id'],))
+            elif case == 'wrong-run':
+                leases.execute("UPDATE browser_profile_leases SET owner_run_id='other' WHERE lease_id=?",
+                               (acquired['lease']['lease_id'],))
+            elif case == 'browser-started':
+                leases.execute("UPDATE browser_profile_leases SET browser_status='running' WHERE lease_id=?",
+                               (acquired['lease']['lease_id'],))
+        return acquired
+    monkeypatch.setattr(m, 'lease', acquire)
+    if failure_kind == 'exception' and case != 'interrupt':
+        def failed_proxy(*_):
+            raise RuntimeError('sensitive-proxy-fixture')
+        monkeypatch.setattr(m, 'start_proxy', failed_proxy)
+    if case == 'release-error':
+        def failed_release(*_):
+            raise RuntimeError('sensitive-release-fixture')
+        monkeypatch.setattr(m, 'release_lease', failed_release)
+    elif case == 'interrupt':
+        def interrupted(*_):
+            raise KeyboardInterrupt()
+        monkeypatch.setattr(m, 'start_proxy', interrupted)
+        monkeypatch.setattr(m, 'release_lease', lambda *_: pytest.fail('cancellation must propagate'))
+
+    with pytest.raises(KeyboardInterrupt if case == 'interrupt' else SystemExit) as exc:
+        m.start(args)
+    output = capsys.readouterr()
+    if case != 'interrupt':
+        assert exc.value.code == 2
+        assert json.loads(output.out)['status'] == ('proxy-unavailable' if failure_kind == 'exit' else 'proxy-failed')
+        assert json.loads(output.err) == {'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}
+        assert 'sensitive-' not in output.out + output.err
+    else:
+        assert output.out == output.err == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        row = leases.execute('SELECT status FROM browser_profile_leases WHERE lease_id=?',
+                             (acquired['lease']['lease_id'],)).fetchone()
+        assert row['status'] == 'active'
+    assert m.db().execute('SELECT count(*) FROM browsers').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("stored,exact,requested,expected", [
+    ("demo-name", None, "Demo Name", True),
+    ("other-name", None, "Demo Name", False),
+    ("demo-name", "Demo Name", "Demo Name", True),
+    ("demo-name", "demo-name", "Demo Name", False),
+    ("demo-name", "", "Demo Name", False),
+])
+def test_task_proxy_program_identity_reuse(monkeypatch, tmp_path, capsys, stored, exact, requested, expected):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.program = requested
+    args.proxy = "mitm"
+    c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set program=?, exact_program=?", (stored, exact))
+    c.commit()
+    monkeypatch.setattr(m, "proxy_ready", lambda _: True)
+    if expected:
+        row, created = m.start_proxy(c, args)
+        assert row["program"] == stored and not created
+    else:
+        with pytest.raises(SystemExit) as outcome:
+            m.start_proxy(c, args)
+        assert outcome.value.code == 2
+        assert json.loads(capsys.readouterr().out)["status"] == "proxy-conflict"
+    row = m.proxy_row(c, args)
+    metadata = m.proxy_metadata(row)
+    monkeypatch.setattr(m, "record_info", lambda _: {
+        "proxy_server": metadata["proxy_server"], "proxy_cert_mode": "import",
+        "proxy_cert_status": {"status": "trusted", "ca_cert": metadata["ca_cert"], "ca_sha256": "fixture"},
+    })
+    monkeypatch.setattr(m, "ca_fingerprint", lambda _: "fixture")
+    assert m.matching_proxy(c, args, {}) is expected
+    delattr(args, "program")
+    assert m.matching_proxy(c, args, {}) is False
+
+
 def proxy_fixture(m, args, root):
     c = m.db()
     directory = root / "task-proxies" / "task-fixture"
@@ -920,7 +1283,7 @@ def test_recover_interrupted_start_with_both_units_inactive(monkeypatch, tmp_pat
     monkeypatch.setattr(m, "release_lease", lambda *_a, **_k: pytest.fail("no profile health change"))
     with pytest.raises(SystemExit) as exc: m.task_proxy_recover(args)
     assert exc.value.code == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "finished"
+    assert json.loads(capsys.readouterr().out)["status"] == "aborted"
     assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "stopped"
     assert m.proxy_row(c, args) is None
     assert stopped_units == []

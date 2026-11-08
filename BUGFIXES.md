@@ -1,5 +1,18 @@
 # Known defects awaiting their own task
 
+## Legacy unfenced task-proxy finish can affect a newer generation
+
+**Location:** `skills/chromium-test/scripts/browser_provisioner.py`,
+`finish_proxy` and the `task-proxy-finish`/`task-proxy-recover` parsers.
+**Evidence:** independent offline review on receipt base `75515046` sent a
+finish identified only by agent/run while a newer lane existed and observed
+that newer lane finished. The compatible `--expected-lane` fence protects only
+callers that retain and supply their original lane; legacy syntax still permits
+the old behavior. An interrupted startup may leave no receipt for the caller.
+**Impact and follow-up:** migrate remaining external clients to the lane fence;
+consider a separately coordinated breaking change to require it. An operator
+must establish ownership independently before recovering an unreceipted startup.
+
 ## Stack-to-program script index and upload assertion drift
 
 **Location:** `skills/stack-to-program/scripts/README.md:11`, its script record,

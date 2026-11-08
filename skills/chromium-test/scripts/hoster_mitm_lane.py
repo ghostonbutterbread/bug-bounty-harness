@@ -280,6 +280,8 @@ def index_stop_release(args: argparse.Namespace) -> dict[str, Any]:
             "stop",
         ],
     )
+    if stop.get('status') != 'stopped' or stop.get('alive'):
+        return {'status': 'stop-failed', 'stop': stop}
     index = run_remote_legacy(
         args,
         [
@@ -316,7 +318,8 @@ def index_stop_release(args: argparse.Namespace) -> dict[str, Any]:
             args.lane,
         ],
     )
-    status = "released" if release.get("status") == "released" else "release-failed"
+    status = ('release-failed' if release.get('status') != 'released'
+              else 'released' if index.get('status') == 'indexed' else 'index-failed')
     return {"status": status, "stop": stop, "index": index, "release": release}
 
 
@@ -813,7 +816,7 @@ def main() -> int:
         print(f"{result.get('status')}: {result.get('proxy_server') or result.get('detail', '')}")
         if result.get('ca_sync', {}).get('ca_identity') == 'legacy-unverified':
             print('CA identity: legacy-unverified; the running listener has not been cryptographically verified')
-    return 0 if result.get("status") not in {"lease-failed", "start-failed", "start-outcome-unknown", "release-failed", "ssh-failed", "local-failed", "unknown-state"} else 2
+    return 0 if result.get('status') not in {'lease-failed', 'start-failed', 'start-outcome-unknown', 'stop-failed', 'index-failed', 'release-failed', 'ssh-failed', 'local-failed', 'unknown-state'} else 2
 
 
 if __name__ == "__main__":

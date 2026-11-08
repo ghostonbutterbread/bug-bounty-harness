@@ -397,13 +397,13 @@ class RawHistoryTest(unittest.TestCase):
                 self.assertEqual(proc.stderr, '')
         finally:
             self.capture.chmod(0o600)
-        with mock.patch.object(mod.Path, 'open', side_effect=PermissionError('private-secret')):
+        with mock.patch.object(mod.os, 'open', side_effect=PermissionError('private-secret')):
             self.assertEqual(mod.search(self.capture, b'needle', False, lambda e: None),
                              (0, 0, ['source-unavailable']))
         with self.capture.open('rb') as source:
             next(iter(io.FlowReader(source).stream()))
             first_end = source.tell()
-        real_open = Path.open
+        real_fdopen = os.fdopen
 
         class FailingHandle:
             def __init__(self, handle):
@@ -421,11 +421,11 @@ class RawHistoryTest(unittest.TestCase):
                     raise OSError('private-secret')
                 return self.handle.read(amount)
 
-        def open_capture(path, *args, **kwargs):
-            return FailingHandle(real_open(path, *args, **kwargs))
+        def open_capture(fd, *args, **kwargs):
+            return FailingHandle(real_fdopen(fd, *args, **kwargs))
 
         events = []
-        with mock.patch.object(mod.Path, 'open', open_capture):
+        with mock.patch.object(mod.os, 'fdopen', open_capture):
             count, matches, reasons = mod.search(self.capture, b'needle', False, events.append)
         self.assertEqual((count, matches, reasons), (1, 1, ['source-unavailable']))
         self.assertEqual([e['type'] for e in events], ['source', 'match'])

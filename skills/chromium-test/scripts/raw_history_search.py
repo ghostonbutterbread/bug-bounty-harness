@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 
@@ -36,13 +37,22 @@ def index_sources(db, program, lane):
         conn = sqlite3.connect(dest.as_uri() + '?mode=ro', uri=True)
         try:
             # Lane rows can be overwritten; request rows may preserve older paths.
-            lanes = conn.execute('SELECT DISTINCT lane, program, flow_file FROM lanes').fetchall()
-            rows = conn.execute('SELECT DISTINCT lane, program, raw_flow_file FROM requests').fetchall()
+            def records(table, path):
+                columns = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
+                identity = 'capture_dev, capture_ino' if {'capture_dev', 'capture_ino'} <= columns else 'NULL, NULL'
+                return conn.execute(f'SELECT DISTINCT lane, program, {path}, {identity} FROM {table}').fetchall()
+            lanes = records('lanes', 'flow_file')
+            rows = records('requests', 'raw_flow_file')
+            alias_columns = {row[1] for row in conn.execute('PRAGMA table_info(capture_lane_aliases)')}
+            selected_lanes = {lane}
+            if {'generation_lane', 'logical_lane'} <= alias_columns:
+                selected_lanes.update(row[0] for row in conn.execute(
+                    'SELECT generation_lane FROM capture_lane_aliases WHERE logical_lane = ?', (lane,)))
         finally:
             conn.close()
     sources = {}
     ambiguous = False
-    for row_lane, row_program, path in lanes + rows:
+    for row_lane, row_program, path, dev, ino in lanes + rows:
         if path is None:
             continue
         if not isinstance(path, str) or '\x00' in path:
@@ -51,7 +61,7 @@ def index_sources(db, program, lane):
             continue
         expanded = Path(path).expanduser()
         if not expanded.is_absolute():
-            if (row_lane, row_program) == (lane, program):
+            if row_lane in selected_lanes and row_program == program:
                 ambiguous = True
             continue  # Its original working directory is not recorded.
         canonical = os.path.realpath(expanded)
@@ -60,18 +70,22 @@ def index_sources(db, program, lane):
         except OSError:
             identity = None
         key = ('inode', *identity) if identity is not None else ('path', canonical)
-        source = sources.setdefault(key, {'owners': set(), 'paths': set(), 'identity': identity})
+        recorded = (dev, ino) if dev is not None or ino is not None else None
+        source = sources.setdefault(key, {'owners': set(), 'paths': set(), 'identity': identity, 'recorded': set()})
         source['owners'].add((row_lane, row_program))
         source['paths'].add(str(expanded))
+        source['recorded'].add(recorded)
     selected = []
     for source in sources.values():
         owners = source['owners']
-        if (lane, program) not in owners:
+        if not any(owner_lane in selected_lanes and owner_program == program
+                   for owner_lane, owner_program in owners):
             continue
-        if owners != {(lane, program)}:
+        if len(owners) != 1 or len(source['recorded']) != 1:
             ambiguous = True
             continue
-        selected.append((Path(sorted(source['paths'])[0]), source['identity']))
+        recorded = next(iter(source['recorded']))
+        selected.append((Path(sorted(source['paths'])[0]), recorded if recorded is not None else source['identity']))
     return sorted(selected), ambiguous
 
 
@@ -142,9 +156,16 @@ def search(path, needle, reveal, emit_fn=emit, expected_identity=None, check_ide
     reasons = []
     count = matches = 0
     try:
-        handle = path.open('rb', buffering=0)
+        # Nonblocking open prevents a replaced FIFO from hanging before fstat.
+        # Follow symlinks for legacy paths; verify the opened descriptor below.
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except OSError:
         return 0, 0, ['source-unavailable']
+    try:
+        handle = os.fdopen(fd, 'rb', buffering=0)
+    except BaseException:
+        os.close(fd)
+        raise
     with handle:
         try:
             initial = os.fstat(handle.fileno())
@@ -154,6 +175,8 @@ def search(path, needle, reveal, emit_fn=emit, expected_identity=None, check_ide
         if ((initial.st_dev, initial.st_ino) != start[:2]
                 or (check_identity and (initial.st_dev, initial.st_ino) != expected_identity)):
             return 0, 0, ['source-replaced']
+        if not stat.S_ISREG(initial.st_mode):
+            return 0, 0, ['source-unavailable']
         emit_fn({'type': 'source', 'source': str(path), 'snapshot_bytes': initial.st_size,
                  'snapshot_mtime_ns': initial.st_mtime_ns})
         reader = BoundedReader(handle, initial.st_size)

@@ -7,7 +7,7 @@ It never prints CDP URLs, cookies, credentials, or auth-seed locations.
 """
 
 from __future__ import annotations
-import argparse, contextlib, functools, hashlib, io, json, os, shutil, socket, sqlite3, subprocess, sys, time, uuid
+import argparse, contextlib, errno, functools, grp, hashlib, io, json, os, pwd, re, shutil, socket, sqlite3, stat, struct, subprocess, sys, time, uuid
 from urllib.parse import urlsplit
 from pathlib import Path
 
@@ -32,6 +32,8 @@ STATE = Path(
     )
 ).expanduser()
 DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB, DEFAULT_IDLE = 2048, 512, 300
+# The child-to-request signal contains no exception text or other diagnostic data.
+LEASE_RELEASE_UNVERIFIED = {'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}
 # Seconds to wait for the launcher to write its private record. Chromium must
 # stand up a display and reach CDP first, which exceeds a few seconds on a
 # loaded host; too small a value kills the unit before it can ever report.
@@ -77,10 +79,15 @@ def db():
         state TEXT NOT NULL, UNIQUE(agent_id, run_id))""")
     columns = {row["name"] for row in c.execute("pragma table_info(task_proxies)")}
     for name, definition in (("updated", "REAL NOT NULL DEFAULT 0"),
-                             ("owner", "TEXT"), ("invocation", "TEXT")):
+                             ("owner", "TEXT"), ("invocation", "TEXT"),
+                             ("exact_program", "TEXT"), ("flow_path", "TEXT"),
+                             ("capture_identity", "TEXT"), ("admitted", "INTEGER")):
         if name not in columns:
             c.execute(f"alter table task_proxies add column {name} {definition}")
     c.execute("CREATE TABLE IF NOT EXISTS finished_proxies (agent_id TEXT NOT NULL, run_id TEXT NOT NULL, lane TEXT NOT NULL, finished REAL NOT NULL, PRIMARY KEY(agent_id, run_id))")
+    c.execute("""CREATE TABLE IF NOT EXISTS proxy_attempts (
+        agent_id TEXT NOT NULL, run_id TEXT NOT NULL, lane TEXT NOT NULL,
+        outcome TEXT NOT NULL, PRIMARY KEY(agent_id, run_id))""")
     # Fixture-only peer metadata. Never persist cookies, storage or a CDP URL here.
     c.execute("""CREATE TABLE IF NOT EXISTS fixture_generations (
         program TEXT NOT NULL, auth_domain TEXT NOT NULL, account TEXT NOT NULL,
@@ -1511,7 +1518,10 @@ def replay_clients_absent(port):
         return False
 
 def proxy_quiet(row):
-    flow = Path(proxy_metadata(row)["flow_file"])
+    path = proxy_metadata(row)["flow_file"]
+    if path is None:
+        return False
+    flow = Path(path)
     cutoff = now() - 7200
     return (row["updated"] < cutoff and replay_clients_absent(row["port"])
             and (not flow.exists() or flow.stat().st_mtime < cutoff))
@@ -1522,46 +1532,309 @@ def proxy_row(c, args):
                      (args.agent_id, args.run_id)).fetchone()
 
 
+_CAPTURE_BOUNTY_ROOT = Path('/mnt/bounty')
+
+
+def _capture_trusted_groups():
+    groups = set()
+    for name in ('smb_write', 'ai_smb_write'):
+        try:
+            groups.add(grp.getgrnam(name).gr_gid)
+        except KeyError:
+            pass
+    return groups
+
+
+def _capture_trusted_user(uid, groups):
+    if uid in (0, os.geteuid()):
+        return True
+    try:
+        user = pwd.getpwuid(uid)
+        return bool(groups.intersection(os.getgrouplist(user.pw_name, user.pw_gid)))
+    except (KeyError, OSError):
+        return False
+
+
+def _capture_open_dir(path, *, create_from=None):
+    """Walk trusted directories without symlinks; create only below program."""
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('invalid capture directory')
+    approved_groups = _capture_trusted_groups() if path.is_relative_to(_CAPTURE_BOUNTY_ROOT) else set()
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open('/', flags)
+    protected = False
+    current = Path('/')
+    try:
+        for part in (*path.parts[1:], None):
+            # Trust the named groups only inside the literal approved chain;
+            # ancestor checks and unrelated state/override paths stay conservative.
+            groups = approved_groups if current.is_relative_to(_CAPTURE_BOUNTY_ROOT) else set()
+            info = os.fstat(fd)
+            if not _capture_trusted_user(info.st_uid, groups):
+                raise PermissionError('untrusted capture directory owner')
+            try:
+                acl = os.getxattr(fd, 'system.posix_acl_access')
+            except OSError as exc:
+                if exc.errno != errno.ENODATA:
+                    raise PermissionError('capture ACL unavailable') from exc
+                acl = None
+            entries = {}
+            if acl is not None:
+                if len(acl) < 4 or (len(acl) - 4) % 8 or struct.unpack_from('<I', acl)[0] != 2:
+                    raise PermissionError('invalid capture ACL')
+                for tag, perms, ident in struct.iter_unpack('<HHI', acl[4:]):
+                    if tag not in (1, 2, 4, 8, 16, 32) or perms & ~7 or (tag, ident) in entries:
+                        raise PermissionError('invalid capture ACL')
+                    entries[tag, ident] = perms
+                if any((tag, 0xffffffff) not in entries for tag in (1, 4, 16, 32)):
+                    raise PermissionError('incomplete capture ACL')
+                mask = entries[16, 0xffffffff]
+                group = entries[4, 0xffffffff] & mask
+                other = entries[32, 0xffffffff]
+            else:
+                mask = (info.st_mode >> 3) & 7
+                group, other = mask, info.st_mode & 7
+            if not protected and not info.st_mode & stat.S_ISVTX:
+                if other & 2 or (group & 2 and info.st_gid not in groups):
+                    raise PermissionError('untrusted capture directory writer')
+                for (tag, ident), perms in entries.items():
+                    if perms & mask & 2 and ((tag == 2 and not _capture_trusted_user(ident, groups))
+                                             or (tag == 8 and ident not in groups)):
+                        raise PermissionError('untrusted capture ACL writer')
+            if info.st_uid == os.geteuid() and not info.st_mode & 0o077:
+                protected = True
+            if part is None:
+                return fd
+            try:
+                child = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if create_from is None or not current.is_relative_to(create_from):
+                    raise
+                os.mkdir(part, 0o700, dir_fd=fd)
+                child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+            current /= part
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+class CaptureNotAllocated(OSError):
+    """Allocation definitely did not create a capture file."""
+
+
+def _capture_file(directory, name='flows.mitm'):
+    try:
+        parent = _capture_open_dir(directory.parent)
+    except OSError as exc:
+        raise CaptureNotAllocated('capture parent unavailable') from exc
+    try:
+        try:
+            os.mkdir(directory.name, 0o700, dir_fd=parent)
+        except OSError as exc:
+            if exc.errno not in (errno.EACCES, errno.EPERM, errno.EROFS):
+                raise
+            raise CaptureNotAllocated('capture directory allocation failed') from exc
+        child = os.open(directory.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            os.fchmod(child, 0o700)
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=child)
+            try:
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
+        finally:
+            os.close(child)
+    finally:
+        os.close(parent)
+    return directory / name
+
+
+def _capture_local_private_path(path):
+    """Reject Shared and non-local filesystems without following path aliases."""
+    import browser_profile_lease as profiles
+    path = path.absolute()
+    try:
+        shared_roots = (Path.home() / 'Shared', profiles.shared_base())
+        for shared in shared_roots:
+            shared = shared.expanduser().absolute()
+            if path.is_relative_to(shared) or path.resolve().is_relative_to(shared.resolve()):
+                return False
+        mounts = []
+        def unescape(value):
+            return Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), value))
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            left, right = line.split(' - ', 1)
+            fields = left.split()
+            mounts.append((unescape(fields[4]), fields[2], unescape(fields[3]), right.split()[0]))
+        def backing(candidate):
+            matches = [entry for entry in mounts if candidate.is_relative_to(entry[0])]
+            depth = max(len(entry[0].parts) for entry in matches)
+            choices = [entry for entry in matches if len(entry[0].parts) == depth]
+            if len(choices) != 1:
+                raise ValueError('ambiguous capture mount')
+            target, device, root, kind = choices[0]
+            return device, root / candidate.relative_to(target), kind
+        device, backing_path, kind = backing(path.resolve())
+        if kind not in {'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'zfs', 'tmpfs'}:
+            return False
+        for shared in shared_roots:
+            shared_device, shared_path, _ = backing(shared.expanduser().resolve())
+            if device == shared_device and backing_path.is_relative_to(shared_path):
+                return False
+        return True
+    except (OSError, ValueError, IndexError, RuntimeError):
+        return False
+
+
+def _capture_identity(flow, mount=None):
+    """Bind a capture to its private directory/file and mounted root inodes."""
+    if not _capture_local_private_path(flow):
+        raise PermissionError('capture is on Shared or non-local storage')
+    fd = _capture_open_dir(flow.parent)
+    try:
+        directory = os.fstat(fd)
+        f = os.open(flow.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            info = os.fstat(f)
+            if (directory.st_uid != os.geteuid() or directory.st_mode & 0o077
+                    or info.st_uid != os.geteuid() or info.st_mode & 0o077
+                    or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+                raise PermissionError('capture file is not private')
+            result = {'directory': [directory.st_dev, directory.st_ino], 'file': [info.st_dev, info.st_ino]}
+        finally:
+            os.close(f)
+    finally:
+        os.close(fd)
+    if mount is not None:
+        import browser_profile_lease as profiles
+        if not profiles.default_mount_available() or not profiles.local_filesystem(flow.parent):
+            raise OSError('capture mount unavailable')
+        root = mount.stat()
+        result['mount'] = [root.st_dev, root.st_ino]
+    return result
+
+
+def select_task_capture(program, lane, root, allocation_state=None):
+    """Prefer an existing exact mounted program; otherwise use the private run."""
+    import browser_profile_lease as profiles
+    mount = profiles.DEFAULT_BOUNTY_ROOT
+    if (isinstance(program, str) and program not in ('', '.', '..')
+            and '/' not in program and '\0' not in program):
+        try:
+            if not profiles.default_mount_available() or not profiles.local_filesystem(mount / program):
+                raise OSError('mount unavailable')
+            program_dir = mount / program
+            if not _capture_local_private_path(program_dir):
+                raise OSError('capture program is on Shared or non-local storage')
+            fd = _capture_open_dir(program_dir)
+            os.close(fd)
+            parent = program_dir / 'web' / 'proxy' / 'flows'
+            if not _capture_local_private_path(parent):
+                raise OSError('capture directory is on Shared or non-local storage')
+            fd = _capture_open_dir(parent, create_from=program_dir)
+            os.close(fd)
+            if not _capture_local_private_path(parent):
+                raise OSError('capture directory is on Shared or non-local storage')
+            # From allocation onward, failure is ambiguous: never silently
+            # fall back and abandon a file that may already have been created.
+        except (OSError, ValueError):
+            parent = None
+        if parent is not None:
+            if allocation_state:
+                allocation_state(True)
+            try:
+                flow = _capture_file(parent / lane)
+            except CaptureNotAllocated:
+                if allocation_state:
+                    allocation_state(False)
+            else:
+                return flow, _capture_identity(flow, mount)
+    if allocation_state:
+        allocation_state(True)
+    flow = _capture_file(root / 'capture')
+    return flow, _capture_identity(flow)
+
+
+def verify_task_capture(row):
+    if not row['flow_path']:
+        if row['capture_identity']:
+            raise OSError('capture allocation was not committed')
+        return  # pre-migration legacy rows use run_dir/flows.mitm
+    import browser_profile_lease as profiles
+    expected = json.loads(row['capture_identity'])
+    mount = profiles.DEFAULT_BOUNTY_ROOT if 'mount' in expected else None
+    if _capture_identity(Path(row['flow_path']), mount) != expected:
+        raise OSError('capture generation changed')
+
+
 def proxy_metadata(row):
     if not row:
         return None
     root = Path(row["run_dir"])
     return {"lane": row["lane"], "proxy_server": f"http://127.0.0.1:{row['port']}",
             "ca_cert": str(root / "mitmproxy" / "mitmproxy-ca-cert.pem"),
-            "flow_file": str(root / "flows.mitm"), "unit": row["unit"], "state": row["state"]}
+            "flow_file": (None if row['capture_identity'] in ('allocation-pending', 'allocation-not-started') and not row['flow_path']
+                          else row['flow_path'] or str(root / "flows.mitm")), "unit": row["unit"], "state": row["state"]}
+
+
+class ProxyStartupError(RuntimeError):
+    """A fixed, operator-safe proxy startup diagnostic."""
+
+
+def proxy_owner_matches(row, owner):
+    try:
+        recorded = json.loads(row["owner"]) if row["owner"] else None
+    except (ValueError, TypeError):
+        return False
+    return (not row["owner"] or isinstance(recorded, dict)) and recorded == owner
+
+
+def request_proxy_owner_matches(c, args, owner):
+    if args.proxy != "mitm":
+        return True
+    task = proxy_row(c, args)
+    if getattr(args, "owner_pid", None) and process_identity(args.owner_pid) != owner:
+        return False
+    return bool(task and proxy_owner_matches(task, owner))
 
 
 def mitm_runtime():
     executable = shutil.which("mitmdump")
     if not executable:
-        raise RuntimeError("mitmdump is unavailable")
+        raise ProxyStartupError("mitmdump is unavailable")
     resolved = Path(executable).resolve()
     shebang = resolved.open("rb").readline().decode("utf-8", errors="replace").strip()
     interpreter = shebang[2:] if shebang.startswith("#!/") else ""
     if not Path(interpreter).is_file():
-        raise RuntimeError("mitmdump Python interpreter is unavailable")
+        raise ProxyStartupError("mitmdump Python interpreter is unavailable")
     if Path(interpreter).resolve().name in {"sh", "bash", "dash", "zsh", "ksh", "fish"}:
-        raise RuntimeError("mitmdump shell wrapper unsupported; select a Python entrypoint")
+        raise ProxyStartupError("mitmdump shell wrapper unsupported; select a Python entrypoint")
     return str(resolved), interpreter
 
 
 def proxy_ready(row):
+    try:
+        verify_task_capture(row)
+    except (OSError, ValueError, TypeError):
+        return False
     ca = Path(proxy_metadata(row)["ca_cert"])
     return (unit_active(row["unit"]) and bool(row["invocation"])
             and unit_identity(row["unit"]) == row["invocation"]
             and port_open(row["port"]) and ca.is_file() and ca.stat().st_size > 0)
 
 
+def proxy_program_matches(row, program):
+    if program is None:
+        return False
+    exact = row["exact_program"]
+    return exact == program if exact is not None else row["program"] == slug(program)
+
+
 def start_proxy(c, args):
     c.execute("BEGIN IMMEDIATE")
-    row = proxy_row(c, args)
-    if row:
-        c.commit()
-        if ((row["program"], row["account"], row["purpose"]) !=
-                (slug(args.program), slug(args.account), args.purpose)
-                or row["state"] != "running" or not proxy_ready(row)):
-            emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
-        return row, False
     owner = None
     if getattr(args, "owner_pid", None):
         owner = process_identity(args.owner_pid)
@@ -1569,6 +1842,15 @@ def start_proxy(c, args):
                          and owner != args._owner_identity):
             c.rollback()
             emit({"status": "owner-unavailable"}, 2)
+    row = proxy_row(c, args)
+    if row:
+        c.commit()
+        if (not proxy_program_matches(row, args.program)
+                or (row["account"], row["purpose"]) != (slug(args.account), args.purpose)
+                or not proxy_owner_matches(row, owner)
+                or row["state"] != "running" or not proxy_ready(row)):
+            emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
+        return row, False
     port = next((p for p in range(DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX + 1) if not c.execute(
         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
     if port is None:
@@ -1591,31 +1873,56 @@ def start_proxy(c, args):
         emit({"status": "proxy-unavailable", "detail": "no task MITM port available"}, 2)
     lane = "task-" + uuid.uuid4().hex
     root = STATE.parent / "task-proxies" / lane
-    c.execute("delete from finished_proxies where agent_id=? and run_id=?", (args.agent_id, args.run_id))
-    c.execute("insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state,updated,owner) values(?,?,?,?,?,?,?,?,?,?,?,?)",
+    c.execute("insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state,updated,owner,exact_program,admitted,capture_identity) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
               (args.agent_id, args.run_id, slug(args.program), slug(args.account), args.purpose,
-               lane, port, "task-mitm-" + lane, str(root), "starting", now(), json.dumps(owner) if owner else None))
+               lane, port, "task-mitm-" + lane, str(root), "starting", now(), json.dumps(owner) if owner else None, args.program, 0, 'allocation-not-started'))
+    c.execute("insert or replace into proxy_attempts values(?,?,?,?)", (args.agent_id, args.run_id, lane, "starting"))
     c.commit()
     row = proxy_row(c, args)
     try:
-        root.mkdir(parents=True, mode=0o700)
-        os.chmod(root, 0o700)
+        if not _capture_local_private_path(root):
+            raise ProxyStartupError('private task state is on Shared or non-local storage')
+        parent = _capture_open_dir(root.parent, create_from=STATE.parent)
+        try:
+            os.mkdir(root.name, 0o700, dir_fd=parent)
+            root_fd = os.open(root.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            try:
+                os.fchmod(root_fd, 0o700)
+            finally:
+                os.close(root_fd)
+        finally:
+            os.close(parent)
         conf = root / "mitmproxy"
         conf.mkdir(mode=0o700)
         os.chmod(conf, 0o700)
+        capture_program = None if getattr(args, 'task_owned', False) else args.program
+        def allocation_state(pending):
+            identity = 'allocation-pending' if pending else 'allocation-not-started'
+            c.execute("update task_proxies set capture_identity=? where lane=?", (identity, lane))
+            c.commit()
+        try:
+            flow, identity = select_task_capture(capture_program, lane, root, allocation_state)
+        except CaptureNotAllocated:
+            allocation_state(False)
+            raise
+        c.execute("update task_proxies set flow_path=?,capture_identity=? where lane=?",
+                  (str(flow), json.dumps(identity, sort_keys=True), lane))
+        c.commit()
+        row = proxy_row(c, args)
+        verify_task_capture(row)
         executable, _ = mitm_runtime()
         cmd = [executable, "--listen-host", "127.0.0.1", "--listen-port", str(port),
-               "--set", f"confdir={conf}", "--set", "flow_detail=0", "-w", str(root / "flows.mitm")]
+               "--set", f"confdir={conf}", "--set", "flow_detail=0", "-w", str(flow)]
         unit = ["systemd-run", "--user", "--unit=" + row["unit"],
                 "--property=UMask=0077", "--property=MemoryMax=512M"]
         if executable == "/usr/bin/mitmdump":
             unit.append("--setenv=PYTHONNOUSERSITE=1")
         result = subprocess.run([*unit, "--", *cmd], capture_output=True, text=True, env=sysenv())
         if result.returncode:
-            raise RuntimeError("task MITM service failed to start")
+            raise ProxyStartupError("task MITM service failed to start")
         invocation = unit_identity(row["unit"])
         if not invocation:
-            raise RuntimeError("task MITM unit identity unavailable")
+            raise ProxyStartupError("task MITM unit identity unavailable")
         c.execute("update task_proxies set invocation=?,updated=? where lane=?", (invocation, now(), lane))
         c.commit()
         row = proxy_row(c, args)
@@ -1627,11 +1934,13 @@ def start_proxy(c, args):
                 break
             time.sleep(.1)
         if not proxy_ready(row):
-            raise RuntimeError("task MITM listener or CA not ready")
-        c.execute("update task_proxies set state='running',updated=? where lane=?", (now(), lane))
+            raise ProxyStartupError("task MITM listener or CA not ready")
+        c.execute("update task_proxies set state='running',admitted=1,updated=? where lane=?", (now(), lane))
+        c.execute("update proxy_attempts set outcome='running' where agent_id=? and run_id=? and lane=?", (args.agent_id, args.run_id, lane))
         c.commit()
         return proxy_row(c, args), True
     except Exception:
+        c.rollback()
         rollback_proxy(c, proxy_row(c, args))
         raise
 
@@ -1647,8 +1956,18 @@ def rollback_proxy(c, row):
         c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row["lane"]))
         c.commit()
         return False
-    c.execute("delete from task_proxies where lane=?", (row["lane"],))
-    c.commit()
+    if row['capture_identity'] == 'allocation-pending':
+        c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row['lane']))
+        c.commit()
+        return False  # An interrupted allocation may have created an unrecorded file.
+    try:
+        c.execute("delete from task_proxies where lane=?", (row["lane"],))
+        c.execute("update proxy_attempts set outcome='aborted' where agent_id=? and run_id=? and lane=?",
+                  (row["agent_id"], row["run_id"], row["lane"]))
+        c.commit()
+    except BaseException:
+        c.rollback()
+        raise
     return True
 
 
@@ -1665,7 +1984,8 @@ def matching_proxy(c, args, row):
     task = proxy_row(c, args)
     info = record_info(row)
     if args.proxy == "mitm":
-        if not task or task["state"] != "running" or not proxy_ready(task):
+        if (not task or not proxy_program_matches(task, getattr(args, "program", None))
+                or task["state"] != "running" or not proxy_ready(task)):
             return False
         expected = proxy_metadata(task)
         return (info.get("proxy_server") == expected["proxy_server"]
@@ -1738,7 +2058,7 @@ def safe(row):
     return result
 
 
-def release_lease(c, lease_id, agent, disp="cancelled", health="healthy"):
+def release_lease(c, lease_id, agent, disp="cancelled", health: str | None = "healthy", expected_run=None):
     """Release a failed start while the entry point holds the node lock.
 
     Never infer prelaunch from canonical not-started alone: the manager may
@@ -1754,6 +2074,7 @@ def release_lease(c, lease_id, agent, disp="cancelled", health="healthy"):
         if (not canonical or canonical['status'] != 'active'
                 or canonical['manager_id'] != manager_id()
                 or canonical['owner_agent_id'] != agent
+                or (expected_run is not None and canonical['owner_run_id'] != expected_run)
                 or canonical['browser_status'] != 'not-started'
                 or canonical['cdp_url'] is not None or canonical['service_unit'] is not None
                 or (row and (row['state'] != 'stopped'
@@ -1768,6 +2089,15 @@ def release_lease(c, lease_id, agent, disp="cancelled", health="healthy"):
                     domain=canonical['auth_domain'], alias=canonical['account_alias'],
                     lease_id=lease_id, path=canonical['profile_dir'])):
             return False
+        if health is None:
+            # A prelaunch failure did not repair or touch the profile. Preserve
+            # the health that canonical acquisition used for this exact slot.
+            previous = leases.execute(
+                "SELECT profile_health FROM browser_profile_leases WHERE program=? AND account_alias=? "
+                "AND auth_domain=? AND instance_key=? AND status='released' ORDER BY released_at DESC LIMIT 1",
+                (canonical['program'], canonical['account_alias'], canonical['auth_domain'], canonical['instance_key']),
+            ).fetchone()
+            health = previous['profile_health'] if previous else 'healthy'
         profiles.release_owned_in_transaction(leases, canonical,
             disposition=disp, profile_health=health)
         leases.commit()
@@ -2726,6 +3056,9 @@ def resume(args):
             emit({"status": "recovery-blocked", "reason": "stop-proof-unavailable"}, 2)
         if not resume_recipe_valid(row, recipe):
             emit({"status": "recovery-blocked", "reason": "launch-recipe-conflict"}, 2)
+        program = resume_program(recipe, proxy_row(c, args))
+        if program is None:
+            emit({"status": "recovery-blocked", "reason": "launch-recipe-conflict"}, 2)
         import browser_profile_lease as profiles
         successors = [other for other in c.execute("SELECT * FROM browsers WHERE browser_id!=?", (row["browser_id"],))
                       if record_info(other).get("replaces_browser_id") == row["browser_id"]]
@@ -2749,10 +3082,10 @@ def resume(args):
                     ca_fingerprint(Path(recipe["mitm_ca_cert"])) != recipe["ca_sha256"]):
                 emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
         if recipe["program"] != "task-owned":
-            account, _ = profiles.resolve_account(recipe["program"], recipe["account"])
+            account, _ = profiles.resolve_account(program, recipe["account"])
             if not account or account.get("alias") != row["account"] or not profiles.account_lease_eligible(account):
                 emit({"status": "recovery-blocked", "reason": "account-identity-changed"}, 2)
-            check = argparse.Namespace(program=recipe["program"], account=recipe["account"],
+            check = argparse.Namespace(program=program, account=recipe["account"],
                                        auth_domain=recipe["auth_domain"])
             if (profiles.auth_domain_for(check, account) != row["auth_domain"] or
                     account_policy(row["program"], row["account"], row["auth_domain"]) != recipe["single_policy"] or
@@ -2773,7 +3106,7 @@ def resume(args):
                     and list(physical) == successor_recipe.get("physical_profile")
                     and not reservation_blocks(successor) and healthy(successor)
                     and matching_proxy(c, argparse.Namespace(
-                        agent_id=args.agent_id, run_id=args.run_id, proxy=recipe["proxy"],
+                        agent_id=args.agent_id, run_id=args.run_id, program=program, proxy=recipe["proxy"],
                         proxy_server=recipe["proxy_server"],
                         proxy_cert_mode=recipe["proxy_cert_mode"],
                         mitm_ca_cert=recipe["mitm_ca_cert"]), successor)):
@@ -2786,7 +3119,7 @@ def resume(args):
         # Child start repeats exact row/physical/slot checks inside the node lock.
         expected = row["browser_id"]
     cmd = [sys.executable, str(Path(__file__).resolve()), "request",
-           *([recipe["program"], recipe["account"]] if recipe["program"] != "task-owned" else []),
+           *([program, recipe["account"]] if recipe["program"] != "task-owned" else []),
            "--agent-id", args.agent_id, "--run-id", args.run_id,
            "--purpose", recipe["purpose"], "--url", "about:blank",
            "--auth-domain", recipe["auth_domain"]] if recipe["program"] != "task-owned" else [
@@ -2842,6 +3175,17 @@ def require_safe_running_profile(row):
         emit({'status': 'profile-unavailable', 'next': 'The recorded running profile is on an unsafe or unavailable filesystem; preserve it and inspect its backing.'}, 2)
 
 
+def resume_program(recipe, task):
+    """Keep exact request names; recover legacy names from the owned proxy row."""
+    program = recipe.get('program')
+    exact = recipe.get('exact_program')
+    if exact is not None:
+        return exact if isinstance(exact, str) and slug(exact) == program else None
+    if task and task['program'] == program:
+        return task['exact_program'] or program
+    return program
+
+
 def resume_running(c, row, args):
         if not canonical_owner(row) or reservation_blocks(row):
             emit({"status": "recovery-blocked", "reason": "canonical-owner-unverified"}, 2)
@@ -2854,10 +3198,12 @@ def resume_running(c, row, args):
         if activity and (activity.get("unavailable") or activity.get("frozen")):
             emit({"status": "recovery-blocked", "reason": "control-unavailable"}, 2)
         mode = "none" if "--no-proxy-server" in info.get("command", []) else "external"
-        if proxy_row(c, args):
+        task = proxy_row(c, args)
+        if task:
             mode = "mitm"
+        recipe = info.get('launch_recipe') or {'program': row['program']}
         proxy_args = argparse.Namespace(agent_id=args.agent_id, run_id=args.run_id,
-            proxy=mode, proxy_server=info.get("proxy_server"),
+            program=resume_program(recipe, task), proxy=mode, proxy_server=info.get("proxy_server"),
             proxy_cert_mode=info.get("proxy_cert_mode"),
             mitm_ca_cert=info.get("proxy_cert_status", {}).get("ca_cert"))
         if not matching_proxy(c, proxy_args, row):
@@ -3140,6 +3486,7 @@ def start(args):
         physical = profiles.physical_profile(replacing["profile_dir"])
         source_profile_lost = physical is None and args.task_owned and not os.path.lexists(replacing["profile_dir"])
         if (not isinstance(recipe, dict) or not resume_recipe_valid(replacing, recipe) or
+                resume_program(recipe, proxy_row(c, args)) != args.program or
                 recipe["single_policy"] != account_policy(args.program, alias, auth_domain) or
                 (physical is None and not (args.task_owned and not os.path.lexists(replacing["profile_dir"]))) or
                 (physical is not None and list(physical) != recipe["physical_profile"])):
@@ -3195,7 +3542,7 @@ def start(args):
                 if (was_headless != bool(getattr(args, "headless", False))
                         or (strict_kasm and not info.get("kasmvnc"))):
                     emit({"status": "locked", "reason": "display-mode-mismatch", **safe(row)}, 2)
-            if not matching_proxy(c, args, row):
+            if not request_proxy_owner_matches(c, args, owner) or not matching_proxy(c, args, row):
                 emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured; release it first"}, 2)
             activity = activity_snapshot(row)
             if activity and activity.get("frozen"):
@@ -3425,7 +3772,7 @@ def start(args):
         and row["state"] == "running"
         and healthy(row)
     ):
-        if not matching_proxy(c, args, row):
+        if not request_proxy_owner_matches(c, args, owner) or not matching_proxy(c, args, row):
             emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured"}, 2)
         emit({"status": "already-running", **safe(row), "task_proxy": proxy_metadata(proxy_row(c, args))})
     task = None
@@ -3433,10 +3780,23 @@ def start(args):
     if args.proxy == "mitm":
         try:
             task, created = start_proxy(c, args)
-        except Exception as exc:
-            if not release_lease(c, lid, args.agent_id):
-                emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
-            emit({"status": "proxy-failed", "detail": str(exc)}, 2)
+        except (SystemExit, Exception) as exc:
+            # Compensate only a lease created by this start, through the fenced
+            # release. A prelaunch failure cannot establish profile health.
+            if got.get("status") == "leased":
+                try:
+                    released = release_lease(c, lid, args.agent_id, "cancelled", None, args.run_id)
+                except Exception:
+                    released = False
+                if not released:
+                    # Isolate the fixed signal even if prior stderr lacks a newline.
+                    print('\n' + json.dumps(LEASE_RELEASE_UNVERIFIED), file=sys.stderr)
+            if isinstance(exc, SystemExit):
+                raise
+            failure = {"status": "proxy-failed"}
+            if isinstance(exc, ProxyStartupError):
+                failure["detail"] = str(exc)
+            emit(failure, 2)
     elif proxy_row(c, args):
         if not release_lease(c, lid, args.agent_id):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
@@ -3639,7 +3999,7 @@ def start(args):
     physical = profiles.physical_profile(prof)
     if physical is not None:
         info["launch_recipe"] = {
-            "version": 1, "program": slug(args.program),
+            "version": 1, "program": slug(args.program), "exact_program": args.program,
             "account": slug(got["lease"].get("account_alias", args.account)),
             "auth_domain": resolved_domain, "profile_dir": str(prof),
             "physical_profile": list(physical), "instance_key": instance,
@@ -3841,7 +4201,13 @@ def reap(args):
                 else:
                     reason = "activity-recent-or-attached"
             browser_blocked[reason] = browser_blocked.get(reason, 0) + 1
-        c.execute("delete from finished_proxies where finished<?", (now() - 14 * 86400,))
+        c.execute("""delete from finished_proxies where finished<?
+                  and not exists (select 1 from proxy_attempts a
+                    where a.agent_id=finished_proxies.agent_id
+                      and a.run_id=finished_proxies.run_id and a.outcome!='finished')
+                  and not exists (select 1 from task_proxies p
+                    where p.agent_id=finished_proxies.agent_id and p.run_id=finished_proxies.run_id)""",
+                  (now() - 14 * 86400,))
         c.commit()
         # No age-only revocation: a replay can outlive the browser. Require
         # positively terminal task-owner identity and a quiet flow artifact.
@@ -3868,17 +4234,17 @@ def reap(args):
                                               (row["agent_id"], row["run_id"])).fetchall()):
                 reason = "browser-not-released"
             else:
-                candidates.append((row["agent_id"], row["run_id"]))
+                candidates.append((row["agent_id"], row["run_id"], row["lane"]))
                 continue
             proxy_blocked[reason] = proxy_blocked.get(reason, 0) + 1
         c.commit()
     recovered = []
-    for agent_id, run_id in candidates:
+    for agent_id, run_id, lane in candidates:
         # Running rows require the same explicit finish semantics; terminal
         # owner is proof that this task can no longer issue direct replay.
         with node_lock(STATE):
             c = db(); row = proxy_row(c, argparse.Namespace(agent_id=agent_id, run_id=run_id))
-            if (not row or not row["owner"] or owner_state(json.loads(row["owner"])) != "terminal"
+            if (not row or row["lane"] != lane or not row["owner"] or owner_state(json.loads(row["owner"])) != "terminal"
                     or not proxy_quiet(row)):
                 continue
             if any(
@@ -3891,7 +4257,7 @@ def reap(args):
             output = io.StringIO()
             try:
                 with contextlib.redirect_stdout(output):
-                    finish_proxy(argparse.Namespace(agent_id=agent_id, run_id=run_id),
+                    finish_proxy(argparse.Namespace(agent_id=agent_id, run_id=run_id, expected_lane=lane),
                                  recovery=row["state"] != "running", orphan_proven=True)
             except SystemExit as exc:
                 if exc.code == 0:
@@ -3948,10 +4314,24 @@ def release(args):
     )
 
 
+PENDING_RECOVERY_DETAIL = (
+    "Capture allocation may have created an unrecorded file. Preserve the reservation "
+    "and all captures; do not retry allocation or delete files. With the manager stopped "
+    "and its lock held, an operator must confirm the unit and port are inactive, inspect "
+    "the lane under the exact program's web/proxy/flows and the private run directory, "
+    "preserve any capture, and back up manager state before manual reconciliation. "
+    "Do not remove the reservation while allocation or listener ownership is uncertain."
+)
+
+
 def task_proxy_status(args):
     row = proxy_row(db(), args)
     if not row:
         emit({"status": "not-found"}, 2)
+    if row['capture_identity'] == 'allocation-pending':
+        emit({"status": "allocation-pending", "task_proxy": proxy_metadata(row),
+              "ready": False, "reservation": "retained", "detail": PENDING_RECOVERY_DETAIL,
+              "exact_program": row['exact_program'], "run_dir": row['run_dir']})
     emit({"status": "ok", "task_proxy": proxy_metadata(row), "ready": proxy_ready(row)})
 
 
@@ -3963,14 +4343,102 @@ def task_proxy_finish(args):
 def task_proxy_recover(args):
     finish_proxy(args, recovery=True)
 
+def finish_capture_index(row):
+    """Index bytes from the verified inode while retaining its logical path."""
+    flow = Path(proxy_metadata(row)['flow_file'])
+    fd = None
+    try:
+        verify_task_capture(row)
+        try:
+            if row['flow_path']:
+                directory = _capture_open_dir(flow.parent)
+                try:
+                    expected = json.loads(row['capture_identity'])
+                    d = os.fstat(directory)
+                    if [d.st_dev, d.st_ino] != expected['directory']:
+                        raise OSError('capture directory changed')
+                    fd = os.open(flow.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                finally:
+                    os.close(directory)
+            else:
+                fd = os.open(flow, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            if row['flow_path']:
+                raise
+        if fd is not None:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError('capture is not a regular file')
+            if row['flow_path'] and (
+                    [info.st_dev, info.st_ino] != expected['file']
+                    or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_nlink != 1):
+                raise OSError('capture file changed or is not private')
+        indexed_capture = fd is not None and info.st_size > 0
+        if indexed_capture:
+            try:
+                executable, python = mitm_runtime()
+            except (RuntimeError, OSError):
+                emit({'status': 'proxy-index-failed', 'lane': row['lane'],
+                      'detail': 'mitmdump Python unavailable; reservation retained'}, 2)
+            cmd = [python, *(['-s'] if executable == '/usr/bin/mitmdump' else []), str(PROXY_STORE), '--json', 'index-lane', '--lane', row['lane'],
+                   '--lane-root', str(Path(row['run_dir']).parent), '--flow-file', str(flow), '--flow-fd', str(fd),
+                   '--program', row['exact_program'] or row['program'], '--task', row['purpose'],
+                   '--agent-id', row['agent_id'], '--run-id', row['run_id'],
+                   '--account-label', row['account'], '--proxy-host', '127.0.0.1',
+                   '--proxy-port', str(row['port']), '--proxy-server', proxy_metadata(row)['proxy_server'], '--transport', 'mixed']
+            try:
+                indexed = subprocess.run(cmd, capture_output=True, text=True, pass_fds=(fd,))
+            except OSError:
+                emit({'status': 'proxy-index-failed', 'lane': row['lane'],
+                      'detail': 'could not start indexer; reservation retained', 'reservation': 'retained'}, 2)
+            try:
+                result = json.loads(indexed.stdout)
+            except ValueError:
+                result = {}
+            if indexed.returncode or result.get('status') != 'indexed':
+                emit({'status': 'proxy-index-failed', 'lane': row['lane'], 'reservation': 'retained'}, 2)
+        verify_task_capture(row)
+        if fd is not None:
+            current = os.stat(flow, follow_symlinks=False)
+            pinned = os.fstat(fd)
+            if (current.st_dev, current.st_ino) != (pinned.st_dev, pinned.st_ino):
+                raise OSError('capture path changed')
+        return flow, bool(indexed_capture)
+    except (OSError, ValueError, TypeError, KeyError):
+        emit({'status': 'proxy-capture-unavailable', 'lane': row['lane'],
+              'detail': 'recorded capture unavailable or changed', 'reservation': 'retained'}, 2)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def finish_proxy(args, recovery=False, orphan_proven=False):
     c = db()
     c.execute("BEGIN IMMEDIATE")
     row = proxy_row(c, args)
+    expected_lane = getattr(args, "expected_lane", None)
+    if row and expected_lane is not None and row["lane"] != expected_lane:
+        c.rollback()
+        emit({"status": "proxy-conflict", "detail": "task proxy generation mismatch"}, 2)
     if not row:
+        attempt = c.execute("select lane,outcome from proxy_attempts where agent_id=? and run_id=?",
+                            (args.agent_id, args.run_id)).fetchone()
+        if attempt and expected_lane is not None and attempt["lane"] != expected_lane:
+            c.rollback()
+            emit({"status": "proxy-conflict", "detail": "task proxy generation mismatch"}, 2)
+        if attempt and attempt["outcome"] != "finished":
+            c.rollback()
+            terminal = attempt["outcome"] in ("aborted", "admission-unknown")
+            emit({"status": attempt["outcome"] if terminal else "proxy-conflict",
+                  "lane": attempt["lane"], "already_finished": False},
+                 0 if terminal else 2)
         done = c.execute("select lane from finished_proxies where agent_id=? and run_id=?",
                          (args.agent_id, args.run_id)).fetchone()
         c.rollback()
+        if done and expected_lane is not None and done["lane"] != expected_lane:
+            emit({"status": "proxy-conflict", "detail": "task proxy generation mismatch"}, 2)
+        if attempt and done and attempt["lane"] != done["lane"]:
+            emit({"status": "proxy-conflict", "detail": "receipt generation mismatch"}, 2)
         emit({"status": "finished", "lane": done["lane"], "already_finished": True} if done
              else {"status": "not-found"}, 0 if done else 2)
     if recovery and row["state"] == "running":
@@ -3992,7 +4460,17 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
     if recovery and row["state"] in ("starting", "cleanup-failed") and not (orphan_proven or proxy_quiet(row)) and (unit_active(row["unit"]) or port_open(row["port"])):
         c.rollback()
         emit({"status": "proxy-conflict", "detail": "startup listener may have active replay"}, 2)
-    c.execute("update task_proxies set state='finishing',updated=? where lane=?", (now(), row["lane"]))
+    if row['capture_identity'] == 'allocation-not-started':
+        c.rollback()
+        if not recovery:
+            emit({'status': 'proxy-conflict', 'detail': 'task proxy requires recovery'}, 2)
+        if rollback_proxy(c, row):
+            emit({'status': 'aborted', 'lane': row['lane'], 'already_finished': False})
+        emit({'status': 'proxy-stop-failed', 'reservation': 'retained'}, 2)
+    admitted = row["admitted"]
+    if admitted is None and row["state"] in ("starting", "running"):
+        admitted = int(row["state"] == "running")
+    c.execute("update task_proxies set state='finishing',admitted=?,updated=? where lane=?", (admitted, now(), row["lane"]))
     c.commit()
     if unit_active(row["unit"]):
         stop_unit(row["unit"])
@@ -4012,33 +4490,24 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
     except (OSError, RuntimeError, ValueError) as exc:
         emit({"status": "proxy-ca-cleanup-failed", "lane": row["lane"],
               "detail": str(exc), "reservation": "retained"}, 2)
-    flow = Path(proxy_metadata(row)["flow_file"])
-    if flow.exists() and flow.stat().st_size:
-        try:
-            executable, python = mitm_runtime()
-        except (RuntimeError, OSError):
-            emit({"status": "proxy-index-failed", "lane": row["lane"],
-                  "detail": "mitmdump Python unavailable; reservation retained"}, 2)
-        cmd = [python, *(["-s"] if executable == "/usr/bin/mitmdump" else []), str(PROXY_STORE), "--json", "index-lane", "--lane", row["lane"],
-               "--lane-root", str(Path(row["run_dir"]).parent), "--flow-file", str(flow),
-               "--program", row["program"], "--task", row["purpose"],
-               "--agent-id", row["agent_id"], "--run-id", row["run_id"],
-               "--account-label", row["account"], "--proxy-host", "127.0.0.1",
-               "--proxy-port", str(row["port"]),
-               "--proxy-server", proxy_metadata(row)["proxy_server"], "--transport", "mixed"]
-        indexed = subprocess.run(cmd, capture_output=True, text=True)
-        try:
-            result = json.loads(indexed.stdout)
-        except ValueError:
-            result = {}
-        if indexed.returncode or result.get("status") != "indexed":
-            emit({"status": "proxy-index-failed", "lane": row["lane"], "reservation": "retained"}, 2)
-    c.execute("insert or replace into finished_proxies values(?,?,?,?)",
-              (row["agent_id"], row["run_id"], row["lane"], now()))
-    c.execute("delete from task_proxies where lane=?", (row["lane"],))
-    c.commit()
-    emit({"status": "finished", "lane": row["lane"], "flow_file": str(flow),
-          "indexed": flow.exists() and bool(flow.stat().st_size)})
+    if row['capture_identity'] == 'allocation-pending':
+        emit({"status": "proxy-capture-unavailable", "lane": row['lane'],
+              "reservation": "retained", "detail": PENDING_RECOVERY_DETAIL}, 2)
+    flow, indexed_capture = finish_capture_index(row)
+    outcome = "finished" if admitted == 1 else "aborted" if admitted == 0 else "admission-unknown"
+    try:
+        if admitted == 1:
+            c.execute("insert or replace into finished_proxies values(?,?,?,?)",
+                      (row["agent_id"], row["run_id"], row["lane"], now()))
+        c.execute("insert or replace into proxy_attempts values(?,?,?,?)",
+                  (row["agent_id"], row["run_id"], row["lane"], outcome))
+        c.execute("delete from task_proxies where lane=?", (row["lane"],))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    emit({"status": outcome, "lane": row["lane"], "flow_file": str(flow),
+          "indexed": indexed_capture})
 
 
 def managed_profile(path):
@@ -4271,18 +4740,29 @@ def request(args):
         if getattr(args, "resume_automatic_instance", False):
             cmd += ["--resume-automatic-instance"]
         p = subprocess.run(cmd, capture_output=True, text=True)
+        invalid_json = False
+        result: dict
         try:
             result = json.loads(p.stdout)
-        except Exception:
-            emit(
-                {
-                    "status": "launch-failed",
-                    "detail": "provisioner returned invalid JSON",
-                },
-                2,
-            )
+            if not isinstance(result, dict):
+                raise ValueError("provisioner returned non-object JSON")
+        except ValueError:
+            invalid_json = True
+            result = {
+                "status": "launch-failed",
+                "detail": "provisioner returned invalid JSON",
+            }
+        # Recognize only our fixed child signal; never relay arbitrary stderr.
+        cleanup_unverified = json.dumps(LEASE_RELEASE_UNVERIFIED) in getattr(p, 'stderr', '').splitlines()
+        if cleanup_unverified:
+            result['cleanup'] = {
+                **LEASE_RELEASE_UNVERIFIED,
+                'action': 'Inspect the canonical lease for this agent and run; resolve it only after verifying ownership and browser state.',
+            }
+        if invalid_json:
+            emit(result, 2)
         attempts += 1
-        if result.get("status") != "queued" or result.get("retryable") is False:
+        if cleanup_unverified or result.get("status") != "queued" or result.get("retryable") is False:
             result.update(
                 {
                     "attempts": attempts,
@@ -4424,6 +4904,8 @@ def main():
         parser = sub.add_parser(name)
         parser.add_argument("--agent-id", required=True)
         parser.add_argument("--run-id", required=True)
+        if name != "task-proxy-status":
+            parser.add_argument("--expected-lane", help="Lane from the original task-proxy receipt; reject other generations.")
     for parser in (s, r0):
         parser.add_argument("--expected-replaces-browser-id", help=argparse.SUPPRESS)
         parser.add_argument("--resume-automatic-instance", action="store_true", help=argparse.SUPPRESS)

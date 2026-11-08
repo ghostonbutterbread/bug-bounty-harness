@@ -589,7 +589,7 @@ def metadata_from_args(args: argparse.Namespace, lane_state: dict[str, Any]) -> 
         "runtime_host": getattr(args, "runtime_host", None) or lane_state.get("runtime_host"),
         "proxy_host": proxy_host,
         "proxy_port": int(proxy_port) if proxy_port is not None else None,
-        'transport': ((getattr(args, 'transport', None) if getattr(args, 'transport', None) is not None else lane_state.get('transport') if lane_state.get('transport') is not None else None if getattr(args, 'receipt_metadata', False) else 'browser') if getattr(args, 'lane', None) == 'hoster-default-8080' else getattr(args, 'transport', None) or lane_state.get('transport') or (None if getattr(args, 'receipt_metadata', False) else 'browser')),
+        'transport': ((getattr(args, 'transport', None) if getattr(args, 'transport', None) is not None else lane_state.get('transport') if lane_state.get('transport') is not None else 'browser') if getattr(args, 'lane', None) == 'hoster-default-8080' else getattr(args, 'transport', None) or lane_state.get('transport') or (None if getattr(args, 'receipt_metadata', False) else 'browser')),
         "browser_profile_id": (
             getattr(args, "browser_profile_id", None)
             or lane_state.get("browser_profile_id")

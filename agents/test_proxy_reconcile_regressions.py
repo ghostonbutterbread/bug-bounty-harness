@@ -14,13 +14,15 @@ def test_shared_index_preserves_explicit_empty_transport(tmp_path):
     root = tmp_path / 'lanes'
     state = root / 'hoster-default-8080'
     state.mkdir(parents=True)
-    (state / 'state.json').write_text(json.dumps({
-        'status': 'stopped', 'flow_file': str(capture), 'transport': 'browser',
-    }))
     module = load('mitm_lane')
     values = []
-    for transport in ('', None):
-        db = tmp_path / ('empty.sqlite' if transport == '' else 'missing.sqlite')
+    for i, (transport, recorded) in enumerate((('', 'browser'), (None, 'browser'),
+                                                ('httpx', 'browser'), (None, ''),
+                                                (None, 'httpx'))):
+        (state / 'state.json').write_text(json.dumps({
+            'status': 'stopped', 'flow_file': str(capture), 'transport': recorded,
+        }))
+        db = tmp_path / f'{i}.sqlite'
         args = argparse.Namespace(root=str(root), lane='hoster-default-8080',
                                   mitmdump='/usr/bin/mitmdump', db=str(db),
                                   flow_file=str(capture), store_full_requests=True,
@@ -28,7 +30,26 @@ def test_shared_index_preserves_explicit_empty_transport(tmp_path):
         assert module.index_store(args)['status'] == 'indexed'
         with sqlite3.connect(db) as conn:
             values.append(conn.execute('select transport from requests').fetchone()[0])
-    assert values == ['', 'browser']
+    assert values == ['', 'browser', 'httpx', '', 'httpx']
+
+
+def test_shared_index_defaults_to_browser_when_transport_is_absent(tmp_path):
+    capture = tmp_path / 'capture.mitm'
+    flow(capture)
+    root = tmp_path / 'lanes'
+    state = root / 'hoster-default-8080'
+    state.mkdir(parents=True)
+    (state / 'state.json').write_text(json.dumps({
+        'status': 'stopped', 'flow_file': str(capture),
+    }))
+    db = tmp_path / 'index.sqlite'
+    args = argparse.Namespace(root=str(root), lane='hoster-default-8080',
+                              mitmdump='/usr/bin/mitmdump', db=str(db),
+                              flow_file=str(capture), store_full_requests=True,
+                              transport=None)
+    assert load('mitm_lane').index_store(args)['status'] == 'indexed'
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('select transport from requests').fetchone()[0] == 'browser'
 
 
 def test_raw_search_resolves_logical_and_generated_lanes(monkeypatch, tmp_path, capsys):

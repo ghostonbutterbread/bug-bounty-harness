@@ -749,3 +749,6 @@ or discard rows automatically.
 - **Verification:** `bash -n skills/chromium-test/scripts/install.sh`
 - **Owner/scope:** Chromium Test skill / explicit dependency setup.
 - **Last verified:** 2026-09-10.
+
+
+For the shared 8080 listener, `ensure-default` observes or starts under user-systemd supervision; uncertain outcomes require inspection without retry or stop. Existing task-proxy commands retain their legacy behavior; no allocator safety migration is implied.

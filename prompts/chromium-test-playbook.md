@@ -371,3 +371,6 @@ Record:
 - security-relevant observations and why they matter
 
 If a vulnerability appears, switch into the appropriate specialist skill (`/xss`, `/idor`, `/ssrf`, `/bypass`, etc.) before expanding probes.
+
+
+For the shared 8080 listener, `ensure-default` observes or starts under user-systemd supervision; uncertain outcomes require inspection without retry or stop. Existing task-proxy commands retain their legacy behavior; no allocator safety migration is implied.

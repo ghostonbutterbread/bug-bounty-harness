@@ -777,3 +777,6 @@ confirm CDP is closed, and recheck disposable directory absence.
   does not provide intercept on/off or a Tamper API. Replay safely or stop.
 - Stay inside the program scope, account authorization, and rate limits.
 - For state-changing tasks, confirm the action is allowed and non-destructive before proceeding.
+
+
+For the shared 8080 listener, `ensure-default` observes or starts under user-systemd supervision; uncertain outcomes require inspection without retry or stop. Existing task-proxy commands retain their legacy behavior; no allocator safety migration is implied.

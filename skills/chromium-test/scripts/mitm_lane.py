@@ -4,20 +4,31 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
+import ipaddress
 import json
 import os
 import shutil
+import shlex
+import re
 import signal
 import socket
+import ssl
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
 DEFAULT_MITMDUMP = "mitmdump"
+DEFAULT_SHARED_LANE = "hoster-default-8080"
+PROC_ROOT = Path('/proc')
+CGROUP_ROOT = Path('/sys/fs/cgroup')
+LEGACY_UNIT = 'hoster-mitm-default-8080.service'
 
 
 def lane_dir(root: Path, lane: str) -> Path:
@@ -29,19 +40,68 @@ def state_path(root: Path, lane: str) -> Path:
 
 
 def read_state(root: Path, lane: str) -> dict[str, Any]:
+    if lane != DEFAULT_SHARED_LANE:
+        return legacy_read_state(root, lane)
     path = state_path(root, lane)
-    if not path.exists():
-        return {}
     try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
+        state = json.loads(path.read_text())
+    except FileNotFoundError:
+        if not os.path.lexists(path):
+            return {}
         return {"status": "corrupt-state", "state_path": str(path)}
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return {"status": "corrupt-state", "state_path": str(path),
+                "detail": "state is unreadable or malformed; inspect it without restarting"}
+    if not isinstance(state, dict) or not state:
+        return {"status": "unknown-state", "state_path": str(path)}
+    if lane != DEFAULT_SHARED_LANE:
+        return state
+    if 'detail' in state:
+        state['detail'] = 'stored diagnostic omitted; inspect the supervisor and lane state'
+    status = state.get('status')
+    if not isinstance(status, str) or not status:
+        return {"status": "unknown-state", "state_path": str(path)}
+    port = state.get('port')
+    if port is not None and (type(port) is not int or not 1 <= port <= 65535):
+        return {"status": "unknown-state", "state_path": str(path)}
+    ca = state.get('ca_cert')
+    if ca is not None and (not isinstance(ca, str) or not ca):
+        return {"status": "unknown-state", "state_path": str(path)}
+    if status in {'starting', 'start-cleanup-failed'}:
+        pid = state.get('pid')
+        if pid is not None and (type(pid) is not int or not 0 < pid <= 2147483647):
+            return {"status": "unknown-state", "state_path": str(path), "detail": "invalid recorded PID; inspect state without restarting"}
+        return state
+    terminal = status == 'stopped' or (status in {'start-failed', 'start-timeout'} and state.get('cleanup') == 'stopped')
+    pid = state.get('pid')
+    if not terminal and (type(pid) is not int or not 0 < pid <= 2147483647):
+        return {"status": "unknown-state", "state_path": str(path), "detail": "invalid recorded PID; inspect state without restarting"}
+    if terminal and pid is not None and (type(pid) is not int or not 0 < pid <= 2147483647):
+        return {"status": "unknown-state", "state_path": str(path), "detail": "invalid recorded PID; inspect state without restarting"}
+    if status in {'running', 'already-running'} and (
+            state.get('port') != 8080 or state.get('listen_host') not in ('127.0.0.1', '0.0.0.0')
+            or not isinstance(state.get('ca_cert'), str) or not state['ca_cert']):
+        return {"status": "unknown-state", "state_path": str(path)}
+    return state
 
 
 def write_state(root: Path, lane: str, state: dict[str, Any]) -> None:
     path = state_path(root, lane)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+
+def publish_running_state(root: Path, lane: str, state: dict[str, Any]) -> None:
+    """Publish without truncating the pre-submission starting record on failure."""
+    path = state_path(root, lane)
+    fd, name = tempfile.mkstemp(prefix='.state-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            json.dump(state, output, indent=2, sort_keys=True)
+            output.write('\n')
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def pid_alive(pid: int | None) -> bool:
@@ -67,14 +127,64 @@ def can_bind_localhost(port: int) -> bool:
 
 
 def wait_for_port(port: int, timeout: float = 8.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.25)
             if sock.connect_ex(("127.0.0.1", port)) == 0:
                 return True
         time.sleep(0.1)
     return False
+
+
+def readable_ca(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=path.read_text(encoding='ascii'))
+        return context.cert_store_stats()['x509_ca'] > 0
+    except (OSError, UnicodeError, ValueError, ssl.SSLError):
+        return False
+
+
+def signer_fingerprint(path: Path) -> str | None:
+    """Return the public CA digest only when it matches mitmproxy's signer."""
+    try:
+        if not readable_ca(path):
+            return None
+        public = path.read_text(encoding='ascii')
+        combined = path.with_name('mitmproxy-ca.pem').read_text(encoding='ascii')
+        begin, end = '-----BEGIN CERTIFICATE-----', '-----END CERTIFICATE-----'
+        def der(text: str) -> bytes:
+            start = text.index(begin)
+            stop = text.index(end, start) + len(end)
+            return ssl.PEM_cert_to_DER_cert(text[start:stop])
+        cert = der(public)
+        start = public.index(begin)
+        stop = public.index(end, start) + len(end)
+        if public[:start].strip() or public[stop:].strip():
+            return None  # Never copy a public file that contains other PEM material.
+        if cert != der(combined):
+            return None
+        # OpenSSL validates both the presence of a private key and that it
+        # matches the certificate, without exposing either in a subprocess log.
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.set_ciphers('DEFAULT:@SECLEVEL=0')  # Validate legacy keys without imposing TLS policy.
+        context.load_cert_chain(str(path.with_name('mitmproxy-ca.pem')), password=lambda: '')
+        return hashlib.sha256(cert).hexdigest()
+    except (OSError, UnicodeError, ValueError, ssl.SSLError):
+        return None
+
+
+def wait_for_ca(path: Path, deadline: float) -> bool:
+    while True:
+        if signer_fingerprint(path):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.1, remaining))
 
 
 def mitm_env() -> dict[str, str]:
@@ -86,20 +196,133 @@ def mitm_env() -> dict[str, str]:
 
 
 def start_lane(args: argparse.Namespace) -> dict[str, Any]:
+    if args.lane == DEFAULT_SHARED_LANE and args.port == 8080:
+        try:
+            host = args.proxy_host
+            address = ipaddress.ip_address(host[1:-1] if host.startswith('[') and host.endswith(']') else host)
+        except ValueError:
+            address = None  # Hostname resolution and routing require a live canary.
+        if address is not None and address.version == 6:
+            return {"status": "unsupported-proxy-host", "lane": args.lane,
+                    "detail": "IPv6 proxy address is incompatible with the IPv4-only listener"}
+        root = Path(args.root).expanduser()
+        directory = lane_dir(root, args.lane)
+        # Do not even create a lock file when existing metadata is unknown.
+        current = read_state(root, args.lane)
+        if current.get("status") in {"unknown-state", "corrupt-state"}:
+            return current
+        if current.get('status') in {'running', 'already-running'}:
+            return {"status": "unknown-state", "lane": args.lane,
+                    "detail": "recorded running generation requires observation; do not start another listener"}
+        if current.get("status") in {"starting", "start-cleanup-failed"}:
+            return {"status": "start-cleanup-failed", "lane": args.lane,
+                    "unit": current.get("unit"), "detail": "previous startup needs exact-unit recovery; do not start another listener"}
+        directory.mkdir(parents=True, exist_ok=True)
+        # Cooperating starts share this lock; it is not process ownership proof.
+        with (directory / ".start.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = read_state(root, args.lane)
+            if current.get("status") in {"unknown-state", "corrupt-state"}:
+                return current
+            if current.get("status") in {"starting", "start-cleanup-failed"}:
+                return {"status": "start-cleanup-failed", "lane": args.lane,
+                        "unit": current.get("unit"), "detail": "previous startup needs exact-unit recovery; do not start another listener"}
+            # The lock coordinates all direct starts, not arbitrary same-UID
+            # writers. Reclassify here, not at a wrapper or before this lock.
+            absence = classify_default_absence(args)
+            if absence.get('status') not in {'not-found', 'stopped'}:
+                return absence
+            for executable in ('systemd-run', args.mitmdump, 'openssl'):
+                if not shutil.which(executable):
+                    return {"status": "start-failed", "lane": args.lane,
+                            "detail": "Required start or attestation executable unavailable; inspect dependencies before starting."}
+            # The observer recognizes only this script/interpreter and argv.
+            # Resolve the requested executable, never substitute another one.
+            selected = shutil.which(args.mitmdump)
+            try:
+                with Path('/usr/bin/mitmdump').open('rb') as script:
+                    shebang = script.readline(128).rstrip(b'\n')
+            except OSError:
+                shebang = b''
+            if selected != '/usr/bin/mitmdump' or shebang != b'#!/usr/bin/python3':
+                return {"status": "unsupported-runtime", "lane": args.lane,
+                        "detail": "Shared default observation requires /usr/bin/mitmdump with #!/usr/bin/python3; install or explicitly select that runtime before starting."}
+            args.mitmdump = selected
+            return legacy_start_lane(args)
+    if args.lane == DEFAULT_SHARED_LANE:
+        return {"status": "unmanaged-start-unsupported", "lane": args.lane}
+    return task_start_lane(args)
+
+
+def user_systemd_env() -> dict[str, str]:
+    env = mitm_env()
+    runtime = f"/run/user/{os.getuid()}"
+    env.setdefault("XDG_RUNTIME_DIR", runtime)
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={env['XDG_RUNTIME_DIR']}/bus")
+    return env
+
+
+def unit_command(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(command, env=env, capture_output=True, text=True, check=False, timeout=12)
+    except UnicodeError:
+        raise RuntimeError('user supervisor returned invalid output; inspect its status') from None
+
+
+def unit_status(unit: str, env: dict[str, str]) -> dict[str, str]:
+    result = unit_command(["systemctl", "--user", "show", unit,
+                           "--property=ActiveState,MainPID,ControlGroup"], env)
+    if result.returncode:
+        raise RuntimeError("cannot inspect shared proxy user unit")
+    return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def stop_started_unit(unit: str, env: dict[str, str]) -> bool:
+    try:
+        result = unit_command(["systemctl", "--user", "stop", unit], env)
+        status = unit_status(unit, env)
+        return result.returncode == 0 and status.get("ActiveState") in {"inactive", "failed"} and status.get("MainPID") == "0"
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        return False
+
+
+def legacy_start_lane(args: argparse.Namespace) -> dict[str, Any]:
+    if args.lane != DEFAULT_SHARED_LANE or args.port != 8080:
+        return {"status": "unmanaged-start-unsupported", "lane": args.lane}
+    if args.listen_host not in {"127.0.0.1", "0.0.0.0"}:
+        return {"status": "unsupported-listen-host", "lane": args.lane,
+                "detail": "shared default supports only 127.0.0.1 or 0.0.0.0; choose one before starting"}
     root = Path(args.root).expanduser()
-    current = read_state(root, args.lane)
-    if pid_alive(current.get("pid")):
-        current["status"] = "already-running"
-        return current
-    if not can_bind_localhost(args.port):
-        return {"status": "port-unavailable", "lane": args.lane, "port": args.port}
+    # The locked read-only classifier already checked both socket tables; do
+    # not make a bind/connect probe or treat a successful bind as authority.
+    env = user_systemd_env()
+    try:
+        linger = unit_command(["loginctl", "show-user", str(os.getuid()), "--property=Linger", "--value"], env)
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        return {"status": "supervisor-unavailable", "lane": args.lane,
+                "detail": "cannot check user linger; inspect the user supervisor"}
+    if linger.returncode or linger.stdout.strip() != "yes":
+        return {"status": "supervisor-unavailable", "lane": args.lane,
+                "detail": "enable user linger and a working user systemd manager before starting"}
 
     directory = lane_dir(root, args.lane)
     directory.mkdir(parents=True, exist_ok=True)
     confdir = directory / "mitmproxy"
     confdir.mkdir(parents=True, exist_ok=True)
-    flow_file = directory / "flows.mitm"
+    combined_ca = confdir / 'mitmproxy-ca.pem'
+    if not combined_ca.exists() and any(confdir.glob('mitmproxy-ca*')):
+        return {"status": "start-failed", "lane": args.lane,
+                "detail": "historical CA exists without its signer; restore the signer before starting; no CA was replaced"}
+    prior_fingerprint = signer_fingerprint(confdir / "mitmproxy-ca-cert.pem")
+    if combined_ca.exists() and not prior_fingerprint:
+        return {"status": "start-failed", "lane": args.lane,
+                "detail": "historical signer or public CA is unreadable or inconsistent; no CA was replaced"}
+    # mitmdump -w truncates; reserve a fresh output without touching history.
+    flow_fd, flow_name = tempfile.mkstemp(prefix="flows-", suffix=".mitm", dir=directory)
+    os.close(flow_fd)
+    flow_file = Path(flow_name)
     log_file = directory / "mitmdump.log"
+    unit = f"ghost-mitm-default-8080-{uuid.uuid4().hex}.service"
 
     command = [
         args.mitmdump,
@@ -114,22 +337,59 @@ def start_lane(args: argparse.Namespace) -> dict[str, Any]:
         "-w",
         str(flow_file),
     ]
-    log_handle = log_file.open("ab")
-    proc = subprocess.Popen(
-        command,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        env=mitm_env(),
-        start_new_session=True,
-    )
-    started = wait_for_port(args.port)
+    state = {"status": "starting", "lane": args.lane, "unit": unit,
+             "port": args.port, "flow_file": str(flow_file)}
+    # Persist the generation before submission: an interrupted dispatcher must
+    # not start a second proxy while the transient unit may still be alive.
+    write_state(root, args.lane, state)
+    try:
+        launch = unit_command(["systemd-run", "--user", f"--unit={unit}",
+                               "--property=Type=exec", f"--property=StandardOutput=append:{log_file}",
+                               "--property=StandardError=inherit", "--setenv=PYTHONNOUSERSITE=1",
+                               "--", *command], env)
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        # A submission can reach the manager even when its reply is lost. Keep
+        # the pre-submission starting record and never stop or retry this unit.
+        return {"status": "start-outcome-unknown", "lane": args.lane, "unit": unit,
+                "detail": "Submission outcome unknown; inspect the recorded unit and capture without stopping or retrying."}
+    if launch.returncode:
+        return {"status": "start-outcome-unknown", "lane": args.lane, "unit": unit,
+                "detail": "Submission outcome unknown; inspect the recorded unit and capture without stopping or retrying."}
+    try:
+        deadline = time.monotonic() + 8.0
+        started = wait_for_port(args.port)
+        status = unit_status(unit, env)
+        if not started:
+            raise TimeoutError("shared proxy listener did not become ready")
+        if (status.get("ActiveState") != "active" or not status.get("MainPID", "").isdigit()
+                or int(status["MainPID"]) <= 0 or not status.get("ControlGroup", "").startswith("/user.slice/")):
+            raise RuntimeError("shared proxy unit is not active under the user manager")
+        if not wait_for_ca(confdir / "mitmproxy-ca-cert.pem", deadline):
+            raise TimeoutError("shared proxy CA not readable before startup deadline; inspect the unit log and CA directory")
+        fingerprint = signer_fingerprint(confdir / "mitmproxy-ca-cert.pem")
+        if not fingerprint:
+            raise RuntimeError("shared proxy signer changed during startup; inspect its CA directory")
+        if prior_fingerprint and fingerprint != prior_fingerprint:
+            raise RuntimeError("shared proxy CA changed during startup; inspect its CA directory")
+        initial_pid = status['MainPID']
+        status = unit_status(unit, env)
+        if (status.get("ActiveState") != "active" or not status.get("MainPID", "").isdigit()
+                or int(status["MainPID"]) <= 0 or status["MainPID"] != initial_pid
+                or not status.get("ControlGroup", "").startswith("/user.slice/")):
+            raise RuntimeError("shared proxy unit stopped or lost user-manager ownership while waiting for CA")
+        pid = int(status["MainPID"])
+    except (OSError, subprocess.SubprocessError, RuntimeError, TimeoutError):
+        # A unit name alone does not prove that this is the submitted process.
+        # Keep the starting record; never signal or retry an uncertain generation.
+        return {"status": "start-outcome-unknown", "lane": args.lane, "unit": unit,
+                "detail": "Post-submission readiness is unknown; inspect without stopping or retrying."}
     state = {
-        "status": "running" if started else "start-timeout",
+        "status": "running",
         "lane": args.lane,
         "program": args.program,
         "task": args.task,
-        "account": args.account_label or args.account,
-        "account_label": args.account_label or args.account,
+        "account": args.account_label if args.account_label is not None else args.account,
+        "account_label": args.account_label if args.account_label is not None else args.account,
         "profile_dir": args.profile_dir,
         "run_id": args.run_id,
         "agent_id": args.agent_id,
@@ -139,48 +399,538 @@ def start_lane(args: argparse.Namespace) -> dict[str, Any]:
         "transport": args.transport,
         "browser_profile_id": args.browser_profile_id or args.profile_dir,
         "session_source": args.session_source,
-        "pid": proc.pid,
+        "pid": pid,
+        "unit": unit,
+        "control_group": status["ControlGroup"],
         "port": args.port,
         "listen_host": args.listen_host,
-        "proxy_server": f"http://{args.proxy_host}:{args.port}",
+        "proxy_server": f"http://[{args.proxy_host}]:{args.port}" if ':' in args.proxy_host and not args.proxy_host.startswith('[') else f"http://{args.proxy_host}:{args.port}",
         "root": str(root),
         "confdir": str(confdir),
         "ca_cert": str(confdir / "mitmproxy-ca-cert.pem"),
+        "ca_started_sha256": fingerprint,
         "flow_file": str(flow_file),
         "log_file": str(log_file),
         "command": command,
     }
-    write_state(root, args.lane, state)
+    # A ready port and active unit can belong to different processes. Before
+    # publishing running, observe the submitted unit's exact process, listener
+    # and reserved capture twice, while the starting record remains unchanged.
+    starting = {"status": "starting", "lane": args.lane, "unit": unit,
+                "port": args.port, "flow_file": str(flow_file)}
+    observed = default_generation_observation(root, state)
+    if (observed is None or observed.get('status') != 'observed-fresh'
+            or observed.get('unit') != unit or observed.get('pid') != pid
+            or read_state(root, args.lane) != starting):
+        return {"status": "start-outcome-unknown", "lane": args.lane, "unit": unit,
+                "detail": "Submitted generation could not be confirmed; inspect without stopping or retrying."}
+    try:
+        publish_running_state(root, args.lane, state)
+    except OSError:
+        return {"status": "start-outcome-unknown", "lane": args.lane, "unit": unit,
+                "detail": "Post-submission state save is unknown; inspect without stopping or retrying."}
     return state
 
 
+def default_generation_observation(root: Path, state: dict[str, Any] | None = None, *,
+                                   include_identity: bool = False) -> dict[str, Any] | None:
+    """Observe a recorded default generation; never grant lifecycle or CA trust."""
+    directory = root / DEFAULT_SHARED_LANE
+    state = state or {}
+    recorded_unit = state.get('unit')
+    fresh = False
+    if isinstance(recorded_unit, str) and re.fullmatch(
+            r'ghost-mitm-default-8080-[0-9a-f]{32}\.service', recorded_unit):
+        fresh = True
+        unit = recorded_unit
+        flow_name = state.get('flow_file')
+        if not isinstance(flow_name, str):
+            return None
+        flow = Path(flow_name)
+        if flow.parent != directory or not re.fullmatch(r'flows-[A-Za-z0-9_-]+\.mitm', flow.name):
+            return None
+        host = state.get('listen_host')
+        if host not in ('0.0.0.0', '127.0.0.1'):
+            return None
+    else:
+        unit = LEGACY_UNIT
+        flow = directory / 'flows.mitm'
+        host = '0.0.0.0'
+        if recorded_unit not in (None, LEGACY_UNIT) or state.get('flow_file') not in (None, str(flow)):
+            return None
+    conf = directory / 'mitmproxy'
+    expected = ['/usr/bin/mitmdump', '--listen-host', host, '--listen-port', '8080',
+                '--set', f'confdir={conf}', '--set', 'flow_detail=0', '-w', str(flow)]
+    uid = os.getuid()
+    cgroup = f'/user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{unit}'
+
+    def snapshot() -> tuple[Any, ...]:
+        result = unit_command(['systemctl', '--user', 'show', unit,
+                               '--property=Id,ActiveState,SubState,MainPID,ControlGroup,InvocationID,ExecStart'],
+                              user_systemd_env())
+        if result.returncode:
+            raise ValueError('unit unavailable')
+        fields = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+        if (fields.get('Id') != unit or fields.get('ActiveState') != 'active'
+                or fields.get('SubState') != 'running' or fields.get('ControlGroup') != cgroup
+                or not re.fullmatch('[0-9a-f]{32}', fields.get('InvocationID', ''))
+                or fields['InvocationID'] == '0' * 32):
+            raise ValueError('unit identity mismatch')
+        pid = int(fields.get('MainPID', '0'))
+        if not 0 < pid <= 2147483647:
+            raise ValueError('invalid pid')
+        if fresh and pid != state.get('pid'):
+            raise ValueError('recorded pid differs')
+        exec_start = fields.get('ExecStart', '')
+        if exec_start.count('argv[]=') != 1 or 'path=/usr/bin/mitmdump ; argv[]=' not in exec_start:
+            raise ValueError('unexpected exec')
+        command = exec_start.split('argv[]=', 1)[1].split(' ;', 1)[0]
+        if shlex.split(command) != expected:
+            raise ValueError('unexpected exec argv')
+        proc = PROC_ROOT / str(pid)
+        if not os.path.samefile(proc / 'exe', '/usr/bin/python3'):
+            raise ValueError('unexpected process executable')
+        namespace = os.readlink(proc / 'ns/net')
+        if not re.fullmatch(r'net:\[[0-9]+\]', namespace) or namespace != os.readlink(PROC_ROOT / 'self/ns/net'):
+            raise ValueError('network namespace mismatch')
+        argv = (proc / 'cmdline').read_bytes().split(b'\0')
+        if argv != [x.encode() for x in ['/usr/bin/python3', *expected]] + [b'']:
+            raise ValueError('unexpected process argv')
+        stat = (proc / 'stat').read_text()
+        ticks = int(stat[stat.rindex(')') + 2:].split()[19])
+        if ticks <= 0 or ('0::' + cgroup) not in (proc / 'cgroup').read_text().splitlines():
+            raise ValueError('process identity mismatch')
+        sockets = set()
+        for table in ('tcp', 'tcp6'):
+            for line in (proc / 'net' / table).read_text().splitlines()[1:]:
+                cols = line.split()
+                if len(cols) < 10:
+                    raise ValueError('invalid socket table')
+                addr, port = cols[1].split(':')
+                if int(port, 16) == 8080 and cols[3] == '0A':
+                    if table != 'tcp' or addr != ('00000000' if host == '0.0.0.0' else '0100007F'):
+                        raise ValueError('unexpected listener')
+                    sockets.add(int(cols[9]))
+        path_stat = flow.stat()
+        capture = (path_stat.st_dev, path_stat.st_ino)
+        opened_sockets = set()
+        opened_capture = False
+        for fd in (proc / 'fd').iterdir():
+            target = os.readlink(fd)
+            match = re.fullmatch(r'socket:\[([0-9]+)\]', target)
+            if match:
+                opened_sockets.add(int(match.group(1)))
+            elif target == str(flow):
+                st = fd.stat()
+                opened_capture |= (st.st_dev, st.st_ino) == capture
+        matching = sockets & opened_sockets
+        if len(sockets) != 1 or matching != sockets or not opened_capture:
+            raise ValueError('listener or capture identity mismatch')
+        return (pid, ticks, fields['InvocationID'], cgroup, namespace, tuple(sorted(matching)), capture)
+
+    try:
+        first = snapshot()
+        if first != snapshot():
+            return None
+    except (OSError, ValueError, IndexError, KeyError, UnicodeError, subprocess.SubprocessError, RuntimeError):
+        return None
+    result = {'status': 'observed-fresh' if fresh else 'observed-legacy', 'lane': DEFAULT_SHARED_LANE, 'unit': unit,
+              'pid': first[0], 'port': 8080, 'listen_host': host,
+              'signer': 'unverified',
+              'detail': 'Read-only listener and capture observation; signer, readiness, and lifecycle ownership are unverified.'}
+    if include_identity:
+        result['_identity'] = (unit, host, str(flow), first)
+    return result
+
+
+def observe_default(args: argparse.Namespace) -> dict[str, Any]:
+    """Read-only observation without probing ports, CA files, or lifecycle."""
+    root = Path(args.root).expanduser()
+    if args.lane == DEFAULT_SHARED_LANE and root == DEFAULT_ROOT:
+        state = read_state(root, args.lane)
+        if state.get('status') in {'running', 'already-running'}:
+            observed = default_generation_observation(root, state, include_identity=True)
+            if observed is not None and read_state(root, args.lane) == state:
+                identity = observed.pop('_identity')
+                observed['generation_sha256'] = hashlib.sha256(
+                    json.dumps(identity, separators=(',', ':')).encode()).hexdigest()
+                if observed['status'] == 'observed-fresh':
+                    observed['flow_path_sha256'] = hashlib.sha256(identity[2].encode()).hexdigest()
+                return observed
+    return {'status': 'unknown-state', 'lane': DEFAULT_SHARED_LANE,
+            'detail': 'Shared listener observation unavailable; inspect without starting or stopping.'}
+
+
+def classify_default_absence(args: argparse.Namespace) -> dict[str, Any]:
+    """Classify only a clean absent/stopped default, without lifecycle actions."""
+    unknown = {'status': 'unknown-state', 'lane': DEFAULT_SHARED_LANE,
+               'detail': 'Clean absence is unproven; inspect without starting or stopping.'}
+    root = Path(args.root).expanduser()
+    if args.lane != DEFAULT_SHARED_LANE or root != DEFAULT_ROOT:
+        return unknown
+    fresh_pattern = r'ghost-mitm-default-8080-[0-9a-f]{32}\.service'
+    path = state_path(root, DEFAULT_SHARED_LANE)
+
+    class NamespaceUnproven(ValueError):
+        pass
+
+    def snapshot() -> tuple[Any, ...]:
+        state = read_state(root, DEFAULT_SHARED_LANE)
+        if not state:
+            # read_state's absent result is valid only when the path is truly absent.
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise ValueError('state exists')
+            classification = 'not-found'
+        else:
+            if (state.get('status') != 'stopped'
+                    or state.get('lane', DEFAULT_SHARED_LANE) != DEFAULT_SHARED_LANE
+                    or state.get('port', 8080) != 8080):
+                raise ValueError('not a stopped default')
+            classification = 'stopped'
+        recorded = state.get('unit')
+        if recorded is not None and (not isinstance(recorded, str) or
+                (recorded != LEGACY_UNIT and not re.fullmatch(fresh_pattern, recorded))):
+            raise ValueError('unrecognized unit')
+        pid = state.get('pid')
+        if pid is not None:
+            # A present PID may be reused; never decide it belongs to the lane.
+            try:
+                (PROC_ROOT / str(pid)).stat()
+            except FileNotFoundError:
+                # hidepid can make a live, reused PID invisible in procfs.
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    raise ValueError('recorded pid exists')
+            else:
+                raise ValueError('recorded pid exists')
+        env = user_systemd_env()
+        uid = os.getuid()
+        manager_group = f'/user.slice/user-{uid}.slice/user@{uid}.service'
+        manager = CGROUP_ROOT / manager_group.lstrip('/')
+        # Prefer direct manager namespace evidence. If ptrace restrictions hide
+        # it, a verified unisolated user-bus service is a practical witness.
+        # This assumes cooperative same-UID services do not unshare or redirect
+        # networking outside their declared systemd configuration.
+        init = unit_command(['systemctl', '--user', 'show', 'init.scope', '--all', '--no-pager',
+                             '--property=Id,LoadState,ActiveState,SubState,ControlGroup'], env)
+        try:
+            entries = [line.partition('=') for line in init.stdout.splitlines()]
+            if (init.returncode or any(not sep for _, sep, _ in entries)
+                    or len({key for key, _, _ in entries}) != len(entries)):
+                raise ValueError('invalid init.scope')
+            init_fields = {key: value for key, _, value in entries}
+            if init_fields != {'Id': 'init.scope', 'LoadState': 'loaded', 'ActiveState': 'active',
+                               'SubState': 'running', 'ControlGroup': manager_group + '/init.scope'}:
+                raise ValueError('unverified manager scope')
+            pids = (manager / 'init.scope' / 'cgroup.procs').read_text().splitlines()
+            if not pids or len(set(pids)) != len(pids) or any(not re.fullmatch(r'[1-9][0-9]*', p) for p in pids):
+                raise ValueError('invalid manager process list')
+            namespace = os.readlink(PROC_ROOT / 'self/ns/net')
+            if not re.fullmatch(r'net:\[[0-9]+\]', namespace):
+                raise ValueError('invalid caller namespace')
+            hidden = False
+            for manager_pid in pids:
+                process = PROC_ROOT / manager_pid
+                groups = (process / 'cgroup').read_text().splitlines()
+                if groups.count('0::' + manager_group + '/init.scope') != 1:
+                    raise ValueError('manager process moved')
+                try:
+                    manager_ns = os.readlink(process / 'ns/net')
+                except PermissionError:
+                    hidden = True
+                else:
+                    if manager_ns != namespace:
+                        raise ValueError('network namespace mismatch')
+            witness = None
+            if hidden:
+                result = unit_command(['systemctl', '--user', 'show', 'dbus.service', '--all', '--no-pager',
+                                       '--property=Id,LoadState,ActiveState,SubState,MainPID,InvocationID,ControlGroup,Slice,PrivateNetwork,NetworkNamespacePath,JoinsNamespaceOf'], env)
+                entries = [line.partition('=') for line in result.stdout.splitlines()]
+                if (result.returncode or any(not sep for _, sep, _ in entries)
+                        or len({key for key, _, _ in entries}) != len(entries)):
+                    raise ValueError('invalid witness fields')
+                fields = {key: value for key, _, value in entries}
+                if (set(fields) != {'Id', 'LoadState', 'ActiveState', 'SubState', 'MainPID', 'InvocationID',
+                                    'ControlGroup', 'Slice', 'PrivateNetwork', 'NetworkNamespacePath', 'JoinsNamespaceOf'}
+                        or fields['Id'] != 'dbus.service' or fields['LoadState'] != 'loaded'
+                        or fields['ActiveState'] != 'active' or fields['SubState'] != 'running'
+                        or fields['PrivateNetwork'] != 'no' or fields['NetworkNamespacePath']
+                        or fields['JoinsNamespaceOf']
+                        or not re.fullmatch(r'[a-zA-Z0-9_.-]+\.slice', fields['Slice'])
+                        or fields['ControlGroup'] != manager_group + '/' + fields['Slice'] + '/dbus.service'
+                        or not re.fullmatch(r'[1-9][0-9]*', fields['MainPID'])
+                        or not re.fullmatch(r'[0-9a-f]{32}', fields['InvocationID'])
+                        or fields['InvocationID'] == '0' * 32):
+                    raise ValueError('unverified witness unit')
+                process = PROC_ROOT / fields['MainPID']
+                def process_identity():
+                    stat = (process / 'stat').read_text()
+                    prefix, sep, rest = stat.rpartition(') ')
+                    parts = rest.split()
+                    if (not sep or not prefix.startswith(fields['MainPID'] + ' (') or len(parts) < 20
+                            or not re.fullmatch(r'[0-9]+', parts[19])):
+                        raise ValueError('invalid witness process')
+                    return parts[19]
+                start = process_identity()
+                if ((process / 'cgroup').read_text().splitlines().count('0::' + fields['ControlGroup']) != 1
+                        or os.readlink(process / 'ns/net') != namespace or process_identity() != start):
+                    raise ValueError('witness process changed or namespace mismatch')
+                witness = (fields['MainPID'], fields['InvocationID'], fields['ControlGroup'], start)
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise NamespaceUnproven('manager namespace unavailable') from exc
+        listed = unit_command(['systemctl', '--user', '--no-pager', '--full', 'list-units', '--all', '--plain',
+                               '--no-legend', 'ghost-mitm-default-8080-*.service'], env)
+        if listed.returncode:
+            raise ValueError('unit list unavailable')
+        units = {LEGACY_UNIT}
+        if recorded:
+            units.add(recorded)
+        seen_listed = set()
+        for line in listed.stdout.splitlines():
+            columns = line.split(None, 4)
+            if (len(columns) != 5 or not re.fullmatch(fresh_pattern, columns[0])
+                    or columns[1:4] != ['loaded', 'inactive', 'dead']
+                    or not columns[4].strip() or any(ord(ch) < 32 for ch in columns[4])):
+                raise ValueError('unrecognized unit list')
+            if columns[0] in seen_listed:
+                raise ValueError('duplicate unit list')
+            seen_listed.add(columns[0])
+            units.add(columns[0])
+        # A collected transient unit may leave a populated cgroup even when it
+        # no longer appears in list-units. Inspect only exact managed names.
+        parent = manager / 'app.slice'
+        try:
+            names = list(parent.iterdir())
+            app_exists = True
+        except FileNotFoundError:
+            manager.stat()
+            names = []
+            app_exists = False
+            slice_list = unit_command(['systemctl', '--user', '--no-pager', '--full', 'list-units',
+                                       '--all', '--plain', '--no-legend', 'app.slice'], env)
+            slice_lines = slice_list.stdout.splitlines()
+            if slice_list.returncode or len(slice_lines) > 1:
+                raise ValueError('application slice list unavailable')
+            if slice_lines:
+                columns = slice_lines[0].split(None, 4)
+                if (len(columns) != 5 or columns[:4] != ['app.slice', 'loaded', 'inactive', 'dead']
+                        or not columns[4].strip() or any(ord(ch) < 32 for ch in columns[4])):
+                    raise ValueError('application slice not inactive')
+        units.update(entry.name for entry in names if re.fullmatch(fresh_pattern, entry.name))
+        for unit in sorted(units):
+            result = unit_command(['systemctl', '--user', 'show', unit, '--all', '--no-pager',
+                                   '--property=Id,LoadState,ActiveState,SubState,MainPID,ControlGroup,Slice'], env)
+            if result.returncode:
+                raise ValueError('unit unavailable')
+            fields = {}
+            for line in result.stdout.splitlines():
+                key, sep, value = line.partition('=')
+                if not sep or key in fields:
+                    raise ValueError('invalid unit fields')
+                fields[key] = value
+            if (set(fields) != {'Id', 'LoadState', 'ActiveState', 'SubState', 'MainPID', 'ControlGroup', 'Slice'}
+                    or fields.get('Id') != unit or fields.get('LoadState') not in ('loaded', 'not-found')
+                    or fields.get('ActiveState') != 'inactive' or fields.get('SubState') != 'dead'
+                    or fields.get('MainPID') != '0' or fields.get('ControlGroup') != ''
+                    or fields.get('Slice') not in (('app.slice',) if fields.get('LoadState') == 'loaded'
+                                                   else ('', 'app.slice'))):
+                raise ValueError('unit not cleanly inactive')
+            if unit in seen_listed and fields['LoadState'] != 'loaded':
+                raise ValueError('unit changed since listing')
+            # An inactive unit can leave children in its cgroup. Check the
+            # exact expected cgroup even if systemd no longer reports it.
+            if not app_exists:
+                continue
+            parent.stat()
+            try:
+                events = (parent / unit / 'cgroup.events').read_text()
+            except FileNotFoundError:
+                # A missing events file inside an existing cgroup is ambiguous.
+                try:
+                    (parent / unit).stat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError('cgroup events missing')
+            else:
+                rows = [line.split() for line in events.splitlines()]
+                if [row for row in rows if row and row[0] == 'populated'] != [['populated', '0']]:
+                    raise ValueError('cgroup populated or unobservable')
+        # Both tables must be readable and parseable. Treat every local 8080
+        # socket as a conflict, including non-LISTEN states, not just loopback.
+        for table in ('tcp', 'tcp6'):
+            lines = (PROC_ROOT / 'net' / table).read_text().splitlines()
+            remote_column = 'rem_address' if table == 'tcp' else 'remote_address'
+            if not lines or lines[0].split() != ['sl', 'local_address', remote_column, 'st', 'tx_queue',
+                                                  'rx_queue', 'tr', 'tm->when', 'retrnsmt', 'uid', 'timeout', 'inode']:
+                raise ValueError('invalid socket table')
+            for line in lines[1:]:
+                columns = line.split()
+                if len(columns) < 12:
+                    raise ValueError('invalid socket entry')
+                # Time-wait and request sockets use the kernel's shorter
+                # 12-column representation; ordinary sockets have 17 fields.
+                if len(columns) != 17 and not (len(columns) == 12 and columns[3] in ('03', '06')):
+                    raise ValueError('incomplete socket entry')
+                address, port = columns[1].split(':')
+                width = 8 if table == 'tcp' else 32
+                if (not re.fullmatch(r'[0-9]+:', columns[0])
+                        or len(address) != width
+                        or not re.fullmatch(r'[0-9A-Fa-f]+', address)
+                        or not re.fullmatch(r'[0-9A-Fa-f]{4}', port)
+                        or not re.fullmatch(rf'[0-9A-Fa-f]{{{width}}}:[0-9A-Fa-f]{{4}}', columns[2])
+                        or not re.fullmatch(r'[0-9A-Fa-f]{2}', columns[3])
+                        or not re.fullmatch(r'[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}', columns[4])
+                        or not re.fullmatch(r'[0-9A-Fa-f]{2}:[0-9A-Fa-f]{8}', columns[5])
+                        or not re.fullmatch(r'[0-9A-Fa-f]{8}', columns[6])
+                        or any(not re.fullmatch(r'[0-9]+', col) for col in columns[7:11])
+                        or not re.fullmatch(r'[0-9A-Fa-f]+', columns[11])
+                        or any(not re.fullmatch(r'-?[0-9]+', col) for col in columns[12:])):
+                    raise ValueError('invalid socket entry')
+                if int(port, 16) == 8080:
+                    raise ValueError('port occupied')
+        return classification, state, namespace, tuple(sorted(pids)), witness
+
+    try:
+        first = snapshot()
+        if first != snapshot():
+            return unknown
+    except NamespaceUnproven:
+        return {'status': 'unknown-state', 'lane': DEFAULT_SHARED_LANE,
+                'detail': 'User-manager network namespace could not be verified; inspect manager and caller namespaces with suitable procfs access.'}
+    except (OSError, ValueError, TypeError, UnicodeError, subprocess.SubprocessError, RuntimeError):
+        return unknown
+    return {'status': first[0], 'lane': DEFAULT_SHARED_LANE,
+            'detail': 'Point-in-time read-only classification; recheck under the start lock before dispatch.'}
+
+
+def public_ca_digest(path: Path) -> str | None:
+    """Digest a single public CA certificate, never the combined signer file."""
+    try:
+        with path.open('rb') as source:
+            data = source.read(65537)
+        if len(data) > 65536:
+            return None
+        text = data.decode('ascii')
+        if not re.fullmatch(r'\s*-----BEGIN CERTIFICATE-----\s+[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----\s*', text):
+            return None
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=text)
+        if context.cert_store_stats()['x509_ca'] != 1:
+            return None
+        return hashlib.sha256(ssl.PEM_cert_to_DER_cert(text.strip())).hexdigest()
+    except (OSError, UnicodeError, ValueError, ssl.SSLError):
+        return None
+
+
+def attest_default(args: argparse.Namespace) -> dict[str, Any]:
+    """Attest one observed generation with a bounded, fixed-target TLS probe."""
+    unknown = {'status': 'unknown-state', 'lane': DEFAULT_SHARED_LANE,
+               'detail': 'Generation or public CA could not be proven stable; inspect without restarting.'}
+    root = Path(args.root).expanduser()
+    if args.lane != DEFAULT_SHARED_LANE or root != DEFAULT_ROOT:
+        return unknown
+    state = read_state(root, args.lane)
+    ca = root / DEFAULT_SHARED_LANE / 'mitmproxy' / 'mitmproxy-ca-cert.pem'
+    if state.get('status') not in {'running', 'already-running'} or state.get('ca_cert') != str(ca):
+        return unknown
+    before = default_generation_observation(root, state, include_identity=True)
+    if (not isinstance(before, dict) or not isinstance(before.get('_identity'), tuple)
+            or len(before['_identity']) != 4 or read_state(root, args.lane) != state):
+        return unknown
+    digest = public_ca_digest(ca)
+    if not digest:
+        # A missing public file is the only retryable readiness condition.  Do
+        # not conflate malformed, unreadable, or changed CA data with absence.
+        try:
+            ca.lstat()
+        except FileNotFoundError:
+            after = default_generation_observation(root, state, include_identity=True)
+            if (before.get('status') == 'observed-fresh' and isinstance(after, dict)
+                    and after.get('_identity') == before['_identity']
+                    and read_state(root, args.lane) == state):
+                token = hashlib.sha256(json.dumps(before['_identity'], separators=(',', ':')).encode()).hexdigest()
+                return {'status': 'ca-pending', 'lane': DEFAULT_SHARED_LANE,
+                        'generation_sha256': token, 'detail': 'Public CA is not yet present; signer is unverified.'}
+        except OSError:
+            pass
+        return unknown
+    command = ['openssl', 's_client', '-proxy', '127.0.0.1:8080', '-connect', 'example.com:443',
+               '-servername', 'example.com', '-verify_hostname', 'example.com', '-CAfile', str(ca),
+               '-no-CApath', '-no-CAstore', '-verify_return_error']
+    failure = None
+    try:
+        completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, timeout=12, check=False)
+        if (completed.returncode != 0 or not isinstance(completed.stdout, bytes)
+                or not re.search(rb'(?m)^\s*Verify return code: 0 \(ok\)\s*$', completed.stdout)):
+            failure = 'tls-verification-failed'
+    except subprocess.TimeoutExpired:
+        failure = 'tls-timeout'
+    except (OSError, subprocess.SubprocessError):
+        failure = 'tls-unavailable'
+    after = default_generation_observation(root, state, include_identity=True)
+    if (not isinstance(after, dict) or after.get('_identity') != before['_identity']
+            or public_ca_digest(ca) != digest or read_state(root, args.lane) != state):
+        return unknown
+    if failure:
+        return {'status': failure, 'lane': DEFAULT_SHARED_LANE,
+                'detail': 'TLS probe did not verify the shared proxy signer.'}
+    token = hashlib.sha256(json.dumps(before['_identity'], separators=(',', ':')).encode()).hexdigest()
+    return {'status': 'attested', 'lane': DEFAULT_SHARED_LANE, 'signer': 'verified',
+            'generation_sha256': token, 'ca_sha256': digest, 'ca_cert': str(ca),
+            'observation': before['status'], 'listen_host': before['listen_host'],
+            'detail': 'Point-in-time signer observation, assuming no local redirection; not lifecycle ownership or future readiness.'}
+
+
 def status_lane(args: argparse.Namespace) -> dict[str, Any]:
+    if args.lane != DEFAULT_SHARED_LANE:
+        return task_status_lane(args)
     root = Path(args.root).expanduser()
     state = read_state(root, args.lane)
     if not state:
         return {"status": "not-found", "lane": args.lane}
+    if (args.lane == DEFAULT_SHARED_LANE and root == DEFAULT_ROOT
+            and state.get('status') in {'running', 'already-running'}):
+        observed = default_generation_observation(root, state)
+        if observed is not None and read_state(root, args.lane) == state:
+            return observed
+        return {"status": "unknown-state", "lane": args.lane,
+                "detail": "shared unit identity is unproven; inspect without starting or stopping"}
     state["alive"] = pid_alive(state.get("pid"))
+    if args.lane == DEFAULT_SHARED_LANE and state.get('status') in {'running', 'already-running'} and not state['alive']:
+        return {"status": "unknown-state", "lane": args.lane,
+                "detail": "recorded running process is absent; inspect before starting"}
+    if (not state['alive'] and state.get('status') in {'start-failed', 'start-timeout'}
+            and state.get('cleanup') == 'stopped'):
+        state['previous_status'] = state['status']
+        state['status'] = 'stopped'
+    if args.lane == DEFAULT_SHARED_LANE and state.get('ca_cert'):
+        fingerprint = signer_fingerprint(Path(state['ca_cert']).expanduser())
+        expected = state.get('ca_started_sha256')
+        state['ca_identity'] = ('legacy-unverified' if not expected else
+                                'observed-at-readiness' if fingerprint == expected else 'changed')
+        state['ca_signer_sha256'] = fingerprint if not expected or fingerprint == expected else None
     if state.get("port"):
         state["port_open"] = not can_bind_localhost(int(state["port"]))
     return state
 
 
 def stop_lane(args: argparse.Namespace) -> dict[str, Any]:
-    root = Path(args.root).expanduser()
-    state = read_state(root, args.lane)
-    pid = state.get("pid")
-    if pid_alive(pid):
-        os.killpg(pid, signal.SIGTERM)
-        for _ in range(30):
-            if not pid_alive(pid):
-                break
-            time.sleep(0.1)
-        if pid_alive(pid):
-            os.killpg(pid, signal.SIGKILL)
-    state["status"] = "stopped"
-    state["alive"] = pid_alive(pid)
-    write_state(root, args.lane, state)
-    return state
+    if args.lane != DEFAULT_SHARED_LANE:
+        return task_stop_lane(args)
+    # A PID in legacy state does not establish process or generation ownership.
+    # Leave both the process and capture untouched; the manager can only finish
+    # a listener whose exact binding it owns.
+    return {"status": "unmanaged-stop-unsupported", "lane": args.lane,
+            "detail": "legacy PID is not generation-bound; inspect and recover without signalling it"}
 
 
 def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
@@ -272,6 +1022,8 @@ def parse_args() -> argparse.Namespace:
 
     start = sub.add_parser("start", help="Start mitmdump for this lane.")
     start.add_argument("--port", type=int, default=8081)
+    start.add_argument("--preserve-default-flow", action="store_true", help="Require the history-preserving shared-default implementation.")
+    start.add_argument("--require-user-systemd", action="store_true", help="Require durable user-systemd supervision for the shared default.")
     start.add_argument("--listen-host", default="127.0.0.1")
     start.add_argument("--proxy-host", default="127.0.0.1", help="Advertised host agents will use in the proxy URL.")
     start.add_argument("--program", help="Optional program/target slug for later indexing.")
@@ -289,6 +1041,15 @@ def parse_args() -> argparse.Namespace:
 
     status = sub.add_parser("status", help="Show lane state.")
     status.set_defaults(func=status_lane)
+
+    observation = sub.add_parser("observe-default", help="Observe the shared default without socket or CA probes.")
+    observation.set_defaults(func=observe_default)
+
+    classification = sub.add_parser("classify-default-absence", help="Classify a clean absent or stopped shared default without lifecycle actions.")
+    classification.set_defaults(func=classify_default_absence)
+
+    attestation = sub.add_parser("attest-default", help="Attest the observed shared-default signer with a bounded TLS probe.")
+    attestation.set_defaults(func=attest_default)
 
     stop = sub.add_parser("stop", help="Stop the lane.")
     stop.set_defaults(func=stop_lane)
@@ -326,17 +1087,145 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def legacy_read_state(root: Path, lane: str) -> dict[str, Any]:
+    path = state_path(root, lane)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {"status": "corrupt-state", "state_path": str(path)}
+
+
+def legacy_wait_for_port(port: int, timeout: float = 8.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.1)
+    return False
+
+
+def task_start_lane(args: argparse.Namespace) -> dict[str, Any]:
+    root = Path(args.root).expanduser()
+    current = legacy_read_state(root, args.lane)
+    if pid_alive(current.get("pid")):
+        current["status"] = "already-running"
+        return current
+    if not can_bind_localhost(args.port):
+        return {"status": "port-unavailable", "lane": args.lane, "port": args.port}
+
+    directory = lane_dir(root, args.lane)
+    directory.mkdir(parents=True, exist_ok=True)
+    confdir = directory / "mitmproxy"
+    confdir.mkdir(parents=True, exist_ok=True)
+    flow_file = directory / "flows.mitm"
+    log_file = directory / "mitmdump.log"
+
+    command = [
+        args.mitmdump,
+        "--listen-host",
+        args.listen_host,
+        "--listen-port",
+        str(args.port),
+        "--set",
+        f"confdir={confdir}",
+        "--set",
+        "flow_detail=0",
+        "-w",
+        str(flow_file),
+    ]
+    log_handle = log_file.open("ab")
+    proc = subprocess.Popen(
+        command,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        env=mitm_env(),
+        start_new_session=True,
+    )
+    started = legacy_wait_for_port(args.port)
+    state = {
+        "status": "running" if started else "start-timeout",
+        "lane": args.lane,
+        "program": args.program,
+        "task": args.task,
+        "account": args.account_label or args.account,
+        "account_label": args.account_label or args.account,
+        "profile_dir": args.profile_dir,
+        "run_id": args.run_id,
+        "agent_id": args.agent_id,
+        "runtime_host": args.runtime_host,
+        "proxy_host": args.proxy_host,
+        "proxy_port": args.port,
+        "transport": args.transport,
+        "browser_profile_id": args.browser_profile_id or args.profile_dir,
+        "session_source": args.session_source,
+        "pid": proc.pid,
+        "port": args.port,
+        "listen_host": args.listen_host,
+        "proxy_server": f"http://{args.proxy_host}:{args.port}",
+        "root": str(root),
+        "confdir": str(confdir),
+        "ca_cert": str(confdir / "mitmproxy-ca-cert.pem"),
+        "flow_file": str(flow_file),
+        "log_file": str(log_file),
+        "command": command,
+    }
+    write_state(root, args.lane, state)
+    return state
+
+
+def task_status_lane(args: argparse.Namespace) -> dict[str, Any]:
+    root = Path(args.root).expanduser()
+    state = legacy_read_state(root, args.lane)
+    if not state:
+        return {"status": "not-found", "lane": args.lane}
+    state["alive"] = pid_alive(state.get("pid"))
+    if state.get("port"):
+        state["port_open"] = not can_bind_localhost(int(state["port"]))
+    return state
+
+
+def task_stop_lane(args: argparse.Namespace) -> dict[str, Any]:
+    root = Path(args.root).expanduser()
+    state = legacy_read_state(root, args.lane)
+    pid = state.get("pid")
+    if pid_alive(pid):
+        os.killpg(pid, signal.SIGTERM)
+        for _ in range(30):
+            if not pid_alive(pid):
+                break
+            time.sleep(0.1)
+        if pid_alive(pid):
+            os.killpg(pid, signal.SIGKILL)
+    state["status"] = "stopped"
+    state["alive"] = pid_alive(pid)
+    write_state(root, args.lane, state)
+    return state
+
+
 def main() -> int:
     args = parse_args()
     result = args.func(args)
+    if args.lane != DEFAULT_SHARED_LANE and getattr(args, 'command', None) in {'start', 'status', 'stop', 'replay-flows', 'index-store'}:
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(f"{result.get('status')}: {result.get('lane', '')}")
+            for key in ("proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
+                if result.get(key) is not None:
+                    print(f"{key}: {result[key]}")
+        return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed"} else 2
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         print(f"{result.get('status')}: {result.get('lane', '')}")
-        for key in ("proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
+        for key in ("detail", "unit", "cleanup", "proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
             if result.get(key) is not None:
                 print(f"{key}: {result[key]}")
-    return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed"} else 2
+    return 0 if result.get("status") not in {"port-unavailable", "ca-pending", "start-outcome-unknown", "start-timeout", "start-failed", "start-cleanup-failed", "unsupported-runtime", "unsupported-listen-host", "unsupported-proxy-host", "supervisor-unavailable", "unknown-state", "corrupt-state", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed", "unmanaged-start-unsupported", "unmanaged-stop-unsupported", "tls-verification-failed", "tls-timeout", "tls-unavailable"} else 2
 
 
 if __name__ == "__main__":

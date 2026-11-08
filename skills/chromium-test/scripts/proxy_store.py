@@ -571,7 +571,10 @@ def metadata_from_args(args: argparse.Namespace, lane_state: dict[str, Any]) -> 
         "runtime_host": getattr(args, "runtime_host", None) or lane_state.get("runtime_host"),
         "proxy_host": proxy_host,
         "proxy_port": int(proxy_port) if proxy_port is not None else None,
-        "transport": getattr(args, "transport", None) or lane_state.get("transport") or "browser",
+        "transport": ((getattr(args, "transport", None) if getattr(args, "transport", None) is not None
+                       else lane_state.get("transport") if lane_state.get("transport") is not None else "browser")
+                      if getattr(args, "lane", None) == "hoster-default-8080"
+                      else getattr(args, "transport", None) or lane_state.get("transport") or "browser"),
         "browser_profile_id": (
             getattr(args, "browser_profile_id", None)
             or lane_state.get("browser_profile_id")
@@ -976,7 +979,7 @@ def parse_args() -> argparse.Namespace:
     index.add_argument("--proxy-host")
     index.add_argument("--proxy-port", type=int)
     index.add_argument("--proxy-server")
-    index.add_argument("--transport", default="browser")
+    index.add_argument("--transport", default=argparse.SUPPRESS)
     index.add_argument("--browser-profile-id")
     index.add_argument("--session-source")
     index.add_argument("--note")
@@ -1051,7 +1054,10 @@ def parse_args() -> argparse.Namespace:
     export.set_defaults(func=export_request_packet)
 
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.func is index_lane and not hasattr(args, "transport"):
+        args.transport = None if args.lane == "hoster-default-8080" else "browser"
+    return args
 
 
 def main() -> int:

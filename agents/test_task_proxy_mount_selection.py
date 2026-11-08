@@ -241,7 +241,7 @@ def test_access_acl_writer_and_mask_with_reachable_ancestor_fixture(monkeypatch,
     m, _, mount = setup(monkeypatch, tmp_path)
     web = mount / 'Example Program/web'
     web.mkdir(parents=True)
-    subprocess.run(['setfacl', '-m', 'u:65534:rwx,m::r-x', str(web)], check=True)
+    subprocess.run(['setfacl', '-m', 'g::r-x,u:65534:rwx,m::r-x', str(web)], check=True)
     original_fstat = os.fstat
     def accessible(fd):
         info = original_fstat(fd)

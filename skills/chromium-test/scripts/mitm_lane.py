@@ -1296,7 +1296,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start, stop, and replay a mitmproxy lane.")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Lane state root.")
     parser.add_argument("--lane", default="default", help="Lane name.")
-    parser.add_argument("--mitmdump", default=DEFAULT_MITMDUMP, help="mitmdump executable.")
+    parser.add_argument("--mitmdump", help="mitmdump executable.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     start = sub.add_parser("start", help="Start mitmdump for this lane.")
@@ -1363,7 +1363,15 @@ def parse_args() -> argparse.Namespace:
     index.set_defaults(func=index_store, store_full_requests=True)
 
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.mitmdump is None:
+        args.mitmdump = DEFAULT_MITMDUMP
+        if args.lane == DEFAULT_SHARED_LANE and args.command == 'start' and args.port == 8080:
+            selected = shutil.which(DEFAULT_MITMDUMP)
+            checkout_bin = Path(__file__).resolve().parents[3] / '.venv/bin/mitmdump'
+            if selected and Path(selected).resolve() == checkout_bin.resolve():
+                args.mitmdump = '/usr/bin/mitmdump'
+    return args
 
 
 def legacy_read_state(root: Path, lane: str) -> dict[str, Any]:

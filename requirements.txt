@@ -8,6 +8,7 @@ PyYAML>=6,<7
 beautifulsoup4>=4.15,<5
 websocket-client>=1.9,<2
 aiohttp>=3.12,<4
+mitmproxy>=11,<12
 playwright>=1.64,<2
 pytest>=9,<10
 tree-sitter==0.26.0

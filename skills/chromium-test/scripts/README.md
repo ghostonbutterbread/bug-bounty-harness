@@ -675,6 +675,12 @@ Do not use this command to bypass a refusal with a different account/slot.
 
 - **Purpose:** Create, inspect, and stop a task-owned local mitmproxy lane.
 - **Inputs:** Lane identifier, local port/state root, and lifecycle subcommand.
+- **Runtime:** For an implicit shared-default 8080 start only, a PATH selection
+  of this checkout's `.venv/bin/mitmdump` is replaced with
+  `/usr/bin/mitmdump`, the runtime supported by the shared observer. Missing
+  system executables fail instead of falling back; explicit overrides and other
+  PATH selections retain the observer's existing validation. Task proxy writer
+  and reader discovery is unchanged.
 - **Outputs:** JSON lane state and proxy endpoint metadata.
 - **Mutates:** The selected local lane process and state directory; new flows
   use the exact existing `<BOUNTY_ARTIFACT_ROOT>/<program>/web` on an eligible
@@ -724,6 +730,8 @@ Do not use this command to bypass a refusal with a different account/slot.
 - **Purpose:** Build and query a sanitized SQLite index of task MITM lane
   traffic.
 - **Inputs:** Captured lane flows, query filters, and configured store path.
+  The checkout's single root `requirements.txt` includes the mitmproxy reader;
+  run `./setup.sh --install-python-deps` to refresh an existing checkout venv.
   The default is the existing local
   `~/.local/share/ghost/proxy-store/proxy_store.sqlite`. This must be a real
   private directory, not an alias to the artifact mount. The opener rejects

@@ -3521,7 +3521,6 @@ def start(args):
         )
         args.auth_domain = "task"
     c = db()
-    sweep_rows(c, 14, True)
     import browser_profile_lease as profiles
 
     account, _ = (

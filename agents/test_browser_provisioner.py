@@ -36,6 +36,63 @@ def add(module, root, lease_id, profile, state="stopped", age_days=15):
     c.commit()
 
 
+def test_requests_preserve_old_profiles_until_explicit_sweep(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    import browser_profile_lease as profiles
+
+    root = tmp_path / "artifacts"
+    profile = root / "demo/web/browser-profiles/fixture"
+    add(m, root, "old", profile)
+    (root / "old.json").write_text(json.dumps({"instance_key": "explicit"}))
+    (profile / "history").write_text("preserve me")
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "unit_inactive", lambda _: True)
+    monkeypatch.setattr(profiles, "resolve_account", lambda *_: ({"alias": "fixture"}, {}))
+    monkeypatch.setattr(profiles, "account_lease_eligible", lambda _: False)
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    sweep_calls = []
+    original_sweep = m.sweep_rows
+
+    def traced_sweep(c, days, confirm):
+        sweep_calls.append((days, confirm))
+        return original_sweep(c, days, confirm)
+
+    monkeypatch.setattr(m, "sweep_rows", traced_sweep)
+
+    def invoke(argv):
+        monkeypatch.setattr(sys, "argv", [str(SCRIPT), *argv])
+        with pytest.raises(SystemExit) as exc:
+            m.main()
+        return exc.value.code, json.loads(capsys.readouterr().out)
+
+    def fake_run(command, **_kwargs):
+        if command[0] == "findmnt":
+            return argparse.Namespace(returncode=0, stdout="ext4\n", stderr="")
+        assert command[:3] == [sys.executable, str(SCRIPT.resolve()), "start"]
+        code, result = invoke(command[2:])
+        return argparse.Namespace(returncode=code, stdout=json.dumps(result), stderr="")
+
+    monkeypatch.setattr(m.subprocess, "run", fake_run)
+    for command in ("start", "request"):
+        code, result = invoke([command, "demo", "fixture", "--agent-id", "agent",
+                               "--run-id", "run", "--purpose", "test", "--proxy", "none"])
+        assert code == 2 and result["status"] == "account-unavailable"
+        assert sweep_calls == []
+        assert (profile / "history").read_text() == "preserve me"
+        with m.db() as c:
+            assert c.execute("select state from browsers where lease_id='old'").fetchone()[0] == "stopped"
+
+    code, dry_run = invoke(["sweep-stale"])
+    assert code == 0 and dry_run["removed"][0]["dry_run"] is True
+    assert (profile / "history").read_text() == "preserve me"
+    code, confirmed = invoke(["sweep-stale", "--confirm"])
+    assert code == 0 and confirmed["removed"][0]["dry_run"] is False
+    assert not profile.exists()
+    assert sweep_calls == [(14, False), (14, True)]
+    with m.db() as c:
+        assert c.execute("select state from browsers where lease_id='old'").fetchone()[0] == "deleted"
+
+
 def test_sweep_deletes_only_registered_old_profile(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     root = tmp_path / "artifacts"

@@ -5,7 +5,10 @@
 - `browser_manager_row_repair.py` — read-only cohort plans and explicitly gated
   historical positional/idle-stopped manager-row repair; see below.
 - `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
-  request path. `team-status --lease-id ID --agent-id COORDINATOR --run-id RUN`
+  request path. Requests and starts do not sweep stored profiles. For deliberate
+  stale-profile cleanup, `sweep-stale` reports a dry run by default;
+  `sweep-stale --confirm` applies eligible removals (default age: 14 days).
+  `team-status --lease-id ID --agent-id COORDINATOR --run-id RUN`
   checks the exact coordinator owner and adapter activity, reports the current
   granted worker/run and meaningful command count on that grant's CDP generation
   (not authenticated per-command worker identity or an idle expiry).
@@ -484,8 +487,8 @@ Do not use this command to bypass a refusal with a different account/slot.
   manager for running migration; unknown disk-only, old NULL-domain, unhealthy,
   or unregistered live profiles remain exclusive. Once all auto peers stop, the
   next request prefers the original legacy profile. Historical unkeyed
-  persistent profiles are retained by the age sweep *before* marker selection;
-  task-owned disposable profiles retain their ordinary sweep behavior. Canonical
+  persistent profiles are retained by the explicit age sweep; ordinary requests
+  do not automatically sweep stopped profiles. Canonical
   acquisition/transfer still serialize conflicts: only manager-marked automatic
   leases (including transfers) can use the exemption; the manager issues a
   short-lived, one-use, per-account/domain/slot/owner proof stored hashed in
@@ -594,8 +597,10 @@ Do not use this command to bypass a refusal with a different account/slot.
   extend the hold. If more time is needed, stop human input and explicitly resume
   then reserve again while still owner; never assume an expired hold protects
   the browser. Continuous/co-driving native use must select manual mode.
-- **Retention:** Existing 14-day manifest-only stopped-profile retention also
-  handles instance trees. It never discovers arbitrary profile directories.
+- **Retention:** The explicit `sweep-stale` command defaults to a dry run and
+  considers manifest-only stopped profiles older than 14 days, including instance
+  trees. `--confirm` applies eligible removals; ordinary requests do not run it.
+  It never discovers arbitrary profile directories.
 - **Verification:** `.venv/bin/python -m pytest agents/test_browser_selection.py agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
   Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_driving_mode.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
 - **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.

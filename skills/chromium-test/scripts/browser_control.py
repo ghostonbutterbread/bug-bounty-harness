@@ -31,7 +31,10 @@ PASSIVE_METHODS = {"Browser.getVersion", "Target.getTargets", "Target.getTargetI
 def meaningful(method):
     return method not in PASSIVE_METHODS and not method.endswith((".enable", ".disable"))
 
-from aiohttp import web
+# The pipe-exec child runs with Chromium's isolated HOME and only needs the
+# standard library; the already-running adapter owns the aiohttp dependency.
+if __name__ != "__main__":
+    from aiohttp import web
 
 
 class PipeBrowser:

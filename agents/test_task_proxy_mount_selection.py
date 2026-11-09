@@ -49,7 +49,8 @@ def test_exact_mount_path_persisted_before_dispatch(monkeypatch, tmp_path):
     conn = m.db()
     def dispatch(command, **kwargs):
         row = m.proxy_row(conn, args())
-        assert row['flow_path'] == command[command.index('-w') + 1]
+        assert row['flow_path'] == command[command.index('--verified-capture-launch') + 1]
+        assert row['capture_identity'] in command
         assert row['capture_identity']
         return argparse.Namespace(returncode=0)
     monkeypatch.setattr(m.subprocess, 'run', dispatch)

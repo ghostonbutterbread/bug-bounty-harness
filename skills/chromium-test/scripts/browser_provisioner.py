@@ -34,6 +34,7 @@ STATE = Path(
 DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB, DEFAULT_IDLE = 2048, 512, 300
 # The child-to-request signal contains no exception text or other diagnostic data.
 LEASE_RELEASE_UNVERIFIED = {'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}
+PROXY_CLEANUP_UNVERIFIED = {'status': 'cleanup-incomplete', 'reason': 'proxy-cleanup-not-verified'}
 # Seconds to wait for the launcher to write its private record. Chromium must
 # stand up a display and reach CDP first, which exceeds a few seconds on a
 # loaded host; too small a value kills the unit before it can ever report.
@@ -1770,6 +1771,42 @@ def verify_task_capture(row):
         raise OSError('capture generation changed')
 
 
+def _launch_verified_capture(flow, expected, command):
+    """Open the recorded file in the service, without truncation, before exec."""
+    import browser_profile_lease as profiles
+    flow = Path(flow)
+    if not _capture_local_private_path(flow):
+        raise OSError('capture is on Shared or non-local storage')
+    mount_fd = None
+    directory_fd = None
+    file_fd = None
+    try:
+        if 'mount' in expected:
+            if not profiles.default_mount_available() or not profiles.local_filesystem(flow.parent):
+                raise OSError('capture mount unavailable')
+            mount_fd = _capture_open_dir(profiles.DEFAULT_BOUNTY_ROOT)
+            mount = os.fstat(mount_fd)
+            if [mount.st_dev, mount.st_ino] != expected['mount']:
+                raise OSError('capture mount changed')
+        directory_fd = _capture_open_dir(flow.parent)
+        directory = os.fstat(directory_fd)
+        file_fd = os.open(flow.name, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+        info = os.fstat(file_fd)
+        if ([directory.st_dev, directory.st_ino] != expected['directory']
+                or [info.st_dev, info.st_ino] != expected['file']):
+            raise OSError('capture generation changed')
+        if (directory.st_uid != os.geteuid() or directory.st_mode & 0o077
+                or info.st_uid != os.geteuid() or info.st_mode & 0o077
+                or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+            raise OSError('capture file is not private')
+        os.set_inheritable(file_fd, True)
+        os.execv(command[0], [*command, '-w', f'/proc/self/fd/{file_fd}'])
+    finally:
+        for fd in (file_fd, directory_fd, mount_fd):
+            if fd is not None:
+                os.close(fd)
+
+
 def proxy_metadata(row):
     if not row:
         return None
@@ -1782,6 +1819,13 @@ def proxy_metadata(row):
 
 class ProxyStartupError(RuntimeError):
     """A fixed, operator-safe proxy startup diagnostic."""
+
+
+CAPTURE_UNCERTAIN_DETAIL = ("capture or service dispatch is uncertain; reservation retained. "
+                            "Do not retry or replace the capture. Use task-proxy-status for the "
+                            "recorded lane and identity; with the manager stopped and its lock "
+                            "held, preserve the capture and state, verify unit and port ownership, "
+                            "and manually reconcile the service and capture evidence")
 
 
 def proxy_owner_matches(row, owner):
@@ -1911,12 +1955,18 @@ def start_proxy(c, args):
         row = proxy_row(c, args)
         verify_task_capture(row)
         executable, _ = mitm_runtime()
-        cmd = [executable, "--listen-host", "127.0.0.1", "--listen-port", str(port),
-               "--set", f"confdir={conf}", "--set", "flow_detail=0", "-w", str(flow)]
+        cmd = [sys.executable, str(Path(__file__).resolve()), '--verified-capture-launch',
+               str(flow), row['capture_identity'], executable, "--listen-host", "127.0.0.1",
+               "--listen-port", str(port), "--set", f"confdir={conf}", "--set", "flow_detail=0"]
         unit = ["systemd-run", "--user", "--unit=" + row["unit"],
                 "--property=UMask=0077", "--property=MemoryMax=512M"]
         if executable == "/usr/bin/mitmdump":
             unit.append("--setenv=PYTHONNOUSERSITE=1")
+        # Persist uncertainty before dispatch: systemd-run or this process may
+        # fail after the service has opened (or rejected) the capture.
+        c.execute("update proxy_attempts set outcome='capture-uncertain' where agent_id=? and run_id=? and lane=?",
+                  (args.agent_id, args.run_id, lane))
+        c.commit()
         result = subprocess.run([*unit, "--", *cmd], capture_output=True, text=True, env=sysenv())
         if result.returncode:
             raise ProxyStartupError("task MITM service failed to start")
@@ -1941,11 +1991,44 @@ def start_proxy(c, args):
         return proxy_row(c, args), True
     except Exception:
         c.rollback()
-        rollback_proxy(c, proxy_row(c, args))
+        rollback_proxy_with_signal(c, proxy_row(c, args))
+        attempt = c.execute("select outcome from proxy_attempts where agent_id=? and run_id=? and lane=?",
+                            (args.agent_id, args.run_id, lane)).fetchone()
+        if attempt and attempt['outcome'] == 'capture-uncertain':
+            raise ProxyStartupError(CAPTURE_UNCERTAIN_DETAIL) from None
         raise
 
 
+def rollback_proxy_with_signal(c, row):
+    """Keep an uncertain proxy reserved and report cleanup without leaking errors."""
+    try:
+        # Mark before cleanup so an exception cannot make a live lane reusable.
+        c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row['lane']))
+        c.commit()
+        cleaned = rollback_proxy(c, row)
+    except Exception:
+        c.rollback()
+        cleaned = False
+    if not cleaned:
+        print('\n' + json.dumps(PROXY_CLEANUP_UNVERIFIED), file=sys.stderr)
+    return cleaned
+
+
 def rollback_proxy(c, row):
+    attempt = c.execute("select outcome from proxy_attempts where agent_id=? and run_id=? and lane=?",
+                        (row['agent_id'], row['run_id'], row['lane'])).fetchone()
+    uncertain = bool(attempt and attempt['outcome'] == 'capture-uncertain')
+    if row['flow_path']:
+        try:
+            verify_task_capture(row)
+        except (OSError, ValueError, TypeError, KeyError):
+            uncertain = True
+    if uncertain:
+        c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row['lane']))
+        c.execute("update proxy_attempts set outcome='capture-uncertain' where agent_id=? and run_id=? and lane=?",
+                  (row['agent_id'], row['run_id'], row['lane']))
+        c.commit()
+        return False
     if unit_active(row["unit"]):
         if not row["invocation"] or unit_identity(row["unit"]) != row["invocation"]:
             c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row["lane"]))
@@ -2338,6 +2421,18 @@ def legacy_profile_paths(program, alias, domain):
     )
 
 
+def shifted_legacy_browser_row(row):
+    # Positional inserts into an ALTER TABLE layout shifted these fields.
+    return (row['profile_dir'] == 'browser-' + row['browser_id'] and
+            str(row['state']).endswith('.launch.json') and
+            str(row['tab_count']) in ('starting', 'running', 'stopped', 'idle-stopped'))
+
+
+def unresolved_browser_start(row):
+    return row['state'] == 'starting' or (
+        shifted_legacy_browser_row(row) and row['tab_count'] == 'starting')
+
+
 def shared_profile_rows(c, profile, program):
     import browser_profile_lease as profiles
     identity = profiles.physical_profile(profile)
@@ -2348,9 +2443,7 @@ def shared_profile_rows(c, profile, program):
         path = row['profile_dir']
         # Old positional inserts into an ALTER TABLE layout shifted the profile
         # into launch_file. Recognize that shape before testing physical aliases.
-        if (path == 'browser-' + row['browser_id'] and
-                str(row['state']).endswith('.launch.json') and
-                str(row['tab_count']) in ('starting', 'running', 'stopped', 'idle-stopped')):
+        if shifted_legacy_browser_row(row):
             path = row['launch_file']
         other = profiles.physical_profile(path)
         if other == identity or (other is None and row['program'] == slug(program) and
@@ -3710,6 +3803,12 @@ def start(args):
                    "retryable": not retired}
         emit(got, 2)
     lid = got["lease"]["lease_id"]
+    # A durable starting row may represent a unit already accepted by systemd.
+    # Preserve its identity and lease until an operator reconciles the unit.
+    pending = c.execute("select * from browsers where lease_id=?", (lid,)).fetchone()
+    if (row and unresolved_browser_start(row)) or (pending and unresolved_browser_start(pending)):
+        emit({"status": "recovery-blocked", "reason": "start-not-reconciled",
+              "next": "reconcile the recorded browser unit and lease before retrying"}, 2)
     resolved_domain = got["lease"].get("auth_domain", auth_domain)
     if reusable:
         t = now()
@@ -3798,8 +3897,13 @@ def start(args):
                 failure["detail"] = str(exc)
             emit(failure, 2)
     elif proxy_row(c, args):
-        if not release_lease(c, lid, args.agent_id):
-            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
+        if got.get("status") == "leased":
+            try:
+                released = release_lease(c, lid, args.agent_id, "cancelled", None, args.run_id)
+            except Exception:
+                released = False
+            if not released:
+                print('\n' + json.dumps(LEASE_RELEASE_UNVERIFIED), file=sys.stderr)
         emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
     if replacing and str(prof) != replacing["profile_dir"]:
@@ -3816,9 +3920,14 @@ def start(args):
     os.chmod(launch.parent, 0o700)
     if unit_active(unit):
         if created:
-            rollback_proxy(c, task)
-        if not release_lease(c, lid, args.agent_id):
-            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
+            rollback_proxy_with_signal(c, task)
+        if got.get("status") == "leased":
+            try:
+                released = release_lease(c, lid, args.agent_id, "cancelled", None, args.run_id)
+            except Exception:
+                released = False
+            if not released:
+                print('\n' + json.dumps(LEASE_RELEASE_UNVERIFIED), file=sys.stderr)
         emit({"status": "browser-unit-conflict"}, 2)
     # Startup intent is visible to finish before browser dispatch/CDP readiness.
     t = now()
@@ -4325,9 +4434,17 @@ PENDING_RECOVERY_DETAIL = (
 
 
 def task_proxy_status(args):
-    row = proxy_row(db(), args)
+    c = db()
+    row = proxy_row(c, args)
     if not row:
         emit({"status": "not-found"}, 2)
+    attempt = c.execute("select outcome from proxy_attempts where agent_id=? and run_id=? and lane=?",
+                        (row['agent_id'], row['run_id'], row['lane'])).fetchone()
+    if attempt and attempt['outcome'] == 'capture-uncertain':
+        emit({'status': 'capture-uncertain', 'task_proxy': proxy_metadata(row),
+              'capture_identity': row['capture_identity'], 'exact_program': row['exact_program'],
+              'run_dir': row['run_dir'], 'ready': False, 'reservation': 'retained',
+              'detail': CAPTURE_UNCERTAIN_DETAIL})
     if row['capture_identity'] == 'allocation-pending':
         emit({"status": "allocation-pending", "task_proxy": proxy_metadata(row),
               "ready": False, "reservation": "retained", "detail": PENDING_RECOVERY_DETAIL,
@@ -4441,6 +4558,25 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
             emit({"status": "proxy-conflict", "detail": "receipt generation mismatch"}, 2)
         emit({"status": "finished", "lane": done["lane"], "already_finished": True} if done
              else {"status": "not-found"}, 0 if done else 2)
+    attempt = c.execute("select outcome from proxy_attempts where agent_id=? and run_id=? and lane=?",
+                        (row['agent_id'], row['run_id'], row['lane'])).fetchone()
+    if attempt and attempt['outcome'] == 'capture-uncertain':
+        c.rollback()
+        emit({'status': 'proxy-capture-unavailable', 'lane': row['lane'],
+              'reservation': 'retained', 'detail': CAPTURE_UNCERTAIN_DETAIL}, 2)
+    # An interrupted pre-dispatch start can still lose its allocated inode
+    # before recovery. Remember that observation, even if the path is restored.
+    if (recovery and attempt and attempt['outcome'] == 'starting'
+            and row['admitted'] == 0 and row['flow_path']):
+        try:
+            verify_task_capture(row)
+        except (OSError, ValueError, TypeError, KeyError):
+            c.execute("update task_proxies set state='cleanup-failed',updated=? where lane=?", (now(), row['lane']))
+            c.execute("update proxy_attempts set outcome='capture-uncertain' where agent_id=? and run_id=? and lane=?",
+                      (row['agent_id'], row['run_id'], row['lane']))
+            c.commit()
+            emit({'status': 'proxy-capture-unavailable', 'lane': row['lane'],
+                  'reservation': 'retained', 'detail': CAPTURE_UNCERTAIN_DETAIL}, 2)
     if recovery and row["state"] == "running":
         c.rollback()
         emit({"status": "proxy-conflict", "detail": "running replay requires explicit finish"}, 2)
@@ -4753,16 +4889,23 @@ def request(args):
                 "detail": "provisioner returned invalid JSON",
             }
         # Recognize only our fixed child signal; never relay arbitrary stderr.
-        cleanup_unverified = json.dumps(LEASE_RELEASE_UNVERIFIED) in getattr(p, 'stderr', '').splitlines()
+        stderr_lines = getattr(p, 'stderr', '').splitlines()
+        cleanup_unverified = json.dumps(LEASE_RELEASE_UNVERIFIED) in stderr_lines
+        proxy_cleanup_unverified = json.dumps(PROXY_CLEANUP_UNVERIFIED) in stderr_lines
         if cleanup_unverified:
             result['cleanup'] = {
                 **LEASE_RELEASE_UNVERIFIED,
                 'action': 'Inspect the canonical lease for this agent and run; resolve it only after verifying ownership and browser state.',
             }
+        if proxy_cleanup_unverified:
+            result['proxy_cleanup' if cleanup_unverified else 'cleanup'] = {
+                **PROXY_CLEANUP_UNVERIFIED,
+                'action': 'Reconcile the task proxy and its capture before retrying.',
+            }
         if invalid_json:
             emit(result, 2)
         attempts += 1
-        if cleanup_unverified or result.get("status") != "queued" or result.get("retryable") is False:
+        if cleanup_unverified or proxy_cleanup_unverified or result.get("status") != "queued" or result.get("retryable") is False:
             result.update(
                 {
                     "attempts": attempts,
@@ -4995,4 +5138,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) >= 6 and sys.argv[1] == '--verified-capture-launch':
+        try:
+            _launch_verified_capture(sys.argv[2], json.loads(sys.argv[3]), sys.argv[4:])
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            print(f'verified capture launch failed: {exc}; preserve the capture and reconcile the mount/generation', file=sys.stderr)
+            raise SystemExit(1)
+    else:
+        main()

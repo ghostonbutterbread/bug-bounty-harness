@@ -1138,17 +1138,22 @@ def test_system_mitmdump_unit_isolates_only_its_user_site(monkeypatch, tmp_path)
     assert "--setenv=PYTHONNOUSERSITE=1" in commands[0][:commands[0].index("--")]
 
 
-def test_task_proxy_failed_dispatch_removes_its_reservation(monkeypatch, tmp_path):
+def test_task_proxy_failed_dispatch_retains_uncertain_reservation(monkeypatch, tmp_path, capsys):
     m = load(monkeypatch, tmp_path)
     args = start_args()
     c = m.db()
     monkeypatch.setattr(m, "port_open", lambda _: False)
     monkeypatch.setattr(m, "unit_active", lambda _: False)
     monkeypatch.setattr(m, "mitm_runtime", lambda: ("/usr/bin/mitmdump", "/usr/bin/python3"))
-    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=1))
-    with pytest.raises(RuntimeError, match="failed to start"):
+    commands = []
+    monkeypatch.setattr(m.subprocess, "run", lambda cmd, **k: commands.append(cmd) or argparse.Namespace(returncode=1))
+    with pytest.raises(m.ProxyStartupError, match="capture or service dispatch is uncertain"):
         m.start_proxy(c, args)
-    assert m.proxy_row(c, args) is None
+    assert len(commands) == 1 and '--verified-capture-launch' in commands[0]
+    row = m.proxy_row(c, args)
+    assert row is not None and row['state'] == 'cleanup-failed' and row['capture_identity']
+    assert c.execute("select outcome from proxy_attempts where lane=?", (row['lane'],)).fetchone()[0] == 'capture-uncertain'
+    assert json.dumps(m.PROXY_CLEANUP_UNVERIFIED) in capsys.readouterr().err.splitlines()
 
 
 def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, tmp_path):

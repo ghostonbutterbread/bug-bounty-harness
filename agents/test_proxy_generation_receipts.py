@@ -124,13 +124,15 @@ def test_failed_running_transition_rolls_back_before_cleanup(fixture, monkeypatc
         observed.append((c.in_transaction, row["state"]))
         return original(c, row)
     monkeypatch.setattr(module, "rollback_proxy", cleanup)
-    with pytest.raises(Exception, match="fixture transition failure"):
+    with pytest.raises(module.ProxyStartupError, match="reconcile"):
         module.start_proxy(conn, args)
     assert observed == [(False, "starting")]
-    assert module.proxy_row(conn, args) is None
+    row = module.proxy_row(conn, args)
+    assert row["state"] == "cleanup-failed" and row["flow_path"] and row["capture_identity"]
+    assert conn.execute("select outcome from proxy_attempts where lane=?", (row["lane"],)).fetchone()[0] == "capture-uncertain"
     assert conn.execute("select lane from finished_proxies").fetchone()[0] == "old-lane"
-    code, output = result(module, args, capsys)
-    assert code == 0 and output["status"] == "aborted" and output["lane"] != "old-lane"
+    code, output = result(module, args, capsys, recovery=True)
+    assert code == 2 and output["status"] == "proxy-capture-unavailable" and output["lane"] == row["lane"]
 
 
 def test_clean_failed_start_is_not_previous_finished_generation(fixture, monkeypatch, capsys):

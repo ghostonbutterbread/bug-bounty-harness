@@ -119,9 +119,10 @@ def test_cleanup_transaction_rolls_back_on_attempt_write_failure(monkeypatch, tm
         raise RuntimeError("startup failed")
     monkeypatch.setattr(m, "mitm_runtime", fail_start)
     args = argparse.Namespace(agent_id="agent", run_id="run", program="demo", account="fixture", purpose="test")
-    with pytest.raises(sqlite3.IntegrityError, match="reject abort"):
+    with pytest.raises(RuntimeError, match="startup failed"):
         m.start_proxy(c, args)
-    assert not c.in_transaction and m.proxy_row(c, args)["state"] == "starting"
+    assert json.dumps(m.PROXY_CLEANUP_UNVERIFIED) in capsys.readouterr().err.splitlines()
+    assert not c.in_transaction and m.proxy_row(c, args)["state"] == "cleanup-failed"
     # The real failed-browser path calls release_lease, whose first action commits c.
     assert not m.release_lease(c, "missing", "agent")
     observer = m.db()

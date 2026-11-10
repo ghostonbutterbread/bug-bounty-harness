@@ -6,6 +6,21 @@ SKILL = ROOT / "skills/nebula-browser-lane/SKILL.md"
 REGISTRY = ROOT / "SKILL_REGISTRY.md"
 
 
+def _bash_blocks(text: str) -> str:
+    parts: list[str] = []
+    capture = False
+    for line in text.splitlines():
+        if line.startswith("```bash"):
+            capture = True
+            continue
+        if capture and line.startswith("```"):
+            capture = False
+            continue
+        if capture:
+            parts.append(line)
+    return "\n".join(parts)
+
+
 def test_nebula_lane_replaces_portafort_facts() -> None:
     text = SKILL.read_text(encoding="utf-8")
     assert "name: nebula-browser-lane" in text
@@ -16,7 +31,13 @@ def test_nebula_lane_replaces_portafort_facts() -> None:
     assert "nebula_ed25519" in text
     assert "SHA256:F0GSROTz2q14wRX9TxfuRyRGEQTmRg+uIERSMrgAJnM" in text
     assert "/tmp/nebula-lane.lock" in text
-    assert 'echo "nebula lane locked; defer"' in text
+    assert "/tmp/nebula-lane.ready" in text
+    assert "grep -qx" in text
+    assert "ssh -f" not in _bash_blocks(text)
+    assert 'ssh nebula \'pkill -f "[u]ser-data-dir=$HOME/AI/nebula-lane"' in text
+    assert 'ssh nebula \'rm -rf "$HOME/AI/nebula-lane"\'' in text
+    assert "does not override that policy" in text
+    assert "It does not route here" not in text
     assert "$HOME/AI/nebula-lane/chrome-profile" in text
     assert "WAYLAND_DISPLAY=wayland-0" in text
     assert "DISPLAY=:0" in text
@@ -33,5 +54,5 @@ def test_description_is_quoted_and_index_sized() -> None:
     assert description.startswith('description: "')
     assert description.endswith('"')
     body = description.removeprefix('description: "').removesuffix('"')
-    assert body == "Captcha/login or CF/DataDome after GPU: Nebula Chrome"
+    assert body == "Physical-screen Chrome on Nebula after harness GPU fails."
     assert len(body) <= 60

@@ -1,20 +1,28 @@
 ---
 name: nebula-browser-lane
-description: "Captcha/login or CF/DataDome after GPU: Nebula Chrome"
+description: "Physical-screen Chrome on Nebula after harness GPU fails."
 ---
 
 # Nebula true-browser lane
 
-Headed `google-chrome-stable` on device `nebula` for flows that need a real
-browser and a human at the physical screen: **login, signup, password-reset,
-magic-link Continue, recaptcha/hCaptcha**, and authenticity/IP blocks
-(DataDome, Cloudflare, Kasada) after the harness GPU/headed lane
-(`chromium-test`) already failed. Not a WAF-payload bypass.
+Headed `google-chrome-stable` on device `nebula` for a human at the physical
+screen after the harness GPU/headed lane (`chromium-test`) already failed.
+Not a WAF-payload bypass, and not a CAPTCHA host switch.
 
-When a captcha or login prompt is on Nebula's screen, tell Ryushe immediately
-(site + what to click) and wait — that is this lane's purpose. Do not loop
-image challenges on harness Chromium (including llvmpipe WebGL) or invent a
-Tailscale handoff first.
+When a prompt is on Nebula's screen, tell Ryushe immediately (site + what to
+click) and wait. Do not loop image challenges on harness Chromium (including
+llvmpipe WebGL).
+
+## Policy boundary
+
+`captcha-policy` owns a CAPTCHA on an authorized flow. It requires the same
+browser and effective egress, routes a remote handoff to `chromium-handoff`,
+and forbids switching host or egress to get past the challenge. This skill
+does not override that policy. Do not open Nebula, rotate Mullvad, or skip
+`chromium-handoff` to beat a CAPTCHA.
+
+Until `captcha-policy` explicitly routes here, use this lane only for a
+non-CAPTCHA physical-screen step after `chromium-test` has already failed.
 
 ## Connection
 
@@ -63,17 +71,41 @@ Tailscale handoff first.
 
 ## Lock + CDP tunnel (one SSH, hold for the whole segment)
 
-Run this on the harness host, not on a machine that lacks the `nebula` key:
+Run this with bash on the harness host, not on a machine that lacks the
+`nebula` key. Do not use `ssh -f`: it returns 0 before the remote `flock`
+status is known, so a held lock looks successful and the session pid is lost.
 
 ```bash
-ssh -fT -o ExitOnForwardFailure=yes -L 9333:127.0.0.1:9333 nebula \
-  'exec flock -n /tmp/nebula-lane.lock sleep infinity' \
-  || { echo "nebula lane locked; defer"; exit 1; }
+token=$(python3 -c 'import secrets; print(secrets.token_hex(8))')
+ssh -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -L 9333:127.0.0.1:9333 nebula \
+  "flock -n /tmp/nebula-lane.lock sh -c 'echo $token > /tmp/nebula-lane.ready; exec sleep infinity'" &
+lane_pid=$!
+ready=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if ! kill -0 "$lane_pid" 2>/dev/null; then
+    wait "$lane_pid"
+    echo "nebula lane locked; defer"
+    exit 1
+  fi
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 nebula "grep -qx '$token' /tmp/nebula-lane.ready"; then
+    ready=1
+    break
+  fi
+  sleep 0.5
+done
+if [ "$ready" != 1 ]; then
+  kill "$lane_pid" 2>/dev/null || true
+  wait "$lane_pid" 2>/dev/null || true
+  echo "nebula lane locked; defer"
+  exit 1
+fi
+echo "nebula lane lock held by pid $lane_pid"
 ```
 
-Lock lifetime = tunnel lifetime. Keep this session up for the segment; if it
-dies the lock releases — re-acquire honestly. Do not start a second `flock`
-or a duplicate `-L`.
+Record `lane_pid`. Lock lifetime = that SSH process. If it dies, the lock
+releases — re-acquire honestly. Do not start a second `flock` or a duplicate
+`-L`. If the pid is lost, do not kill unrelated SSH sessions to recover it.
 
 ## Headed Chrome (dedicated profile, loopback CDP)
 
@@ -89,9 +121,8 @@ google-chrome-stable --user-data-dir="$PROFILE" \
 
 No `--headless`. CDP binds `127.0.0.1` only. On the harness host:
 `chromium.connect_over_cdp("http://127.0.0.1:9333")` (Chrome needs a few
-seconds before the endpoint answers). Pause for captchas and login/MFA — the
-human solves them on the physical screen (this lane's superpower). Do not use
-`chromium-handoff` as the first human path for captcha or login.
+seconds before the endpoint answers). Pause for the human on the physical
+screen. Do not use this lane to replace a `chromium-handoff` CAPTCHA path.
 
 If that Chrome is unusable under XWayland, quit only the lane process and
 relaunch the same command with `WAYLAND_DISPLAY=wayland-0` added to the
@@ -99,10 +130,25 @@ relaunch the same command with `WAYLAND_DISPLAY=wayland-0` added to the
 
 ## Cleanup
 
-Close Playwright, quit only the `AI/nebula-lane` Chrome
-(`pkill -f "user-data-dir=$HOME/AI/nebula-lane"`), then exit the
-flock/tunnel SSH. Leave the owner's personal Chrome, Firefox, Plasma, and
-Mullvad running. Remove `$HOME/AI/nebula-lane/` when the engagement closes.
+Close Playwright on the harness host. Quit only the lane Chrome on Nebula,
+then stop the recorded tunnel pid. The `[u]` in the pattern keeps `pkill`
+from matching its own command line.
+
+```bash
+ssh nebula 'pkill -f "[u]ser-data-dir=$HOME/AI/nebula-lane" || true'
+ssh nebula "grep -qx '$token' /tmp/nebula-lane.ready && rm -f /tmp/nebula-lane.ready"
+kill "$lane_pid" 2>/dev/null || true
+wait "$lane_pid" 2>/dev/null || true
+```
+
+Leave the owner's personal Chrome, Firefox, Plasma, and Mullvad running.
+When the engagement closes, remove the lane directory on Nebula, not on the
+harness:
+
+```bash
+ssh nebula 'rm -rf "$HOME/AI/nebula-lane"'
+```
+
 Note final relay location and any leftovers in run notes before releasing the
 lock.
 
@@ -114,10 +160,9 @@ lock.
 - JavaScript evidence. This is a physical-screen host, not a page or endpoint
   analysis skill. Do not mine scripts to choose or skip it.
 
-`captcha-policy` still owns whether a CAPTCHA is in play and forbids
-third-party solvers. It does not route here. Load this skill when the harness
-browser cannot complete login or captcha and a human at Nebula's screen is the
-path.
+`captcha-policy` owns CAPTCHA decisions, including same-browser handoff and
+the prohibition on switching host or egress. Load it when a CAPTCHA appears.
+Do not treat this skill as that route.
 
 ## Related skills
 

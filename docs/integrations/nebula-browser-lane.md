@@ -1,14 +1,14 @@
 # Nebula browser lane integration dossier
 
-- **Status:** feature
+- **Status:** blocked
 - **Owner:** hermes
 - **Branch:** feat/nebula-browser-lane
 - **Base commit:** a5103e811f9f18eb4aa001a13073a6d47ea108c0
 - **Intended integration target:** beta
 - **Last updated:** 2026-11-10
 - **Owning feature branch/ref:** feat/nebula-browser-lane
-- **Latest immutable recovery checkpoint:** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f
-- **Feature implementation commit(s):** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f
+- **Latest immutable recovery checkpoint:** 38a16eea901184e88347f4ec94f644c16b0af234
+- **Feature implementation commit(s):** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f, 38a16eea901184e88347f4ec94f644c16b0af234
 - **Inspiration / canonical references:** Hoster seed `~/Shared/skill_seeds/2026-11-10-nebula-browser-lane.md` (newer than the Ghost Shared copy) and the unmanaged Hoster skill `~/.agents/skills/portafort-browser-lane/SKILL.md`. That copy was never in git.
 
 ## Intent
@@ -31,29 +31,25 @@ without copying the private key or weakening the owner hard requirements
 ## Evidence and review
 
 - Tests and commands: `/home/ryushe/.local/bin/pytest tests/test_nebula_browser_lane_skill.py tests/test_skill_command_lane_safety.py -q` — 4 passed. `git diff --check` clean.
-- Independent review: pending
+- Independent review of `9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f` blocked. Reproduced `ssh -f` returning 0 for remote exit 7 on OpenSSH 9.6p1. Lock now waits for a token written only after `flock -n`, and cleanup `pkill`/`rm` run through `ssh nebula`. CAPTCHA override removed so this skill does not contradict `captcha-policy`. Re-review is pending the operator decision below.
 - Replay/cohort/fixture evidence: not applicable; text contract only
-- Merge/ancestry evidence: implementation commit `9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f` is one commit ahead of base `a5103e811f9f18eb4aa001a13073a6d47ea108c0`
+- Merge/ancestry evidence: implementation commit `9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f` plus a later correction commit. Dossier stays off beta.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** live headed Chrome launch and in-Chrome Mullvad
-  check were not run. This change only publishes the lane instructions.
-- **Command / fixture / environment needed:** a real captcha/login segment on
-  Nebula, with Ryushe at the screen.
-- **Trigger to run it:** the next time `chromium-test` fails a captcha, login,
-  or authenticity block.
-- **Why it blocks integration, activation, or promotion:** it does not block
-  publishing the skill. It blocks claiming the lane has been exercised.
-- **Next completion step / successor reference:** first real lane use.
+- **Missing test or evidence:** live headed Chrome and in-Chrome Mullvad check were not run.
+- **Command / fixture / environment needed:** a real non-CAPTCHA segment on Nebula, with Ryushe at the screen.
+- **Trigger to run it:** the next authorized physical-screen use after the policy decision.
+- **Why it blocks integration, activation, or promotion:** the live Chrome check does not block a text publish. The CAPTCHA route does: `captcha-policy` and its regression test forbid switching host or egress and route handoff to `chromium-handoff`. The seed asked for captcha/login on Nebula. That exception is not authorized yet.
+- **Next completion step / successor reference:** Ryushe chooses whether captcha-policy stays in force or gets an explicit Nebula exception. Then re-review and merge.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/nebula-browser-lane
-- **Latest immutable recovery checkpoint:** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f
-- **Feature implementation commit(s):** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f
-- **Exact resume point:** independent review of `9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f`, then merge to beta. The branch tip after this dossier commit is a handoff-only commit; the implementation commit above is the code checkpoint.
-- **Working-tree state at handoff:** clean after the dossier commit.
+- **Latest immutable recovery checkpoint:** 38a16eea901184e88347f4ec94f644c16b0af234
+- **Feature implementation commit(s):** 9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f, 38a16eea901184e88347f4ec94f644c16b0af234
+- **Exact resume point:** wait for the CAPTCHA-policy decision, then re-review the correction commit and merge to beta without this dossier.
+- **Working-tree state at handoff:** clean after the correction commit.
 
 ## Decision gates
 

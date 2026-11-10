@@ -162,6 +162,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **single-request-grabber** | `/single-request-grabber {target_url}` | `prompts/single-request-grabber-context-pack.md` |
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
+| **nebula-browser-lane** | Load after `chromium-test` fails when Ryushe is at Nebula's screen, including the `captcha-policy` physical-screen exception. Do not drop Mullvad or evade rate controls. | `skills/nebula-browser-lane/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
 | **bountylens** | `/bountylens {programs|scope|stats}` | `skills/bountylens/SKILL.md`; public program/scope/stat context only, not hunt memory |
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |

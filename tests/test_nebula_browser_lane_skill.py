@@ -36,7 +36,9 @@ def test_nebula_lane_replaces_portafort_facts() -> None:
     assert "ssh -f" not in _bash_blocks(text)
     assert 'ssh nebula \'pkill -f "[u]ser-data-dir=$HOME/AI/nebula-lane"' in text
     assert 'ssh nebula \'rm -rf "$HOME/AI/nebula-lane"\'' in text
-    assert "does not override that policy" in text
+    joined = " ".join(text.split())
+    assert "does not replace `chromium-handoff`" in joined
+    assert "Do not drop Mullvad, change egress to beat the challenge, or evade rate controls." in joined
     assert "It does not route here" not in text
     assert "$HOME/AI/nebula-lane/chrome-profile" in text
     assert "WAYLAND_DISPLAY=wayland-0" in text
@@ -54,5 +56,5 @@ def test_description_is_quoted_and_index_sized() -> None:
     assert description.startswith('description: "')
     assert description.endswith('"')
     body = description.removeprefix('description: "').removesuffix('"')
-    assert body == "Physical-screen Chrome on Nebula after harness GPU fails."
+    assert body == "Captcha/login on Nebula after harness GPU fails."
     assert len(body) <= 60

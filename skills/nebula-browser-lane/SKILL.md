@@ -1,13 +1,14 @@
 ---
 name: nebula-browser-lane
-description: "Physical-screen Chrome on Nebula after harness GPU fails."
+description: "Captcha/login on Nebula after harness GPU fails."
 ---
 
 # Nebula true-browser lane
 
 Headed `google-chrome-stable` on device `nebula` for a human at the physical
-screen after the harness GPU/headed lane (`chromium-test`) already failed.
-Not a WAF-payload bypass, and not a CAPTCHA host switch.
+screen after the harness GPU/headed lane (`chromium-test`) already failed:
+login, signup, password-reset, magic-link Continue, CAPTCHA, and
+authenticity/IP blocks. Not a WAF-payload bypass.
 
 When a prompt is on Nebula's screen, tell Ryushe immediately (site + what to
 click) and wait. Do not loop image challenges on harness Chromium (including
@@ -15,14 +16,13 @@ llvmpipe WebGL).
 
 ## Policy boundary
 
-`captcha-policy` owns a CAPTCHA on an authorized flow. It requires the same
-browser and effective egress, routes a remote handoff to `chromium-handoff`,
-and forbids switching host or egress to get past the challenge. This skill
-does not override that policy. Do not open Nebula, rotate Mullvad, or skip
-`chromium-handoff` to beat a CAPTCHA.
-
-Until `captcha-policy` explicitly routes here, use this lane only for a
-non-CAPTCHA physical-screen step after `chromium-test` has already failed.
+`captcha-policy` owns a CAPTCHA. Its Nebula exception is this lane: after
+`chromium-test` has already failed, and Ryushe is at Nebula's screen, this is
+the physical-screen path. It does not replace `chromium-handoff` for an
+existing harness browser. Do not relaunch the harness browser to qualify for
+handoff. Do not drop Mullvad, change egress to beat the challenge, or evade
+rate controls. A non-CAPTCHA authenticity block may rotate Mullvad only while
+it stays connected, and only inside the hard requirement below.
 
 ## Connection
 
@@ -50,7 +50,9 @@ non-CAPTCHA physical-screen step after `chromium-test` has already failed.
    `-n` fails, report "locked" and defer.
 2. **Never drop Mullvad** for target work (no `disconnect`, disable, or
    lockdown-off) — that exposes the owner's home residential IP to the target.
-   Rotate only while connected; stay US West Coast:
+   Do not rotate or otherwise change egress to beat a CAPTCHA. For a
+   non-CAPTCHA authenticity block, rotate only while connected; stay US West
+   Coast:
    `mullvad relay set location us <city> && mullvad reconnect --wait`
    (standalone daemon, e.g. `us-sea-wg-406`; a different relay = new egress).
 3. **Verify egress inside Chrome** before any target navigation: load
@@ -160,9 +162,9 @@ lock.
 - JavaScript evidence. This is a physical-screen host, not a page or endpoint
   analysis skill. Do not mine scripts to choose or skip it.
 
-`captcha-policy` owns CAPTCHA decisions, including same-browser handoff and
-the prohibition on switching host or egress. Load it when a CAPTCHA appears.
-Do not treat this skill as that route.
+`captcha-policy` owns the CAPTCHA decision and routes this physical-screen
+exception here. Load it when a CAPTCHA appears. Do not treat a rate-control
+stop as permission to continue on Nebula.
 
 ## Related skills
 

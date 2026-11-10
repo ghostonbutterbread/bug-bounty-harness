@@ -31,7 +31,7 @@ without copying the private key or weakening the owner hard requirements
 ## Evidence and review
 
 - Tests and commands: `/home/ryushe/.local/bin/pytest tests/test_nebula_browser_lane_skill.py tests/test_skill_command_lane_safety.py -q` — 4 passed. `git diff --check` clean.
-- Independent review of the lock and cleanup correction is still required, now together with the authorized CAPTCHA exception in `b9d2d5578274e4491c54ffd89eb28a6af312a241` and ai-policies `7880e48adbca21382c221023c0a79f87127dcc31`. Focused tests passed again: 4 passed.
+- Independent review: accepted 2026-11-10. No blockers. Exclude every dossier commit from beta, including `de1efc5b` and `65d76936`, by removing `docs/integrations/nebula-browser-lane.md` in the merge. Live headed Chrome remains deferred and does not block the text publish.
 - Replay/cohort/fixture evidence: not applicable; text contract only
 - Merge/ancestry evidence: implementation commit `9126c94819a94fa0d63af4e77cc9f8f83f0c8c7f` plus a later correction commit. Dossier stays off beta.
 

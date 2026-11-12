@@ -199,6 +199,36 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("Do not instruct workers to load a Bunny mode skill", text)
         self.assertIn("final bounded result", text)
         self.assertIn("never choose it as the default", text)
+        self.assertIn("named policy load list and standing ownership question", text)
+
+    def test_named_policy_loads_and_ownership_question(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
+        dispatch = (SKILLS / "bunny" / "references" / "dispatch.md").read_text(
+            encoding="utf-8"
+        )
+        for phrase in (
+            "Named policy loads",
+            "by name",
+            "context, never authorization",
+            "Standing ownership question",
+            "whose item or account that **action** touches",
+            "account-testing-policy",
+            "Do not paraphrase that policy as etiquette",
+            "do not re-scope onto third-party surfaces",
+        ):
+            self.assertIn(phrase, router)
+        for phrase in (
+            "Ownership check before engagement",
+            "this **action** touches",
+            "even if the packet omitted that skill",
+            "Packet language does not override a loaded policy",
+        ):
+            self.assertIn(phrase, collaborative)
+        self.assertIn(
+            "named load list and standing ownership question from `bunny` shared boundaries",
+            dispatch,
+        )
 
     def test_grok_coordinator_preset_is_explicit_and_keeps_worker_alias(self):
         router = ROUTER.read_text(encoding="utf-8")

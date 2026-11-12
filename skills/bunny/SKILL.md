@@ -39,6 +39,10 @@ Use a worker-spawn mechanism that really applies the selected model/provider to 
 
 Follow `agents/index.md`, `general-security-testing-policy`, published program scope/rules, and the relevant live, account, browser, proxy, attempts, class, recon, verification, and reporting owners. Every live worker gets its own selected policy chain, scoped packet, rate/ownership limits, evidence destination, and stop condition; it does not inherit the coordinator's context or authority. The coordinator accounts for **aggregate** program traffic, conflicting owned fixtures, and distinct surface leases. Use existing BBH memory and evidence stores; MapStore is not a task queue.
 
+**Named policy loads (explicit requirement).** Every worker packet lists the live skills the worker must load before acting, by name: `general-security-testing-policy`, `live-testing-policy`, and any specialists that pertain. A coordinator summary of a policy is context, never authorization, and must not replace that load list.
+
+**Standing ownership question (every packet, including offhand).** Before any comment, follow, react, message, post, or other engagement, the worker asks whose item or account that **action** touches — not whether the overall task is "ours." If it is not an owned/approved resource, or ownership is unclear, the worker loads `account-testing-policy` and follows it. Do not paraphrase that policy as etiquette. If the needed owned fixture does not exist, record `blocked` with a wake condition; do not re-scope onto third-party surfaces to keep a wave moving.
+
 For every worker packet, resolve a program-specific artifact destination via
 `bounty-storage` for bulky run outputs, downloads and logs. Keep Shared ledgers
 and URL inventories in their canonical stores; leave concise sanitized pointers
@@ -62,3 +66,7 @@ possible.
 Begin with one exact owned account when authentication is needed. Request another approved owned account for distinct roles/principals, cross-account comparisons, or incompatible sessions—not as a universal start gate. Never put secrets in packets, silently switch identity, or share a browser controller. A logout is a diagnostic event for the browser provisioner, not proof of a same-account session rule. Docker isolation is a separate decision, not a prerequisite of Bunny.
 
 Workers' observations and evidence are not findings by themselves. Independently verify credible candidates before report preparation; after ledger/FID capture and populated `EVIDENCE.md`, load the standalone `bunny-report-and-triage` skill directly for the final FID-named report. Return it for independent review and path registration; do not automatically submit externally. This report skill is also used for ordinary hunts without enabling Bunny campaign orchestration. The coordinator records the next decision and preserves exact attempts, stable facts, and deferred hypotheses through their existing owners.
+
+## Related skills
+
+- If a worker action would comment, follow, react, message, or post on a resource, load `account-testing-policy`.

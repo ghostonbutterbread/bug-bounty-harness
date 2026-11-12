@@ -1,6 +1,6 @@
 # Bunny team dispatch
 
-Spawn the subagents needed for the campaign and let them work. Use the current harness's ordinary subagent tools; do not build or require a harness-specific adapter. Give each worker its role, scoped task, applicable skills, and evidence destination. Have each worker read the canonical role file and applicable skills before acting. Role files are in the selected BBH checkout at `agents/bunny-<role>.md`; a role name alone is not the instructions. Do not substitute a generic implementation worker.
+Spawn the subagents needed for the campaign and let them work. Use the current harness's ordinary subagent tools; do not build or require a harness-specific adapter. Give each worker its role, scoped task, applicable skills, and evidence destination. Packets include the named load list and standing ownership question from `bunny` shared boundaries. Have each worker read the canonical role file and applicable skills before acting. Role files are in the selected BBH checkout at `agents/bunny-<role>.md`; a role name alone is not the instructions. Do not substitute a generic implementation worker.
 
 ## Team communication
 

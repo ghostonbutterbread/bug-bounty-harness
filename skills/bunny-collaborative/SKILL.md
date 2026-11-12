@@ -13,6 +13,8 @@ Load `bunny` for shared safety and mode selection. **Both the coordinator and ev
 
 Resolve storage before dispatch. Every testing/mapping packet names the **resolved program, family, and lane**, the exact Attempt stream ID (the `_runs/<id>/attempts.jsonl` directory name, not an agent nickname or coverage mapper run ID), the leased surface/class and run/mapper source reference, and the permitted evidence destinations. Separate workers use distinct Attempt streams; a continued worker reuses its own stream. Workers must report a missing/mismatched lane or missing writer access rather than silently write into a default lane. Load the general policy and the selected specialist for that role; store skills are conditional on the work, not a five-skill preload.
 
+**Ownership check before engagement.** Before a comment, follow, react, message, post, or other engagement, ask whose item or account this **action** touches. If it is not owned/approved, or you are not sure, load `account-testing-policy` and follow it even if the packet omitted that skill or described the action as etiquette. Packet language does not override a loaded policy. If the policy blocks the action and no owned fixture exists, checkpoint `blocked` or `scope-question`; do not execute.
+
 When Bunny is invoked with the explicit `multi` parameter (with or without `/goal`), the **coordinator loads `bunny-multi` before dispatch** for program isolation, the shared subagent cap, and its optional queue. Ordinary workers load this collaborative skill, not `bunny-multi`; their packets remain program-scoped. Without `multi`, use the ordinary single-program contract below. Do not infer `multi` from multiple domains within one program.
 
 ## Coordinator and worker contract
@@ -235,3 +237,7 @@ leased slice; they never declare the goal fulfilled. Bunny without `/goal` keeps
 its existing campaign checkpoint behavior without this extra goal receipt.
 
 Admit one scoped surface with account/browser lease and aggregate rate headroom. Keep a hot chain with its steward while distinct recon maps another currently observed surface where useful. Route credible candidates to independent verification, verified reportable evidence to the reporter, and blockers to their resource owner. Before ending a checkpoint, ensure each active surface has an owner and next discriminator or evidence-backed closure. Never interrupt a strong chain just to satisfy a breadth quota.
+
+## Related skills
+
+- If the next action would comment, follow, react, message, or post on a resource, load `account-testing-policy`.

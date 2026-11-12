@@ -664,6 +664,77 @@ def bugcrowd_exclusion_entries(target: dict) -> set[str]:
     return entries
 
 
+def load_scope_review(slug: str) -> dict | None:
+    """Load the operator-reviewed scope resolution file for a program."""
+    path = Path.home() / "Shared" / "scopes" / slug / "scope-review.json"
+    if not path.exists():
+        return None
+    try:
+        review = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"invalid scope review file {path}: {exc}") from exc
+    if not isinstance(review, dict):
+        raise ValueError(f"scope review file {path} must be a JSON object")
+    return review
+
+
+def apply_scope_review(slug: str, scope_data: dict) -> dict:
+    """Apply reviewed grant/exclusion resolutions to parsed scope data.
+
+    ``~/Shared/scopes/<slug>/scope-review.json`` records operator resolutions
+    for platform targets the conservative parser refuses to auto-publish
+    (wildcard grants paired with mismatched URIs, wildcard exclusions). The
+    verbatim platform exclusion records are preserved under
+    ``platform_exclusions_verbatim`` so ``out-of-scope.json`` keeps its
+    complete-platform-record contract.
+    """
+    review = load_scope_review(slug)
+    if not review:
+        return scope_data
+    applied = {"source": str(review.get("source") or ""), "grants": [], "exclusions": [], "skipped": []}
+
+    for grant in review.get("grants") or []:
+        entry = str(grant.get("entry") or "")
+        if not str(grant.get("platform_name") or "") or not routable_scope_entry(entry):
+            raise ValueError(f"invalid reviewed grant in scope-review.json: {grant!r}")
+        if entry not in scope_data.get("domains", set()) and entry not in scope_data.get("urls", set()):
+            scope_data.setdefault("domains", set()).add(entry)
+        applied["grants"].append({"platform_name": grant["platform_name"], "entry": entry,
+                                  "reason": str(grant.get("reason") or "")})
+
+    resolutions = {}
+    for exclusion in review.get("exclusions") or []:
+        platform_name = str(exclusion.get("platform_name") or "")
+        if not platform_name:
+            raise ValueError(f"invalid reviewed exclusion in scope-review.json: {exclusion!r}")
+        resolutions[platform_name] = exclusion
+
+    scope_data["platform_exclusions_verbatim"] = [dict(t) for t in scope_data.get("out_of_scope", [])]
+    resolved_out = []
+    for target in scope_data["out_of_scope"]:
+        reviewed = resolutions.get(str(target.get("name") or ""))
+        if reviewed is None:
+            resolved_out.append(target)
+            continue
+        if reviewed.get("skip"):
+            applied["skipped"].append({"platform_name": reviewed["platform_name"],
+                                       "reason": str(reviewed.get("reason") or "")})
+            continue
+        entry = str(reviewed.get("entry") or "")
+        if not routable_scope_entry(entry):
+            raise ValueError(f"invalid reviewed exclusion entry for {reviewed['platform_name']!r}: {entry!r}")
+        resolved = dict(target)
+        resolved["name"] = entry
+        resolved["uri"] = ""
+        resolved["review_resolved_from"] = reviewed["platform_name"]
+        resolved_out.append(resolved)
+        applied["exclusions"].append({"platform_name": reviewed["platform_name"], "entry": entry,
+                                      "reason": str(reviewed.get("reason") or "")})
+    scope_data["out_of_scope"] = resolved_out
+    scope_data["scope_review_applied"] = applied
+    return scope_data
+
+
 def render_program_policy(scope_data: dict) -> str:
     rules = scope_data.get("rules", {})
     lines = [
@@ -694,6 +765,21 @@ def render_program_policy(scope_data: dict) -> str:
     else:
         lines.append("- None machine-tagged; review rules text before live testing.")
     lines.extend(["", "## Rules Text", "", rules.get("rules_text") or "No rules text extracted."])
+    applied_review = scope_data.get("scope_review_applied")
+    if applied_review:
+        lines.extend(["", "## Reviewed Scope Resolution", ""])
+        if applied_review.get("source"):
+            lines.append(f"Review source: {applied_review['source']}")
+        for grant in applied_review.get("grants") or []:
+            reason = f" — {grant['reason']}" if grant.get("reason") else ""
+            lines.append(f"- Grant `{grant['entry']}` resolved from platform target `{grant['platform_name']}`{reason}")
+        for exclusion in applied_review.get("exclusions") or []:
+            reason = f" — {exclusion['reason']}" if exclusion.get("reason") else ""
+            lines.append(f"- Exclusion `{exclusion['entry']}` resolved from platform target `{exclusion['platform_name']}`{reason}")
+        for skipped in applied_review.get("skipped") or []:
+            reason = f" — {skipped['reason']}" if skipped.get("reason") else ""
+            lines.append(f"- Platform exclusion `{skipped['platform_name']}` deliberately not published as a strict entry{reason}")
+        lines.append("- Verbatim platform exclusion records: `out-of-scope.json`.")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -740,7 +826,7 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     files = [
         (base / "in-scope.txt", in_scope),
         (base / "out-of-scope.txt", out_of_scope),
-        (base / "out-of-scope.json", json.dumps(scope_data.get("out_of_scope", []), indent=2, sort_keys=True) + "\n"),
+        (base / "out-of-scope.json", json.dumps(scope_data.get("platform_exclusions_verbatim") or scope_data.get("out_of_scope", []), indent=2, sort_keys=True) + "\n"),
         (base / "assets.json", json.dumps(scope_data.get("assets", []), indent=2, sort_keys=True) + "\n"),
         (base / "rules-of-engagement.json", json.dumps(scope_data.get("rules", {}), indent=2, sort_keys=True) + "\n"),
         (base / "program-policy.md", render_program_policy(scope_data)),
@@ -816,6 +902,7 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
             ),
             "raw": team,
         })
+        scope_data = apply_scope_review(handle, scope_data)
         save_scope(handle, scope_data)
         return scope_data
 
@@ -867,6 +954,7 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
         }
     
     # Save
+    scope_data = apply_scope_review(canonical_program_slug(program), scope_data)
     save_scope(program, scope_data)
     return scope_data
 

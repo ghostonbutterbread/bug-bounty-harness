@@ -52,8 +52,10 @@ verification.
   recheck). Prior CHANGES_REQUESTED on `16cc6f1b` and `48001d0a` resolved.
   Non-blocking live-compaction phrase pin is `7a8f659f`.
 - Replay/cohort/fixture evidence: not applicable; text contract only.
-- Merge/ancestry evidence: based on `origin/beta` `22409825`. Local commit
-  only; not pushed; not merged.
+- Merge/ancestry evidence: based on `origin/beta` `22409825`. Feature ref
+  published as `origin/feat/bunny-fetcher-family-steward` `c4aa1690`.
+  PR https://github.com/ghostonbutterbread/bug-bounty-harness/pull/1 into
+  `beta`. Not merged. Not on `main`.
 
 ## Blockers and deferred work
 
@@ -76,8 +78,9 @@ verification.
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
 - **Latest immutable recovery checkpoint:** 7a8f659fc33b2adbc28da389a67e0649e1a46a60
 - **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4, 7a8f659fc33b2adbc28da389a67e0649e1a46a60
-- **Exact resume point:** publish `feat/bunny-fetcher-family-steward` for PR
-  into `beta`; do not merge to beta or main in this task.
+- **Exact resume point:** PR #1 into `beta` is open. Merge from a clean beta
+  worktree after any further review; drop this dossier from beta. Do not
+  promote to `main` or activate Hoster in this task.
 - **Working-tree state at handoff:** clean after the dossier commit.
 
 ## Decision gates

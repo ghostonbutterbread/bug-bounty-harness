@@ -7,8 +7,8 @@
 - **Intended integration target:** beta
 - **Last updated:** 2026-11-12
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 0247945b533829a3a36d6c99b580dac95856091d
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d
+- **Latest immutable recovery checkpoint:** 0e939347de63870d0d093258f889b34f67dbb39f
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f
 - **Inspiration / canonical references:** `~/Shared/skill_seeds/2026-11-13-bunny-fetcher-family-steward.md` (Ghost review: promote the unique admission rule, not the body draft).
 
 ## Intent
@@ -16,9 +16,10 @@
 Stop Bunny coordinators from minting a new hunter (new nickname, new Attempt
 stream, new lease) for every remaining discriminator on the same fetch
 implementation. Lease URL-fetch / SSRF / preview / ingest / webhook / oembed /
-upload-from-url work by fetcher family. Keep one live steward per open family;
-steer or successive-segment remaining lenses. Spawn only for a different
-family, independent verification, or compaction rotation.
+upload-from-url work by fetcher family. Keep one steward per open family.
+Steer a live steward, or successive-segment remaining lenses after process
+end. Spawn a greenfield hunter only for a different family, independent
+verification, or compaction rotation.
 
 ## Implemented contract
 
@@ -29,6 +30,10 @@ family, independent verification, or compaction rotation.
   coordinator admission rule, worker guidance. No program-specific fixtures
   and no SSRF technique.
 - `skills/bunny/references/dispatch.md`: spawn gate before `bunny-hunter`.
+  Steer if the steward is interactable; spawn a successive bounded segment if
+  the process ended and the family is still open; greenfield only for a new
+  family, independent verification, or compaction successor. An ended process
+  does not clear an open family.
 - `skills/bunny-offhand/SKILL.md`: do not use a new offhand worker to skip an
   open family steward (dispatch.md is collaborative-only).
 - Non-claims: no `hunt-orchestration-policy` edit; no new skill; no firsthand
@@ -40,7 +45,9 @@ family, independent verification, or compaction rotation.
   passed, including `test_fetcher_family_steward_keeps_one_hunter_per_family`
   and `test_fetcher_family_reference_link_guard_rejects_a_broken_projection`.
   `git diff --check` clean.
-- Independent review: not started.
+- Independent review: CHANGES_REQUESTED on tip `16cc6f1b` (spawn gate omitted
+  successive-segment continuation). Fix is `0e939347`. Same-reviewer recheck
+  pending.
 - Replay/cohort/fixture evidence: not applicable; text contract only.
 - Merge/ancestry evidence: based on `origin/beta` `22409825`. Local commit
   only; not pushed; not merged.
@@ -64,9 +71,9 @@ family, independent verification, or compaction rotation.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 0247945b533829a3a36d6c99b580dac95856091d
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d
-- **Exact resume point:** independent review of `0247945b` plus this dossier;
+- **Latest immutable recovery checkpoint:** 0e939347de63870d0d093258f889b34f67dbb39f
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f
+- **Exact resume point:** same-reviewer recheck of `0e939347` plus this dossier;
   do not merge to beta until that review accepts. Publish the feature ref for
   review after acceptance.
 - **Working-tree state at handoff:** clean after the dossier commit.
@@ -84,4 +91,7 @@ family, independent verification, or compaction rotation.
 ## Decision record
 
 - 2026-11-12 — implemented family-versus-lens admission contract on
-  `feat/bunny-fetcher-family-steward`; tests green; awaiting independent review.
+  `feat/bunny-fetcher-family-steward`; tests green.
+- 2026-11-12 — independent review CHANGES_REQUESTED: dispatch spawn gate
+  omitted successive-segment continuation. Fixed in `0e939347`; same-reviewer
+  recheck pending.

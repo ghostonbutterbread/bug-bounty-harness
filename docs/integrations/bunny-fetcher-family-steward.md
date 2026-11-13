@@ -7,8 +7,8 @@
 - **Intended integration target:** beta
 - **Last updated:** 2026-11-12
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 0e939347de63870d0d093258f889b34f67dbb39f
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f
+- **Latest immutable recovery checkpoint:** 69efc2349893d954dc8bf551fe497ae34b79e2e4
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4
 - **Inspiration / canonical references:** `~/Shared/skill_seeds/2026-11-13-bunny-fetcher-family-steward.md` (Ghost review: promote the unique admission rule, not the body draft).
 
 ## Intent
@@ -18,22 +18,25 @@ stream, new lease) for every remaining discriminator on the same fetch
 implementation. Lease URL-fetch / SSRF / preview / ingest / webhook / oembed /
 upload-from-url work by fetcher family. Keep one steward per open family.
 Steer a live steward, or successive-segment remaining lenses after process
-end. Spawn a greenfield hunter only for a different family, independent
-verification, or compaction rotation.
+end. After confirmed exit, a compaction successor may inherit the same
+lease. Spawn a greenfield hunter only for a different family or independent
+verification.
 
 ## Implemented contract
 
 - `skills/bunny-collaborative/SKILL.md`: compact Fetcher-family stewardship
   subsection (explicit admission requirement); unused-fetcher catalogs assign
-  unused families; a remaining lens is not a distinct responsibility.
+  unused families; a remaining lens is not a distinct responsibility; real
+  parallel capacity is not a second hunter on an open fetcher family.
 - `skills/bunny-collaborative/references/fetcher-family.md`: family vs lens,
   coordinator admission rule, worker guidance. No program-specific fixtures
   and no SSRF technique.
 - `skills/bunny/references/dispatch.md`: spawn gate before `bunny-hunter`.
-  Steer if the steward is interactable; spawn a successive bounded segment if
-  the process ended and the family is still open; greenfield only for a new
-  family, independent verification, or compaction successor. An ended process
-  does not clear an open family.
+  Steer if the steward is interactable (compaction does not spawn while live).
+  After confirmed exit on an open family, spawn a successive bounded segment
+  or a compaction successor that inherits the lease. Greenfield only for a
+  new family or independent verification. An ended process does not clear an
+  open family. Not interactable without confirmed exit is not process-ended.
 - `skills/bunny-offhand/SKILL.md`: do not use a new offhand worker to skip an
   open family steward (dispatch.md is collaborative-only).
 - Non-claims: no `hunt-orchestration-policy` edit; no new skill; no firsthand
@@ -45,9 +48,9 @@ verification, or compaction rotation.
   passed, including `test_fetcher_family_steward_keeps_one_hunter_per_family`
   and `test_fetcher_family_reference_link_guard_rejects_a_broken_projection`.
   `git diff --check` clean.
-- Independent review: CHANGES_REQUESTED on tip `16cc6f1b` (spawn gate omitted
-  successive-segment continuation). Fix is `0e939347`. Same-reviewer recheck
-  pending.
+- Independent review: CHANGES_REQUESTED on `16cc6f1b` (successive-segment
+  omitted) then on `48001d0a` (compaction successor collided with
+  successive-only). Fix is `69efc234`. Same-reviewer recheck pending.
 - Replay/cohort/fixture evidence: not applicable; text contract only.
 - Merge/ancestry evidence: based on `origin/beta` `22409825`. Local commit
   only; not pushed; not merged.
@@ -71,9 +74,9 @@ verification, or compaction rotation.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 0e939347de63870d0d093258f889b34f67dbb39f
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f
-- **Exact resume point:** same-reviewer recheck of `0e939347` plus this dossier;
+- **Latest immutable recovery checkpoint:** 69efc2349893d954dc8bf551fe497ae34b79e2e4
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4
+- **Exact resume point:** same-reviewer recheck of `69efc234` plus this dossier;
   do not merge to beta until that review accepts. Publish the feature ref for
   review after acceptance.
 - **Working-tree state at handoff:** clean after the dossier commit.
@@ -93,5 +96,7 @@ verification, or compaction rotation.
 - 2026-11-12 — implemented family-versus-lens admission contract on
   `feat/bunny-fetcher-family-steward`; tests green.
 - 2026-11-12 — independent review CHANGES_REQUESTED: dispatch spawn gate
-  omitted successive-segment continuation. Fixed in `0e939347`; same-reviewer
+  omitted successive-segment continuation. Fixed in `0e939347`.
+- 2026-11-12 — recheck CHANGES_REQUESTED: ended-process successive-only
+  clause blocked compaction successor. Fixed in `69efc234`; same-reviewer
   recheck pending.

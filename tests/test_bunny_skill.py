@@ -277,6 +277,7 @@ class BunnySkillTests(unittest.TestCase):
             "inherits the family lease",
             "confirmed exit",
             "not process-ended",
+            "Compaction rotation does not spawn while the steward is live",
         ):
             self.assertIn(phrase, dispatch)
         self.assertNotIn("spawn only a successive bounded segment", dispatch)

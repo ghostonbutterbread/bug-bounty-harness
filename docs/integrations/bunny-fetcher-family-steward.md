@@ -1,14 +1,14 @@
 # Bunny fetcher-family stewardship integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** hermes
 - **Branch:** feat/bunny-fetcher-family-steward
 - **Base commit:** 224098257654940d53f004c1ee86f459debab461
 - **Intended integration target:** beta
 - **Last updated:** 2026-11-12
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 69efc2349893d954dc8bf551fe497ae34b79e2e4
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4
+- **Latest immutable recovery checkpoint:** 7a8f659fc33b2adbc28da389a67e0649e1a46a60
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4, 7a8f659fc33b2adbc28da389a67e0649e1a46a60
 - **Inspiration / canonical references:** `~/Shared/skill_seeds/2026-11-13-bunny-fetcher-family-steward.md` (Ghost review: promote the unique admission rule, not the body draft).
 
 ## Intent
@@ -48,9 +48,9 @@ verification.
   passed, including `test_fetcher_family_steward_keeps_one_hunter_per_family`
   and `test_fetcher_family_reference_link_guard_rejects_a_broken_projection`.
   `git diff --check` clean.
-- Independent review: CHANGES_REQUESTED on `16cc6f1b` (successive-segment
-  omitted) then on `48001d0a` (compaction successor collided with
-  successive-only). Fix is `69efc234`. Same-reviewer recheck pending.
+- Independent review: PASS on `69efc234` (compaction-successor inherit-lease
+  recheck). Prior CHANGES_REQUESTED on `16cc6f1b` and `48001d0a` resolved.
+  Non-blocking live-compaction phrase pin is `7a8f659f`.
 - Replay/cohort/fixture evidence: not applicable; text contract only.
 - Merge/ancestry evidence: based on `origin/beta` `22409825`. Local commit
   only; not pushed; not merged.
@@ -74,11 +74,10 @@ verification.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** feat/bunny-fetcher-family-steward
-- **Latest immutable recovery checkpoint:** 69efc2349893d954dc8bf551fe497ae34b79e2e4
-- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4
-- **Exact resume point:** same-reviewer recheck of `69efc234` plus this dossier;
-  do not merge to beta until that review accepts. Publish the feature ref for
-  review after acceptance.
+- **Latest immutable recovery checkpoint:** 7a8f659fc33b2adbc28da389a67e0649e1a46a60
+- **Feature implementation commit(s):** 0247945b533829a3a36d6c99b580dac95856091d, 0e939347de63870d0d093258f889b34f67dbb39f, 69efc2349893d954dc8bf551fe497ae34b79e2e4, 7a8f659fc33b2adbc28da389a67e0649e1a46a60
+- **Exact resume point:** publish `feat/bunny-fetcher-family-steward` for PR
+  into `beta`; do not merge to beta or main in this task.
 - **Working-tree state at handoff:** clean after the dossier commit.
 
 ## Decision gates
@@ -98,5 +97,6 @@ verification.
 - 2026-11-12 — independent review CHANGES_REQUESTED: dispatch spawn gate
   omitted successive-segment continuation. Fixed in `0e939347`.
 - 2026-11-12 — recheck CHANGES_REQUESTED: ended-process successive-only
-  clause blocked compaction successor. Fixed in `69efc234`; same-reviewer
-  recheck pending.
+  clause blocked compaction successor. Fixed in `69efc234`.
+- 2026-11-12 — independent recheck PASS. Non-blocking live-compaction phrase
+  pin `7a8f659f`. Ready to publish feature ref for PR into `beta`.

@@ -28,6 +28,10 @@ For an interactive CLI worker, send one bounded turn at a time through the same 
 - **Verifier:** independently reconstruct a credible candidate from a clean owned context and return reproduced, not reproduced, inconclusive, or blocked with concrete evidence. The motivational nudge is not proof.
 - **Reporter:** load the standalone `bunny-report-and-triage` skill directly after the finding owner has populated FID `EVIDENCE.md` with cited proof; create only its FID-named final report and applicable PoC. Request missing proof rather than inventing it, and return the file for independent review and path registration. External submission is separate.
 
+### Fetcher-family stewardship
+
+URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url work (and any later class that shares one fetch implementation) is leased by **fetcher family**, not by field name or remaining discriminator. This is an **explicit admission requirement**: the campaign record names at most one steward per open family. If that steward is still interactable, send the next lens as a steer. If the process ended, spawn a successive bounded segment of the same steward, or a compaction successor that inherits the family lease. Spawn a greenfield hunter only for a different family or independent verification. Details: [Fetcher-family stewardship](references/fetcher-family.md).
+
 ### Coordinator-owned operational support
 
 The coordinator owns productive conditions: dependency ordering, resource
@@ -83,14 +87,18 @@ chooses context-matched probes under the selected specialist and safety rules;
 a catalog does not mandate payload-testing every row. “Reflection ≠ execution”
 means proof is still needed, not that the reflected path is closed. Reconcile
 which catalog groups were tested and which remain open at the next checkpoint;
-do not create a duplicate evidence store just for this queue.
+do not create a duplicate evidence store just for this queue. Unused fetchers
+in a recon catalog are assigned by unused **family** (or the existing steward
+if it is the same family). Do not mint one hunter per catalog row.
 
 ### Investigator continuity and runtime limits
 
 A new question normally goes to the current surface owner, not a new worker.
 Keep the same investigator and private branch while its chain is productive;
 spawn for real parallel capacity, a distinct responsibility, or independent
-verification. The hunter chooses and revises the investigative theory; the
+verification. A remaining discriminator on an open fetcher family is not a
+distinct responsibility and is not a reason to mint a new hunter. Real parallel capacity is not a second hunter on an open fetcher family. The hunter
+chooses and revises the investigative theory; the
 coordinator supplies goals, operational support, and evidence-grounded feedback.
 
 **Context rotation for hunter and recon:** The coordinator tracks observed native
@@ -241,3 +249,4 @@ Admit one scoped surface with account/browser lease and aggregate rate headroom.
 ## Related skills
 
 - If the next action would comment, follow, react, message, or post on a resource, load `account-testing-policy`.
+- If the next work is URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url, follow [Fetcher-family stewardship](references/fetcher-family.md).

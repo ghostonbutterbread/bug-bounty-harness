@@ -30,7 +30,7 @@ For an interactive CLI worker, send one bounded turn at a time through the same 
 
 ### Fetcher-family stewardship
 
-URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url work (and any later class that shares one fetch implementation) is leased by **fetcher family**, not by field name or remaining discriminator. This is an **explicit admission requirement**: the campaign record names at most one steward per open family. If that steward is still interactable, send the next lens as a steer; if the process ended, spawn a successive bounded segment of the same steward. Spawn a greenfield hunter only for a different family, independent verification, or compaction rotation. Details: [Fetcher-family stewardship](references/fetcher-family.md).
+URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url work (and any later class that shares one fetch implementation) is leased by **fetcher family**, not by field name or remaining discriminator. This is an **explicit admission requirement**: the campaign record names at most one steward per open family. If that steward is still interactable, send the next lens as a steer. If the process ended, spawn a successive bounded segment of the same steward, or a compaction successor that inherits the family lease. Spawn a greenfield hunter only for a different family or independent verification. Details: [Fetcher-family stewardship](references/fetcher-family.md).
 
 ### Coordinator-owned operational support
 
@@ -97,7 +97,7 @@ A new question normally goes to the current surface owner, not a new worker.
 Keep the same investigator and private branch while its chain is productive;
 spawn for real parallel capacity, a distinct responsibility, or independent
 verification. A remaining discriminator on an open fetcher family is not a
-distinct responsibility and is not a reason to mint a new hunter. The hunter
+distinct responsibility and is not a reason to mint a new hunter. Real parallel capacity is not a second hunter on an open fetcher family. The hunter
 chooses and revises the investigative theory; the
 coordinator supplies goals, operational support, and evidence-grounded feedback.
 

@@ -246,6 +246,8 @@ class BunnySkillTests(unittest.TestCase):
             "Do not mint one hunter per catalog row",
             "not a reason to mint a new hunter",
             "successive bounded segment of the same steward",
+            "compaction successor that inherits the family lease",
+            "Real parallel capacity is not a second hunter",
             "If the next work is URL-fetch",
             "webhook / oembed / upload-from-url",
         ):
@@ -259,6 +261,8 @@ class BunnySkillTests(unittest.TestCase):
             "quiet terminal is not a new family",
             "not a testing-importance gate",
             "not a reason to skip an in-scope discriminator",
+            "inherits the family lease",
+            "not process-ended",
         ):
             self.assertIn(phrase, reference)
         for phrase in (
@@ -270,8 +274,12 @@ class BunnySkillTests(unittest.TestCase):
             "continue this family at discriminator D",
             "greenfield",
             "an ended process does not clear it",
+            "inherits the family lease",
+            "confirmed exit",
+            "not process-ended",
         ):
             self.assertIn(phrase, dispatch)
+        self.assertNotIn("spawn only a successive bounded segment", dispatch)
         self.assertIn("workaround to skip an open fetcher-family", offhand)
         self.assertIn("successive packet on that steward's lease", offhand)
         self.assertNotIn("hunt-orchestration-policy", reference)

@@ -33,21 +33,21 @@ greenfield hunter.
 
 **Steer, don't respawn.** While that family is open:
 
-- If the steward is live, send the next lens on the native steer channel.
+- If the steward is live, send the next lens on the native steer channel. Compaction rotation does not spawn while the steward is live.
 - If the prior process ended, spawn a **successive bounded segment**:
   same role, same family, predecessor stream cited, **new** Attempt stream only
   because the prior process ended. The packet is “continue this family at discriminator D”, not a greenfield lease. Dispatch must allow this continuation spawn.
+- If rotating for compaction after confirmed exit, spawn a **compaction successor** that inherits the family lease. That hunter is not greenfield.
 - Do **not** invent a new hunter nickname and greenfield packet because the
   last checkpoint was residual-closed on one lens.
+- A steward that is not interactable and has no confirmed exit is not process-ended; inspect status and steer.
 
-**Spawn a different hunter** only when:
+**Spawn a greenfield hunter** only when:
 
 - the family is evidence-closed (tested chain link + remaining discriminator
   named as wake, or direct disproof), **and** the next work is a different
   family; or
-- independent verification of a candidate; or
-- compaction rotation of the **same** family (existing 2nd/3rd compaction
-  handoff — successor inherits the family lease).
+- independent verification of a candidate.
 
 **Do not spawn** because the steward is still loading skills, writing Attempts,
 or sitting in the negative-result challenge. Inspect status and steer. A quiet terminal is not a new family.

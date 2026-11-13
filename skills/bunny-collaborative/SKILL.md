@@ -30,7 +30,7 @@ For an interactive CLI worker, send one bounded turn at a time through the same 
 
 ### Fetcher-family stewardship
 
-URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url work (and any later class that shares one fetch implementation) is leased by **fetcher family**, not by field name or remaining discriminator. This is an **explicit admission requirement**: the campaign record names at most one live steward per open family. Send the next lens as a steer or successive segment. Spawn a different hunter only for a different family, independent verification, or compaction rotation. Details: [Fetcher-family stewardship](references/fetcher-family.md).
+URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url work (and any later class that shares one fetch implementation) is leased by **fetcher family**, not by field name or remaining discriminator. This is an **explicit admission requirement**: the campaign record names at most one steward per open family. If that steward is still interactable, send the next lens as a steer; if the process ended, spawn a successive bounded segment of the same steward. Spawn a greenfield hunter only for a different family, independent verification, or compaction rotation. Details: [Fetcher-family stewardship](references/fetcher-family.md).
 
 ### Coordinator-owned operational support
 
@@ -249,4 +249,4 @@ Admit one scoped surface with account/browser lease and aggregate rate headroom.
 ## Related skills
 
 - If the next action would comment, follow, react, message, or post on a resource, load `account-testing-policy`.
-- If assigning URL-fetch / SSRF / preview / ingest work, follow [Fetcher-family stewardship](references/fetcher-family.md).
+- If the next work is URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url, follow [Fetcher-family stewardship](references/fetcher-family.md).

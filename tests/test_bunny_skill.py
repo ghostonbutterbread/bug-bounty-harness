@@ -241,10 +241,13 @@ class BunnySkillTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for phrase in (
             "Fetcher-family stewardship",
-            "at most one live steward per open family",
+            "at most one steward per open family",
             "(references/fetcher-family.md)",
             "Do not mint one hunter per catalog row",
             "not a reason to mint a new hunter",
+            "successive bounded segment of the same steward",
+            "If the next work is URL-fetch",
+            "webhook / oembed / upload-from-url",
         ):
             self.assertIn(phrase, collaborative)
         for phrase in (
@@ -254,6 +257,8 @@ class BunnySkillTests(unittest.TestCase):
             "Do not spawn a hunter to resolve the label",
             "continue this family at discriminator D",
             "quiet terminal is not a new family",
+            "not a testing-importance gate",
+            "not a reason to skip an in-scope discriminator",
         ):
             self.assertIn(phrase, reference)
         for phrase in (
@@ -261,6 +266,10 @@ class BunnySkillTests(unittest.TestCase):
             "family→steward map",
             "compaction successor",
             "do not spawn",
+            "successive bounded segment",
+            "continue this family at discriminator D",
+            "greenfield",
+            "an ended process does not clear it",
         ):
             self.assertIn(phrase, dispatch)
         self.assertIn("workaround to skip an open fetcher-family", offhand)

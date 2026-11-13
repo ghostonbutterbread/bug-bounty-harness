@@ -2,8 +2,7 @@
 
 Owner: `bunny-collaborative`. Complements investigator continuity, compaction
 rotation, the negative-result challenge, and recon catalog-as-queue. It does not
-replace them. This is an **explicit admission/ownership contract**, not a
-testing-importance gate and not a reason to skip an in-scope discriminator.
+replace them. This is an **explicit admission/ownership contract**, not a testing-importance gate and not a reason to skip an in-scope discriminator.
 
 ## Family versus lens
 
@@ -26,16 +25,18 @@ channel). Do not spawn a hunter to resolve the label.
 
 ## Coordinator rule
 
-The campaign record names **at most one live steward** per open fetcher family:
+The campaign record names **at most one steward** per open fetcher family:
 worker id, Attempt stream, leased family, remaining discriminator, wake/blocker.
+The family stays **open** until evidence-closed. **Live** means that steward is
+still interactable. An ended process does not clear the family or authorize a
+greenfield hunter.
 
-**Steer, don't respawn.** While that steward is live or its successive segment
-is the next action:
+**Steer, don't respawn.** While that family is open:
 
-- Send the next lens on the native steer channel.
-- If the harness is completion-only, spawn a **successive bounded segment**:
+- If the steward is live, send the next lens on the native steer channel.
+- If the prior process ended, spawn a **successive bounded segment**:
   same role, same family, predecessor stream cited, **new** Attempt stream only
-  because the prior process ended. The packet is “continue this family at discriminator D”, not a greenfield lease.
+  because the prior process ended. The packet is “continue this family at discriminator D”, not a greenfield lease. Dispatch must allow this continuation spawn.
 - Do **not** invent a new hunter nickname and greenfield packet because the
   last checkpoint was residual-closed on one lens.
 
@@ -56,9 +57,9 @@ checkpoints `need_surface` with pointers; it does **not** self-admit, spray
 internals, or ask to be re-leased onto that family. Bunny either steers the
 steward or records a wake.
 
-Recon catalogs of unused fetchers are a **handoff queue**. Assign the hottest
-unused **family** to a hunter (or the existing steward if it is the same
-family). Do not mint one hunter per catalog row.
+Assign unused fetchers from a recon catalog by unused **family** (or the
+existing steward if it is the same family). Do not mint one hunter per catalog
+row. Catalog-as-queue remains in `bunny-collaborative`.
 
 Optional campaign-record / hunter-packet field: `fetcher_family:` service +
 egress + body channel, one line.

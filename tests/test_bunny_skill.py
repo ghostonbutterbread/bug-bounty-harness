@@ -230,6 +230,73 @@ class BunnySkillTests(unittest.TestCase):
             dispatch,
         )
 
+    def test_fetcher_family_steward_keeps_one_hunter_per_family(self):
+        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
+        dispatch = (SKILLS / "bunny" / "references" / "dispatch.md").read_text(
+            encoding="utf-8"
+        )
+        offhand = OFFHAND.read_text(encoding="utf-8")
+        reference = (
+            SKILLS / "bunny-collaborative" / "references" / "fetcher-family.md"
+        ).read_text(encoding="utf-8")
+        for phrase in (
+            "Fetcher-family stewardship",
+            "at most one live steward per open family",
+            "(references/fetcher-family.md)",
+            "Do not mint one hunter per catalog row",
+            "not a reason to mint a new hunter",
+        ):
+            self.assertIn(phrase, collaborative)
+        for phrase in (
+            "same executing service",
+            "Lenses are not new families",
+            "Steer, don't respawn",
+            "Do not spawn a hunter to resolve the label",
+            "continue this family at discriminator D",
+            "quiet terminal is not a new family",
+        ):
+            self.assertIn(phrase, reference)
+        for phrase in (
+            "Fetcher-family spawn gate",
+            "family→steward map",
+            "compaction successor",
+            "do not spawn",
+        ):
+            self.assertIn(phrase, dispatch)
+        self.assertIn("workaround to skip an open fetcher-family", offhand)
+        self.assertIn("successive packet on that steward's lease", offhand)
+        self.assertNotIn("hunt-orchestration-policy", reference)
+
+    def assert_fetcher_family_route_resolves(self, skill_dir):
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count("(references/fetcher-family.md)"), 2)
+        self.assertTrue(
+            (skill_dir / "references" / "fetcher-family.md").is_file(),
+            "Fetcher-family reference missing",
+        )
+
+    def test_fetcher_family_reference_link_guard_rejects_a_broken_projection(self):
+        import tempfile
+        import shutil
+
+        self.assert_fetcher_family_route_resolves(SKILLS / "bunny-collaborative")
+        with tempfile.TemporaryDirectory() as directory:
+            projection = Path(directory) / "bunny-collaborative"
+            shutil.copytree(SKILLS / "bunny-collaborative", projection)
+            self.assert_fetcher_family_route_resolves(projection)
+            router = projection / "SKILL.md"
+            original = router.read_text(encoding="utf-8")
+            replaced = original.replace("(references/fetcher-family.md)", "", 1)
+            self.assertEqual(original.count("(references/fetcher-family.md)") - 1,
+                             replaced.count("(references/fetcher-family.md)"))
+            router.write_text(replaced)
+            with self.assertRaises(AssertionError):
+                self.assert_fetcher_family_route_resolves(projection)
+            router.write_text(original, encoding="utf-8")
+            (projection / "references" / "fetcher-family.md").unlink()
+            with self.assertRaises(AssertionError):
+                self.assert_fetcher_family_route_resolves(projection)
+
     def test_grok_coordinator_preset_is_explicit_and_keeps_worker_alias(self):
         router = ROUTER.read_text(encoding="utf-8")
         for phrase in (

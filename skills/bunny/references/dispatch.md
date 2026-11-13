@@ -2,6 +2,8 @@
 
 Spawn the subagents needed for the campaign and let them work. Use the current harness's ordinary subagent tools; do not build or require a harness-specific adapter. Give each worker its role, scoped task, applicable skills, and evidence destination. Packets include the named load list and standing ownership question from `bunny` shared boundaries. Have each worker read the canonical role file and applicable skills before acting. Role files are in the selected BBH checkout at `agents/bunny-<role>.md`; a role name alone is not the instructions. Do not substitute a generic implementation worker.
 
+**Fetcher-family spawn gate.** Before spawning `bunny-hunter` onto a URL-fetch / SSRF / preview / ingest / webhook / oembed / upload-from-url surface, read the campaign record's family→steward map. If the packet's fetch implementation matches an open steward, **do not spawn**; steer that steward or wait for its checkpoint. If you would spawn anyway, the packet must say why this is a new family, independent verification, or compaction successor. Family identity is owned by `bunny-collaborative` fetcher-family stewardship.
+
 ## Team communication
 
 - Bunny talks with recon.

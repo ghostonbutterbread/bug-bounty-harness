@@ -1,0 +1,74 @@
+# Fetcher-family stewardship
+
+Owner: `bunny-collaborative`. Complements investigator continuity, compaction
+rotation, the negative-result challenge, and recon catalog-as-queue. It does not
+replace them. This is an **explicit admission/ownership contract**, not a
+testing-importance gate and not a reason to skip an in-scope discriminator.
+
+## Family versus lens
+
+A **fetcher family** is one server-side fetch *implementation*. Same family
+when **all** of these match:
+
+- same executing service / route-kind (asset ingest, chat index, RSS parser,
+  headless crawler)
+- same egress class (VPC/cloud vs third-party proxy vs browser)
+- same response channel (stored object, parsed feed fields, documents body,
+  numeric-only, classify-only)
+
+A **lens** is a remaining discriminator on that family: loopback vs metadata vs
+hostname vs redirect-follow vs extra field vs content-type. Lenses are not new families.
+
+A **new family** needs a different service, different egress class, **or** a
+different body channel. If family identity is unclear, keep the current steward
+and ask one characterizing question (service name, UA, egress IP/ASN, body
+channel). Do not spawn a hunter to resolve the label.
+
+## Coordinator rule
+
+The campaign record names **at most one live steward** per open fetcher family:
+worker id, Attempt stream, leased family, remaining discriminator, wake/blocker.
+
+**Steer, don't respawn.** While that steward is live or its successive segment
+is the next action:
+
+- Send the next lens on the native steer channel.
+- If the harness is completion-only, spawn a **successive bounded segment**:
+  same role, same family, predecessor stream cited, **new** Attempt stream only
+  because the prior process ended. The packet is “continue this family at discriminator D”, not a greenfield lease.
+- Do **not** invent a new hunter nickname and greenfield packet because the
+  last checkpoint was residual-closed on one lens.
+
+**Spawn a different hunter** only when:
+
+- the family is evidence-closed (tested chain link + remaining discriminator
+  named as wake, or direct disproof), **and** the next work is a different
+  family; or
+- independent verification of a candidate; or
+- compaction rotation of the **same** family (existing 2nd/3rd compaction
+  handoff — successor inherits the family lease).
+
+**Do not spawn** because the steward is still loading skills, writing Attempts,
+or sitting in the negative-result challenge. Inspect status and steer. A quiet terminal is not a new family.
+
+A worker that discovers a fetch on a family that already has a steward
+checkpoints `need_surface` with pointers; it does **not** self-admit, spray
+internals, or ask to be re-leased onto that family. Bunny either steers the
+steward or records a wake.
+
+Recon catalogs of unused fetchers are a **handoff queue**. Assign the hottest
+unused **family** to a hunter (or the existing steward if it is the same
+family). Do not mint one hunter per catalog row.
+
+Optional campaign-record / hunter-packet field: `fetcher_family:` service +
+egress + body channel, one line.
+
+## Worker guidance
+
+You own nearby mechanism-distinct lenses on your leased family while it is
+warm. A coordinator steer that names loopback / metadata / hostname / redirect
+on the same fetcher is in-scope unless it changes account, rate, or location
+(then re-admission). Do not treat “packet said one URL” as a reason to refuse
+the next lens on the same implementation. If you cannot continue, checkpoint
+with the family identity, last Attempt, and next discriminator — do not spawn
+peers.

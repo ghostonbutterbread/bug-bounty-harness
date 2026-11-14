@@ -19,6 +19,13 @@ Keep five distinct layers:
 
 Do not turn raw write-ups into target facts. Do not paste a large research corpus into every agent prompt.
 
+When choosing where to research an observed feature, mechanism, obstacle, or
+technology, consult `references/research-source-map.md`. Select resources by the
+question and evidence, not a mandatory source order; combine them when useful.
+When evaluating a new source or adding one to the map, load
+`research-source-intake`. It owns the source-evaluation method; this skill still
+owns portable mechanism admission and the map.
+
 For an explicit product-class literature/threat-map request, load
 `references/functionality-first-writeup-synthesis.md`. It gives the on-demand
 case-admission, source-status, functionality-clustering, and specialist handoff

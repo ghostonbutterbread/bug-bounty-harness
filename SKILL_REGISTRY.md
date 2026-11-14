@@ -134,7 +134,8 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
 | **hunt-orchestration** | `/hunt-orchestration {program}` for solo hunter and bounded sidecars | `skills/hunt-orchestration/SKILL.md`; `hunt-orchestration-policy` owns sidecar admission |
-| **research-knowledge-management** | `/research-knowledge-management {research-question}` | `skills/research-knowledge-management/SKILL.md`; ResearchMap corpus and source admission |
+| **research-knowledge-management** | `/research-knowledge-management {research-question}` | `skills/research-knowledge-management/SKILL.md`; ResearchMap corpus, source selection map, and source admission |
+| **research-source-intake** | Evaluate a new research source or its role in hunting | `skills/research-source-intake/SKILL.md`; comparison, access and evidence review |
 | **bunny** | `/bunny {program} --goal {objective}` or explicit Bunny `multi` parameter (collaborative default; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
 | **bunny-collaborative** | Default Bunny mode; coordinator and collaborative workers load it | `skills/bunny-collaborative/SKILL.md` |
 | **bunny-multi** | Coordinator-only collaborative overlay when Bunny has explicit `multi` parameter (with or without `/goal`) | `skills/bunny-multi/SKILL.md` |

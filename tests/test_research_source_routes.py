@@ -44,6 +44,19 @@ def route_errors(root: Path) -> list[str]:
     return errors
 
 
+def research_gate_errors(entry: str, intake: str) -> list[str]:
+    """Reject losing either the current closure gates or intake return route."""
+    entry, intake = (" ".join(text.split()) for text in (entry, intake))
+    checks = {
+        "portable-first": "Query the portable corpus, then use the configured curated external source" in entry,
+        "no-local-exhaustion": "do not require local ideas to be exhausted" in entry,
+        "pre-closure": "Before declaring a plausible surface exhausted, use this ladder" in entry,
+        "no-startup-tax": "Do not make external retrieval a startup ritual" in entry,
+        "intake-to-owner": "Load `research-knowledge-management`, then its `references/research-source-map.md`" in intake,
+    }
+    return [label for label, ok in checks.items() if not ok]
+
+
 class ResearchSourceRoutesTest(unittest.TestCase):
     def test_source_map_and_intake_are_discoverable(self):
         self.assertEqual(route_errors(ROOT), [])
@@ -92,6 +105,17 @@ class ResearchSourceRoutesTest(unittest.TestCase):
             hunt = fixture / "skills/hunt/SKILL.md"
             hunt.write_text(hunt.read_text().replace("`research-knowledge-management` and its source map", "research"))
             self.assertIn("skills/hunt/SKILL.md", route_errors(fixture))
+
+    def test_policy_gates_and_intake_return_route_fail_when_removed(self):
+        entry = (SKILLS / "research-knowledge-management/SKILL.md").read_text()
+        intake = (SKILLS / "research-source-intake/SKILL.md").read_text()
+        self.assertEqual(research_gate_errors(entry, intake), [])
+        no_local_first = entry.replace("Query the portable corpus, then use the configured curated external source", "Choose a source")
+        self.assertIn("portable-first", research_gate_errors(no_local_first, intake))
+        no_closure = entry.replace("Before declaring a plausible surface exhausted, use this ladder", "No closure gate")
+        self.assertIn("pre-closure", research_gate_errors(no_closure, intake))
+        no_return = intake.replace("Load `research-knowledge-management`, then its", "Open anything")
+        self.assertIn("intake-to-owner", research_gate_errors(entry, no_return))
 
     def test_use_cases_access_and_boundaries_are_present(self):
         mapping = " ".join((SKILLS / "research-knowledge-management/references/research-source-map.md").read_text().split())

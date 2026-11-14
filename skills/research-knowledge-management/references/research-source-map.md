@@ -28,9 +28,10 @@ source, load `research-source-intake` and update this map after review.
   write-up retrieval. Its [about page](https://hexbrainai.com/about) says the
   index comes from `hackerone-reports` and links to original H1 reports. Some
   classifications are title-derived, and not every write-up is stored. Public
-  browse is available; the [API description](https://hexbrainai.com/api/v1/openapi.json)
-  advertises bearer-authenticated API and MCP tools, but authenticated
-  operations and local integration have not been verified. UI browsing is an
+  browse is available; its [API description](https://hexbrainai.com/api/v1/openapi.json)
+  advertises bearer-authenticated API operations, and the site's connect dialog
+  lists an MCP endpoint. Authenticated operations and local integration have
+  not been verified. UI browsing is an
   option; do not claim a configured client, rate, or completeness. Consider
   similar cases as creative hypotheses, not a list of target vulnerabilities.
   See `references/source-evaluations/hexbrain.md` in this skill for the bounded

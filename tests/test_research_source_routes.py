@@ -36,6 +36,8 @@ class ResearchSourceRoutesTest(unittest.TestCase):
     def test_source_map_and_intake_are_discoverable(self):
         self.assertEqual(route_errors(ROOT), [])
         entry = (SKILLS / "research-knowledge-management" / "SKILL.md").read_text()
+        goal = (SKILLS / "bug-goals" / "SKILL.md").read_text()
+        self.assertIn("`research-knowledge-management` and its on-demand source map", goal)
         for ref in re.findall(r"`(references/[^`]+\.md)`", entry):
             self.assertTrue((SKILLS / "research-knowledge-management" / ref).is_file(), ref)
 
@@ -63,7 +65,7 @@ class ResearchSourceRoutesTest(unittest.TestCase):
             "MapStore", "ResearchMap", "HexBrain", "Preview", "PortSwigger",
             "PayloadsAllTheThings", "program-finder", "technology-research",
             "authenticated", "have not been verified", "safe-fetch",
-            "not target safety", "not a mandatory sequence",
+            "not target safety", "Applicable policy still owns research and closure",
         ):
             self.assertIn(text, mapping)
         intake = (SKILLS / "research-source-intake/SKILL.md").read_text()

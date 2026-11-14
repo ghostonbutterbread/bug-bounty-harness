@@ -1,11 +1,12 @@
 ---
 name: research-knowledge-management
-description: Build and operate durable, queryable security-research knowledge systems that separate portable mechanisms, target facts, hunt narrative, and external source discovery.
+description: Choose security-research sources and manage reusable knowledge.
 ---
 
 # Research Knowledge Management
 
-Use when converting security write-ups, advisories, code-research notes, or repeated hunt lessons into durable knowledge agents can retrieve without bloating vulnerability skills.
+Use when choosing security-research sources or converting write-ups, advisories,
+code-research notes, or hunt lessons into durable, retrievable knowledge.
 
 ## Core Model
 
@@ -21,10 +22,12 @@ Do not turn raw write-ups into target facts. Do not paste a large research corpu
 
 When choosing where to research an observed feature, mechanism, obstacle, or
 technology, consult `references/research-source-map.md`. Select resources by the
-question and evidence, not a mandatory source order; combine them when useful.
+question and evidence; combine them when useful and retain applicable policy
+requirements for research before closure.
 When evaluating a new source or adding one to the map, load
-`research-source-intake`. It owns the source-evaluation method; this skill still
-owns portable mechanism admission and the map.
+`research-source-intake`. It owns the comparative security-usecase review;
+`web-data-source-analysis` provides detailed public-web transport analysis when
+available. This skill still owns portable mechanism admission and the map.
 
 For an explicit product-class literature/threat-map request, load
 `references/functionality-first-writeup-synthesis.md`. It gives the on-demand

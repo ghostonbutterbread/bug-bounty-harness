@@ -10,6 +10,9 @@ write-up collection, dataset, or reference to the hunting toolkit. This is an
 on-demand subskill of `research-knowledge-management`, not a startup ritual.
 Investigate whether it adds useful questions, examples, or coverage over the
 existing source map; do not assume an interesting site needs integration.
+`web-data-source-analysis`, when available, owns the reusable detailed
+transport/provenance analysis of public web sources; this subskill adds the
+security-hunt comparison and maps the result into existing research ownership.
 
 ## Evaluate
 

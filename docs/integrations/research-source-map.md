@@ -1,6 +1,6 @@
 # Hunt research source map integration dossier
 
-- **Status:** feature, independent review pending
+- **Status:** independently reviewed, beta integration pending
 - **Owner:** Hermes; Kanban `t_afa2f5cd`
 - **Branch:** `bug-bounty-harness/t_afa2f5cd-map-hunt-research-resources-and-source-i`
 - **Base commit:** `695d17be9e5f837a5b4d9b2da620f8aebce0cb14`
@@ -31,7 +31,8 @@ actual client are explicitly unverified.
   response limitation. Independent route review found missing routes and an
   absent HexBrain receipt; fixes are in `804c5aa4`. Re-review identified an
   OpenAPI/MCP attribution error and missing research-gate regression checks;
-  corrected in `563fb69c`. Independent re-review pending.
+  corrected in `563fb69c`. Independent re-review accepted the source candidate,
+  with four file-based scenario walks; these are not model/runtime verification.
 - Actual fresh runtime projection: pending after reviewed integration.
 - Beta merge/ancestry check and broader focused tests: pending.
 
@@ -47,9 +48,9 @@ must be checked after an independently reviewed and integrated source change.
 - **Owning feature branch/ref:** as above.
 - **Latest immutable recovery checkpoint:** `563fb69c7914249b5a55d44c4945aa9e176302c8`; current branch adds a later dossier-only checkpoint.
 - **Feature implementation commit(s):** `37b8693ef8f99fbc235ffbd8e099e3af15b12b0e`, `832cd7b6a7f88bcdf89dcfb64301499cf014b7b6`, `804c5aa4047a2f21b50d3f37375d595997299485`, `563fb69c7914249b5a55d44c4945aa9e176302c8`.
-- **Exact resume point:** obtain independent
-  reviewer findings, resolve them, rerun route tests, commit branch, then review
-  beta merge and activation separately.
+- **Exact resume point:** review the current beta state, merge the reviewed
+  feature without this branch-local dossier, rerun focused tests and verify
+  publication and runtime projection separately.
 - **Working-tree state:** dossier-only update pending commit.
 
 ## Decision gates

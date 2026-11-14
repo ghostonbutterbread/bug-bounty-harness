@@ -36,6 +36,9 @@ false-positive and duplicate risks
 
 ## Procedure
 
+When choosing research sources for the component question, load
+`research-knowledge-management` and its source map.
+
 1. Retrieve primary vendor, maintainer, or authoritative research sources with
    `safe-fetch`; preserve source URL and evidence artifact.
 2. Separate documented vulnerability conditions from observed target facts.

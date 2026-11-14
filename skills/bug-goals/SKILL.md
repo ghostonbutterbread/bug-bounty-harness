@@ -225,7 +225,9 @@ information gain, impact fit, ownership/scope safety, freshness, and overlap.
 ## Contextual research router
 
 Retrieval is not a fixed staircase. Choose the source that answers the current
-question:
+question; when selecting external research sources, load
+`research-knowledge-management` and its on-demand source map. Preserve the
+applicable research and conclusion gates in the governing policy:
 
 - **MapStore:** concrete target facts, tested state, dedupe, coverage, defenses,
   and target-specific gadget context. Query with an explicit intent after a

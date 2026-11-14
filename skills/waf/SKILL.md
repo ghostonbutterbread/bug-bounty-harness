@@ -49,7 +49,9 @@ feature-specific knowledge and ideas; no WAF block is needed to consult it.
    bounded, fingerprint-led source research (`technology-research`; for XSS use
    `xss-technology-research`) before another family. Compare upstream docs,
    source, and relevant research with observed conditions; no local card or
-   search result is not a negative target finding. When research remains thin,
+   search result is not a negative target finding. When selecting external
+   analogues, load `research-knowledge-management` and its source map, including
+   protection-indexed reports. When research remains thin,
    return to a distinct empirical discriminator rather than stalling or spraying.
 5. **Test and learn:** Change one causal factor where feasible, keep a green
    control, and compare block → actual origin behavior → class-specific consumer

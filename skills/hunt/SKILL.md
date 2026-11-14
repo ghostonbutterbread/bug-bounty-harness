@@ -11,6 +11,9 @@ class-neutral runtime understanding and complementary source/technology lenses.
 questions. Start from the current surface or a strong lead and connect
 observations as you go; a complete map, code inventory, or research sweep is not
 a prerequisite. Explicitly offline or collection-only work stays in scope.
+When an actual research question needs outside ideas or technical context, load
+`research-knowledge-management` and its source map to select useful sources;
+existing policy still owns research and conclusion gates.
 
 ## Invocation
 ```

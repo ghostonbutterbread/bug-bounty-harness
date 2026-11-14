@@ -33,6 +33,8 @@ source, load `research-source-intake` and update this map after review.
   operations and local integration have not been verified. UI browsing is an
   option; do not claim a configured client, rate, or completeness. Consider
   similar cases as creative hypotheses, not a list of target vulnerabilities.
+  See `references/source-evaluations/hexbrain.md` in this skill for the bounded
+  public inspection and the explicitly untested capability and comparison gaps.
 - **Another disclosed-report index?** The [Disclosure Index](https://bug-bounty-disclosures.vercel.app/)
   was previously reviewed as a static JavaScript catalog, not the API it
   advertises; the tested API routes returned 404. Current availability and

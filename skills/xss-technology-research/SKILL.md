@@ -24,6 +24,8 @@ Query local ResearchMap first, then bounded current sources when local knowledge
 is thin or external information can distinguish the next branch. Do not use a
 broad query such as "React XSS" or "Cloudflare bypass" without the observed
 renderer, context, transform, or control question.
+When selecting external sources for that question, load
+`research-knowledge-management` and its source map.
 
 Read `skills/xss/references/research-card-integration.md` for evidence ownership,
 retrieval, and card-admission detail.

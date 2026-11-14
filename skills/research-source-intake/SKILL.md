@@ -16,8 +16,8 @@ security-hunt comparison and maps the result into existing research ownership.
 
 ## Evaluate
 
-1. **Locate and compare.** Read the source-use map in
-   `research-knowledge-management/references/research-source-map.md`; identify
+1. **Locate and compare.** Load `research-knowledge-management`, then its
+   `references/research-source-map.md` source-use map; identify
    its closest existing source and concrete questions it might answer better,
    differently, or not at all. Distinguish primary source, discovery index,
    synthesis, payload/check reference, and owned target or portable knowledge.

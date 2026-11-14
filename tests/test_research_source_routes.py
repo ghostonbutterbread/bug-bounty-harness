@@ -5,6 +5,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "skills"
+ENTRY_ROUTES = (
+    "hunt", "bug-goals", "waf", "xss-technology-research",
+    "rce-technology-research", "vulnerability-patch-research",
+)
 
 
 def route_errors(root: Path) -> list[str]:
@@ -13,22 +17,30 @@ def route_errors(root: Path) -> list[str]:
     intake = skills / "research-source-intake" / "SKILL.md"
     mapping = skills / "research-knowledge-management" / "references" / "research-source-map.md"
     registry = root / "SKILL_REGISTRY.md"
-    required = [entry, intake, mapping, registry]
+    paths = [skills / name / "SKILL.md" for name in ENTRY_ROUTES]
+    receipt = skills / "research-knowledge-management/references/source-evaluations/hexbrain.md"
+    required = [entry, intake, mapping, registry, receipt, *paths]
     missing = [str(p.relative_to(root)) for p in required if not p.is_file()]
     if missing:
         return missing
-    e, i, m, r = (p.read_text(encoding="utf-8") for p in required)
+    e, i, m, r = (p.read_text(encoding="utf-8") for p in required[:4])
     errors = []
     for token, text in (
         ("`references/research-source-map.md`", e),
         ("`research-source-intake`", e),
         ("name: research-source-intake", i),
-        ("research-knowledge-management/references/research-source-map.md", i),
+        ("`references/research-source-map.md`", i),
+        ("`research-knowledge-management`", i),
         ("| **research-source-intake** |", r),
         ("research-source-intake", m),
+        ("references/source-evaluations/hexbrain.md", m),
     ):
         if token not in text:
             errors.append(token)
+    for path in paths:
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        if "`research-knowledge-management` and its source map" not in text and "`research-knowledge-management` and its on-demand source map" not in text:
+            errors.append(str(path.relative_to(root)))
     return errors
 
 
@@ -51,6 +63,8 @@ class ResearchSourceRoutesTest(unittest.TestCase):
                 "skills/research-knowledge-management/SKILL.md",
                 "skills/research-source-intake/SKILL.md",
                 "skills/research-knowledge-management/references/research-source-map.md",
+                "skills/research-knowledge-management/references/source-evaluations/hexbrain.md",
+                *(f"skills/{name}/SKILL.md" for name in ENTRY_ROUTES),
             ):
                 dest = fixture / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -58,6 +72,26 @@ class ResearchSourceRoutesTest(unittest.TestCase):
             self.assertEqual(route_errors(fixture), [])
             (fixture / "skills/research-knowledge-management/references/research-source-map.md").unlink()
             self.assertTrue(route_errors(fixture))
+
+    def test_missing_upstream_hunt_pointer_fails_route_validation(self):
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            fixture = Path(d)
+            for rel in (
+                "SKILL_REGISTRY.md", "skills/research-knowledge-management/SKILL.md",
+                "skills/research-source-intake/SKILL.md",
+                "skills/research-knowledge-management/references/research-source-map.md",
+                "skills/research-knowledge-management/references/source-evaluations/hexbrain.md",
+                *(f"skills/{name}/SKILL.md" for name in ENTRY_ROUTES),
+            ):
+                dest = fixture / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / rel, dest)
+            self.assertEqual(route_errors(fixture), [])
+            hunt = fixture / "skills/hunt/SKILL.md"
+            hunt.write_text(hunt.read_text().replace("`research-knowledge-management` and its source map", "research"))
+            self.assertIn("skills/hunt/SKILL.md", route_errors(fixture))
 
     def test_use_cases_access_and_boundaries_are_present(self):
         mapping = " ".join((SKILLS / "research-knowledge-management/references/research-source-map.md").read_text().split())

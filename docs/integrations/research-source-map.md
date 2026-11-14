@@ -6,8 +6,8 @@
 - **Base commit:** `695d17be9e5f837a5b4d9b2da620f8aebce0cb14`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-13
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `37b8693e` (full ID resolved by Git)
+- **Feature implementation commit(s):** `37b8693e`
 - **Inspiration / canonical references:** user request in Discord thread `1570852823703355542`; existing research-knowledge-management and source-selection policy.
 
 ## Intent and implemented contract
@@ -38,12 +38,12 @@ must be checked after an independently reviewed and integrated source change.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** as above.
-- **Latest immutable recovery checkpoint:** none yet; commit before handoff.
-- **Feature implementation commit(s):** none yet.
+- **Latest immutable recovery checkpoint:** `37b8693e`; current branch adds a later dossier-only checkpoint.
+- **Feature implementation commit(s):** `37b8693e`.
 - **Exact resume point:** integrate parallel inventory, obtain independent
   reviewer findings, resolve them, rerun route tests, commit branch, then review
   beta merge and activation separately.
-- **Working-tree state:** intentionally uncommitted while integrating evidence.
+- **Working-tree state:** dossier-only update pending commit.
 
 ## Decision gates
 

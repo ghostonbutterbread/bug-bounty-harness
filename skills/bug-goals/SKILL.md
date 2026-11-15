@@ -242,9 +242,9 @@ applicable research and conclusion gates in the governing policy:
 - **Specialist skill:** a confirmed or likely class/component boundary with a
   concrete target hypothesis.
 
-External material is hypothesis input, never proof of target behavior. Convert it
-into one explicit, scoped target hypothesis and use the smallest meaningful
-safety-compliant discriminator.
+External material is hypothesis input, never proof of target behavior. Preserve
+each materially distinct, grounded hypothesis; prioritize a scoped,
+safety-compliant discriminator while retaining other plausible branches.
 
 Before declaring a structurally plausible goal-run line exhausted, ensure the
 relevant input treatment and consumers are understood, representative distinct

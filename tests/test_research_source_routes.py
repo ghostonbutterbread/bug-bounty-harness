@@ -130,6 +130,29 @@ class ResearchSourceRoutesTest(unittest.TestCase):
         for text in ("at least", "existing resource", "needs-access", "needs-verification", "private reports", "not target proof"):
             self.assertIn(text, intake)
 
+    def test_open_research_and_behavior_synthesis_are_discoverable(self):
+        mapping = " ".join((SKILLS / "research-knowledge-management/references/research-source-map.md").read_text().split())
+        for text in (
+            "not an exhaustive list or an allowlist", "X (Twitter)",
+            "public reports", "open web", "target behavior",
+            "alternative explanation", "hypothesis", "no fixed idea cap",
+            "availability depends on the actual runtime", "do not send private",
+            "not a prerequisite for ordinary search",
+        ):
+            self.assertIn(text, mapping)
+
+    def test_goal_router_preserves_distinct_research_hypotheses(self):
+        goal = " ".join((SKILLS / "bug-goals/SKILL.md").read_text().split())
+        self.assertIn("each materially distinct, grounded hypothesis", goal)
+        self.assertNotIn("Convert it into one explicit, scoped target hypothesis", goal)
+
+    def test_x_discovery_requires_pre_context_quarantine(self):
+        mapping = " ".join((SKILLS / "research-knowledge-management/references/research-source-map.md").read_text().split())
+        self.assertIn("Do not call `x_search` directly into agent context", mapping)
+        self.assertIn("pre-context quarantine", mapping)
+        self.assertIn("search result URLs without returning snippets", mapping)
+        self.assertIn("`safe-fetch`", mapping)
+
 
 if __name__ == "__main__":
     unittest.main()

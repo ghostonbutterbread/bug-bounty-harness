@@ -20,10 +20,12 @@ Keep five distinct layers:
 
 Do not turn raw write-ups into target facts. Do not paste a large research corpus into every agent prompt.
 
-When choosing where to research an observed feature, mechanism, obstacle, or
-technology, consult `references/research-source-map.md`. Select resources by the
-question and evidence; combine them when useful and retain applicable policy
-requirements for research before closure.
+When researching or expanding hypotheses around a feature, mechanism, obstacle,
+or technology, consult `references/research-source-map.md` when source selection
+could help. Select resources by the question and evidence; combine them with
+observed behavior when useful and retain applicable policy requirements for
+research before closure. An observation can also inspire an idea without an
+external source; neither a research sweep nor this map is a hunt-start gate.
 When evaluating a new source or adding one to the map, load
 `research-source-intake`. It owns the comparative security-usecase review;
 `web-data-source-analysis` provides detailed public-web transport analysis when

@@ -12,6 +12,14 @@ manually.
 This skill does not launch the browser. Use `chromium-test` first, then attach
 this handoff server to the existing CDP endpoint.
 
+For a login handoff, if the selected account's saved credentials are available,
+securely prefill the login fields in the same task browser when the available
+vault/browser tools support it. Keep secrets out of agent output; never direct
+secret entry through the screenshot handoff's unmasked text box. Do not navigate
+away from an existing CAPTCHA just to fill the form. If secure prefill is
+unavailable, say what remains for Ryushe; hand over the existing browser,
+pause, and continue in that session after he completes the CAPTCHA and login.
+
 ## Handoff Selection Rule
 
 For login, password entry, MFA, OAuth popups, wallet approval, CAPTCHA, or any
@@ -134,13 +142,12 @@ assume an ACL change is authorized.
    Use a different free local port only when `<handoff_port>` is already used on
    Ryushe's workstation. On macOS use `open` rather than `xdg-open`.
 5. Pause automation until Ryushe says to continue.
-6. On resume/end, first withdraw this task's Tailscale route, then stop the
-   handoff service and task browser through their recorded owner. Verify the
-   local CDP endpoint is closed before removing the matching disposable profile:
-   ```bash
-   HANDOFF_PORT=<handoff_port> \
-     "skills/chromium-handoff/scripts/handoff_transport.sh" stop
-   ```
+6. On resume **or task end**, withdraw this task's Tailscale route with the same
+   transport settings used to publish it, and stop the screenshot handoff
+   service if one was started. On resume, retain the task browser, its display,
+   and proxy while continuing work. At task end, stop them through their
+   recorded owners and verify the local CDP endpoint is closed before removing
+   the matching disposable profile.
 
 ## Failure and Fallback
 

@@ -7,8 +7,8 @@
 - **Base commit:** `a2d92142de025966e60def389935334d2470c672` (fetched `origin/beta`, supplied by parent)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-16
-- **Latest immutable recovery checkpoint:** `a2d92142de025966e60def389935334d2470c672` (base; implementation commit pending)
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `a53b723d23c7defbd6ba5018781ef57761cb3b0d`
+- **Feature implementation commit(s):** `a53b723d23c7defbd6ba5018781ef57761cb3b0d`
 - **Canonical references:** BBH `skills/mullvad/SKILL.md`; General Skills `script-manager` skill and its `scripts/README.md` index.
 
 ## Intent and implemented contract
@@ -33,9 +33,9 @@ Route agents to the General Skills `egress_inspect.py` as an optional read-only 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/vpn-manager-inspect-routing`
-- **Latest immutable recovery checkpoint:** base above; update after implementation commit.
+- **Latest immutable recovery checkpoint:** `a53b723d23c7defbd6ba5018781ef57761cb3b0d`; check the current branch tip for this dossier-only handoff update.
 - **Exact resume point:** verify released provider/index, obtain independent review, compare current beta, and rerun focused isolation tests; do not merge, push, or activate before those gates.
-- **Working-tree state at handoff:** to be recorded after checkpoint.
+- **Working-tree state at handoff:** clean after the dossier-only handoff commit; verify with `git status` when resuming.
 
 ## Decision gates
 

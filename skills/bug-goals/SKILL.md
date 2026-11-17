@@ -71,6 +71,10 @@ consumer, stale review, or unassessed sibling remains open until evidence
 resolves it. Specialist skills decide the next discriminator, including defense
 or multi-step research; Coverage does not prescribe a payload or stop quota.
 Preserve strong warm/hot work rather than interrupting it to satisfy breadth.
+When pausing, hand off the IDs of material open leads and their remaining
+questions, next discriminators or prerequisites, and wake conditions. A packet
+budget, rotation, or time limit explains the pause, not a negative verdict; keep
+evidence in its owning store and do not imply all consumer paths were reviewed.
 
 Record the parent decision in the explicit run artifact, after `init`:
 

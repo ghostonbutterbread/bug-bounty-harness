@@ -106,7 +106,12 @@ not a reason to load the findings `/ledger` skill.
    `--boundary`, at least one `--axis`, and supporting evidence. It describes
    only that path/class/version, **not** a negative vulnerability verdict or
    permission to stop XSS specialist work. An inert HTTP reflection is not a
-   bounded XSS review or a generic blocker.
+   bounded XSS review or a generic blocker. Name the axes actually reviewed and
+   material untested siblings in the reason or handoff; distinguish evidence
+   about a specific consumer from an unresolved later consumer. A run or packet
+   stopping does not turn `in_progress` into a negative result. Use the
+   observation appropriate to the claim: browser evidence for browser behavior,
+   or the class-specific server, callback, state, or tool evidence for its claim.
 
    ```bash
    bbh agents/coverage.py assess --program {program} --family web_bounty \

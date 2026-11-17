@@ -33,9 +33,13 @@ possible next processors and owned consumers
 account/resource ownership and cleanup state
 ```
 
-Do not discard a canary after its first response. When direct observation,
-browser exploration, proxy evidence, JavaScript mapping, or an owned consumer
-shows the marker later or differently, reopen or branch the concrete XSS
+Do not discard a canary after its first response. A negative observation for one
+consumer and fingerprint does not establish the behavior of other consumers.
+Keep an evidence-backed, relevant unresolved consumer question and its wake
+condition with the producer lineage; it is a watch item, not a reason to keep a
+run alive or create a lead for every stored value. When direct observation,
+browser exploration, proxy evidence, JavaScript mapping, a changed app, or an
+owned consumer exposes a new relevant path, reopen or branch the concrete XSS
 hypothesis with that evidence.
 
 ## Expansion Loop

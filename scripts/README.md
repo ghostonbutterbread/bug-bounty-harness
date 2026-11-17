@@ -32,6 +32,7 @@ checkout-local interpreter.
 - [BountyLens](../skills/bountylens/scripts/README.md)
 - [Chromium Handoff](../skills/chromium-handoff/scripts/README.md)
 - [Chromium Test](../skills/chromium-test/scripts/README.md)
+- [Nebula Browser Lane](../skills/nebula-browser-lane/scripts/README.md)
 - [Proxy Curl](../skills/proxy-curl/scripts/README.md)
 - [Stack to Program](../skills/stack-to-program/scripts/README.md)
 - [XSS](../skills/xss/scripts/README.md)

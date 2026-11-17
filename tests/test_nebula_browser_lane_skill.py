@@ -31,11 +31,16 @@ def test_nebula_lane_replaces_portafort_facts() -> None:
     assert "nebula_ed25519" in text
     assert "SHA256:F0GSROTz2q14wRX9TxfuRyRGEQTmRg+uIERSMrgAJnM" in text
     assert "/tmp/nebula-lane.lock" in text
-    assert "/tmp/nebula-lane.ready" in text
-    assert "grep -qx" in text
+    assert "bbh skills/nebula-browser-lane/scripts/hold_lane.py" in text
+    assert "nebula lane lock held" in text
+    assert "still-running SSH" in text
     assert "ssh -f" not in _bash_blocks(text)
-    assert 'ssh nebula \'pkill -f "[u]ser-data-dir=$HOME/AI/nebula-lane"' in text
-    assert 'ssh nebula \'rm -rf "$HOME/AI/nebula-lane"\'' in text
+    assert 'systemd-run --user' in text
+    assert 'journalctl --user' in text
+    assert 'systemctl --user stop "$unit"' in text
+    assert 'not atomic proof' in " ".join(text.split())
+    assert 'pkill' not in _bash_blocks(text)
+    assert 'rm -rf' not in _bash_blocks(text)
     joined = " ".join(text.split())
     assert "does not replace `chromium-handoff`" in joined
     assert "Do not drop Mullvad, change egress to beat the challenge, or evade rate controls." in joined

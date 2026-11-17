@@ -73,41 +73,75 @@ it stays connected, and only inside the hard requirement below.
 
 ## Lock + CDP tunnel (one SSH, hold for the whole segment)
 
-Run this with bash on the harness host, not on a machine that lacks the
-`nebula` key. Do not use `ssh -f`: it returns 0 before the remote `flock`
-status is known, so a held lock looks successful and the session pid is lost.
+Run the holder **on Hoster**, the host with the Nebula key. An OMP or other
+agent already running on Hoster can launch it as a task-owned foreground service
+under Hoster's user manager (load `hoster-ssh` first). The foreground command is
+`bbh skills/nebula-browser-lane/scripts/hold_lane.py`. Record the exact unit and
+resolved BBH executable; do not launch it with a bare SSH background command.
+Check for an existing matching task-owned unit before starting a replacement.
+
+On Hoster, in the agent's shell:
 
 ```bash
-token=$(python3 -c 'import secrets; print(secrets.token_hex(8))')
-ssh -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-  -L 9333:127.0.0.1:9333 nebula \
-  "flock -n /tmp/nebula-lane.lock sh -c 'echo $token > /tmp/nebula-lane.ready; exec sleep infinity'" &
-lane_pid=$!
-ready=0
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  if ! kill -0 "$lane_pid" 2>/dev/null; then
-    wait "$lane_pid"
-    echo "nebula lane locked; defer"
-    exit 1
-  fi
-  if ssh -o BatchMode=yes -o ConnectTimeout=5 nebula "grep -qx '$token' /tmp/nebula-lane.ready"; then
-    ready=1
-    break
-  fi
-  sleep 0.5
-done
-if [ "$ready" != 1 ]; then
-  kill "$lane_pid" 2>/dev/null || true
-  wait "$lane_pid" 2>/dev/null || true
-  echo "nebula lane locked; defer"
-  exit 1
-fi
-echo "nebula lane lock held by pid $lane_pid"
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+unit="hoster-nebula-lane-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+bbh_bin="$(command -v bbh)" || { echo 'bbh not found on Hoster' >&2; exit 1; }
+printf 'Record unit=%s bbh=%s\n' "$unit" "$bbh_bin"
+"$bbh_bin" --root
 ```
 
-Record `lane_pid`. Lock lifetime = that SSH process. If it dies, the lock
-releases — re-acquire honestly. Do not start a second `flock` or a duplicate
-`-L`. If the pid is lost, do not kill unrelated SSH sessions to recover it.
+Confirm the printed checkout is the intended reviewed lane before dispatch:
+
+```bash
+systemd-run --user --unit="$unit" --property=MemoryHigh=2G \
+  --property=MemoryMax=3G --property=CPUWeight=100 -- \
+  "$bbh_bin" skills/nebula-browser-lane/scripts/hold_lane.py
+```
+
+From a different machine, use `hoster-ssh`'s `hoster_user_unit.py` helper to
+dispatch the same foreground command, not an invented OMP spawn command. First
+use its bounded SSH inspection to discover Hoster's absolute `bbh` executable
+and verify the selected checkout with `bbh --root`. Then, on the controller,
+substitute that observed path for `/absolute/hoster/path/to/bbh`:
+
+```bash
+HELPER="$HOME/.hermes/synced-skills/hoster-ssh/scripts/hoster_user_unit.py"
+unit="hoster-nebula-lane-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+python3 "$HELPER" --unit="$unit" -- /absolute/hoster/path/to/bbh \
+  skills/nebula-browser-lane/scripts/hold_lane.py
+printf 'Record unit=%s\n' "$unit"
+```
+
+Inspect the recorded unit on Hoster (restore `unit` to the exact recorded value
+in a new shell). From elsewhere, run these bounded commands through the
+`hoster-ssh` inspection route. Check `ControlGroup` is below the user manager,
+not `ssh.service`, and that `ActiveState=active`:
+
+```bash
+systemctl --user show "$unit" -p ActiveState -p ControlGroup -p MainPID
+journalctl --user -u "$unit" --no-pager -n 50
+```
+
+Wait for `nebula lane lock held (ssh pid ...)` in that unit's journal before
+starting Chrome or target work. The holder keeps SSH stdin open, and the remote
+`flock -n -E 73 /tmp/nebula-lane.lock` command prints a random readiness token
+on the SSH stream only after acquisition, then reads until stdin EOF. The helper
+checks that token, reports a conflict or connection/forwarding/readiness error,
+and exits if SSH exits. A busy local port can fail before the remote flock is
+attempted; do not call every SSH failure a lock conflict. On SSH disconnect the
+remote read reaches EOF and releases its lock once the server observes the
+disconnect; a partition can delay detection. Never remove or replace the lock
+file. Do not start a second `flock` or duplicate `-L` after readiness.
+
+The readiness token proves acquisition at that instant; a live local unit or
+SSH PID is **not atomic proof** of continuing remote ownership. Loss can race a
+separate remote command or its cleanup. If the unit exits, connection state is
+uncertain, or ownership cannot be established, stop lane work and preserve the
+ambiguous state; do not kill other SSH processes or touch another owner's
+resources. A still-running SSH holder may retain the lock after an agent
+abandons it: this is not idle detection or an idle timeout. Explicitly stop the
+recorded unit at the end.
 
 ## Headed Chrome (dedicated profile, loopback CDP)
 
@@ -132,27 +166,29 @@ relaunch the same command with `WAYLAND_DISPLAY=wayland-0` added to the
 
 ## Cleanup
 
-Close Playwright on the harness host. Quit only the lane Chrome on Nebula,
-then stop the recorded tunnel pid. The `[u]` in the pattern keeps `pkill`
-from matching its own command line.
+Close Playwright on Hoster. Separate Nebula SSH commands have no established
+atomic remote-owner guarantee if lock loss or a replacement owner races them.
+Therefore do **not** automatically kill Chrome, delete its profile, remove the
+lock inode, or remove the old readiness file based on a local PID/unit check.
+Preserve and record leftovers; if remote ownership is uncertain, stop and
+coordinate safe cleanup with the owner. In particular, do not touch another
+owner's session.
+
+Stop only this task's exact recorded Hoster unit, then inspect its state and
+journal for exit (use the `hoster-ssh` bounded inspection/stop route from a
+controller). Restore `unit` to the recorded value in a new shell:
 
 ```bash
-ssh nebula 'pkill -f "[u]ser-data-dir=$HOME/AI/nebula-lane" || true'
-ssh nebula "grep -qx '$token' /tmp/nebula-lane.ready && rm -f /tmp/nebula-lane.ready"
-kill "$lane_pid" 2>/dev/null || true
-wait "$lane_pid" 2>/dev/null || true
+systemctl --user stop "$unit"
+systemctl --user show "$unit" -p ActiveState -p ControlGroup
+journalctl --user -u "$unit" --no-pager -n 50
 ```
 
-Leave the owner's personal Chrome, Firefox, Plasma, and Mullvad running.
-When the engagement closes, remove the lane directory on Nebula, not on the
-harness:
-
-```bash
-ssh nebula 'rm -rf "$HOME/AI/nebula-lane"'
-```
-
-Note final relay location and any leftovers in run notes before releasing the
-lock.
+Stopping the unit closes the local SSH transport; remote lock release depends
+on the server observing EOF/disconnect and is not proved by the local exit.
+Do not reset, restart, or stop any other unit. Leave the owner's personal
+Chrome, Firefox, Plasma, and Mullvad running. Record the final relay, uncertain
+remote lock state, and leftovers in run notes.
 
 ## Not for
 
@@ -182,3 +218,7 @@ Write the handoff note under
 Record the site, what the human was asked to click, Mullvad relay confirmed
 inside Chrome, lock acquire/release, and leftovers. Do not record cookies,
 passwords, or the SSH private key.
+
+## Scripts
+
+See the [script index](scripts/README.md) for the lane lock/tunnel holder.

@@ -1,6 +1,6 @@
 # VPN manager inspection routing integration dossier
 
-- **Status:** blocked — provider release and independent review pending
+- **Status:** independently reviewed; provider published, beta integration pending
 - **Owner:** Hermes, delegated BBH routing worker
 - **Branch / owning feature ref:** `feat/vpn-manager-inspect-routing`
 - **Worktree:** `/home/ryushe/worktrees/bbh-vpn-manager-inspect-routing`
@@ -21,14 +21,14 @@ Route agents to the General Skills `egress_inspect.py` as an optional read-only 
 - GREEN: the same command passed, one test. Both invocations ran as subprocesses with private scratch `HOME`, XDG directories, and `TMPDIR`, under inherited libseccomp network denial; a child socket probe confirmed `EPERM`. No VPN or network state was touched.
 - Baseline preservation: a local `git show` comparison after removing the inserted paragraph showed every byte of the original Mullvad skill was unchanged. `git diff --check` passed.
 - Full suite was not run; the focused test exercises the documentation routing contract only. Actual helper discovery/execution and active runtime verification remain deferred to the released provider; no live-network test was attempted.
-- Independent review: pending. The General Skills helper was not present in the provider checkout at this worker's inspection, so its interface and release cannot yet be verified here.
-- Beta ancestry: task branch starts at supplied fetched `origin/beta` base above. No subsequent fetch was performed because this task forbids network operations.
+- Independent review accepted the BBH route while finding a cwd-dependent provider usage command. The provider corrected that issue; independent re-review approved it and passed seven provider tests and this routing test under network denial. General Skills beta published `448e02a2efcd8a7f9140a2f9c0b6175eb34ff3db`; parent verified remote readback, seven inspector tests, 11 script-policy tests, and an actual read-only invocation through the Ghost projected helper from the BBH cwd. This is not public egress or rotation evidence.
+- Beta ancestry: parent fetched and confirmed the selected BBH beta and remote at `a2d92142de025966e60def389935334d2470c672`; re-fetch immediately before integration.
 
 ## Blockers and deferred work
 
-1. **Missing evidence:** released General Skills `egress_inspect.py`, its indexed discovery/usage, and representative offline fixture checks of its interface against the routing text. **Environment:** released provider checkout plus private HOME/XDG/TMPDIR and network-denied subprocess; consult the released `script-manager` index for its actual command and fixtures rather than guessing flags. **Trigger:** provider release. **Impact:** blocks beta integration and activation. **Next:** parent verifies the provider release and runs its offline fixture tests and the consumer discovery path.
-2. **Missing evidence:** independent review of the complete branch diff and test receipts. **Trigger:** provider release and complete candidate. **Impact:** blocks beta integration. **Next:** parent obtains review and resolves findings.
-3. **Missing evidence:** fresh `origin/beta` comparison and post-integration test. **Trigger:** parent has network authorization and the other gates pass. **Impact:** blocks integration, push, and activation. **Next:** parent fetches, reconciles and retests before a separately authorized integration.
+1. **Provider:** General Skills beta `448e02a2efcd8a7f9140a2f9c0b6175eb34ff3db` is published; the projected Ghost helper and the offline cross-cwd contract were verified. Hoster runtime deployment and read-only smoke remain separate.
+2. **Review:** complete for the bounded BBH route and provider cwd correction; fresh beta comparison and post-integration verification remain required.
+3. **Wider refresh:** public-IP observation and coordinated rotation are not implemented by this slice and must not be represented as active.
 
 ## Interruption / resume handoff
 

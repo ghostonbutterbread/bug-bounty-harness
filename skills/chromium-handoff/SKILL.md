@@ -142,11 +142,12 @@ assume an ACL change is authorized.
    Use a different free local port only when `<handoff_port>` is already used on
    Ryushe's workstation. On macOS use `open` rather than `xdg-open`.
 5. Pause automation until Ryushe says to continue.
-6. On resume, withdraw this task's Tailscale route with the same transport
-   settings used to publish it, and stop the screenshot handoff service if one
-   was started. Retain the task browser, its display, and proxy while continuing
-   work. At task end, stop them through their recorded owners and verify the
-   local CDP endpoint is closed before removing the matching disposable profile.
+6. On resume **or task end**, withdraw this task's Tailscale route with the same
+   transport settings used to publish it, and stop the screenshot handoff
+   service if one was started. On resume, retain the task browser, its display,
+   and proxy while continuing work. At task end, stop them through their
+   recorded owners and verify the local CDP endpoint is closed before removing
+   the matching disposable profile.
 
 ## Failure and Fallback
 

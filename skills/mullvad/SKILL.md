@@ -20,6 +20,13 @@ working tailnet SSH connection or clear the selected exit to regain access.
 
 ## Identify and preserve the current VPN manager
 
+For an optional read-only IPv4 local snapshot, load the General Skills
+`script-manager` skill and consult its `scripts/README.md` index for
+`egress_inspect.py` and its usage. It informs, but does not replace, the checks
+and gates below; it does not verify DNS, IPv6, fail-closed protection, or ISP
+exposure, and does not detect the public IP. If the helper is unavailable,
+continue the existing inspection commands; do not infer that a manager is absent.
+
 Before external traffic or any VPN action, inspect the actual egress host/path locally: `tailscale get exit-node`, `tailscale status --json`, `mullvad status -v`, and the effective IPv4/IPv6 routes as applicable. A connected tailnet alone is not an internet exit. Account for remote hosts, proxies, and containers; repeat after network changes. A verified absent manager is distinct from an installed manager whose state cannot be inspected; do not infer absence merely from a failed status command. Throughout this skill and the playbook, standalone Mullvad status, disconnect, auto-connect and GUI checks apply only if it is installed; if verified absent, skip them rather than requiring a Disconnected status. If its presence or state is uncertain, stop external traffic and ask Ryushe. Confirm that the selected Tailscale exit is online and routes the relevant traffic, or that standalone Mullvad is connected and routes it. If manager state is unknown or conflicting, stop external traffic and ask Ryushe. If a route or selected exit fails verification, stop ordinary external work; same-manager direct exit rotation remains permitted under the existing safety gates below, but ask Ryushe if recovery cannot be verified or would require a manager switch. Never silently fall back to ISP egress. This preflight is an instruction, not a kill switch.
 
 During recovery, keep ordinary work traffic paused. Only after local manager status and effective routes for the probe's address family and DNS path support the intended VPN route may a bounded, non-sensitive public DNS/egress verification probe be sent; if that cannot be established locally, do not send it and ask Ryushe. This local evidence reduces exposure risk but does not prove fail-closed protection. Resume work only after verification succeeds.

@@ -107,7 +107,16 @@ vulnerability claim.
 
 A lead is a current projection, not a write-only note. Update the same public
 lead when material evidence changes; retain attempts and prior evidence pointers
-rather than overwriting history. Every lead touched during a run receives a disposition:
+rather than overwriting history. A run ending for time, packet budget, rotation,
+or handoff is a pause, not evidence that a lead is negative or archived. Preserve
+the exact lead ID, remaining question, next discriminator or prerequisite, and
+wake condition in the handoff; keep its existing evidence linked. Scope a negative
+conclusion to the chain link, actor, action, consumer, and version actually
+observed as applicable. Unchecked siblings remain open questions, not proven
+safe. For the chain-closure decision, load `general-security-testing-policy`
+and its `references/testing-posture.md`.
+
+Every lead touched during a run receives a disposition:
 
 - **strengthened** — record new evidence and retain `active` or `candidate` as the MapStore lifecycle status;
 - **active/candidate** — still has a safe next action;

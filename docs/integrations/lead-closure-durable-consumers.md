@@ -1,14 +1,14 @@
 # Lead closure and durable consumers integration dossier
 
-- **Status:** feature; re-review and fresh-consumer verification pending
+- **Status:** feature; final correction re-review pending
 - **Owner:** Hermes, Kanban `t_15ecfb58`
 - **Branch:** `docs/lead-closure-durable-consumers`
 - **Base commit:** `66378f7d9081f39cf10fa95131e3e6db4574c0dd`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-16
 - **Owning feature branch/ref:** `docs/lead-closure-durable-consumers`
-- **Latest immutable recovery checkpoint:** `0a884150` (includes local beta `8a3c7b77`)
-- **Feature implementation commit(s):** `0dd20df2c182260e32b54319dccad024def23e84`
+- **Latest immutable recovery checkpoint:** `0570373fa95dc8e9d3034dc57563681eba8a6d3e` (includes local beta `8a3c7b77` and owner routes)
+- **Feature implementation commit(s):** `0dd20df2c182260e32b54319dccad024def23e84`, `0570373fa95dc8e9d3034dc57563681eba8a6d3e`
 - **Inspiration:** Hoster Shared seed `2026-11-16-lead-closure-durable-consumers.md`, SHA-256 `e6f9dd5e1df397b91c5b6117cdaee15bc687a8b75200608823749fb927d27423`; facet-close seed reviewed as background, not superseded.
 
 ## Intent
@@ -28,8 +28,8 @@ Coverage prompts actual axes, material unresolved siblings and claim-appropriate
 - Mixed broad tests timed out at 300s after 63 dots; Coverage/Leads suite timed out at 120s after 3 dots. The individual `agents/test_surface_coverage.py::SurfaceCoverageTests::test_brief_can_page_through_every_counted_row` exceeded 35s; cause not established. Neither timeout is a passing receipt. Re-run with a suitable environment/time budget before claiming full-suite coverage.
 - Independent complete-diff review of `0dd20df2`: no demonstrated semantic conflict; blocked on fresh-consumer behavior, stale dossier and timeout diagnosis. After review, local beta `8a3c7b77` was merged into feature at `0a884150`; it changes only unrelated Chromium handoff guidance and is not to be published as part of this work.
 - Timeout diagnosis: in isolated trials 80 `fsync` calls took 41.92 seconds on the candidate, and baseline likewise stalled. A seccomp network-fenced, scratch-only run with SQLite synchronous=OFF for parent-process fixture databases passed 80 tests and 16 subtests; parent reran and observed the same. This is not a durability test; subprocess connections were not patched.
-- Fresh Hermes CLI consumer attempt timed out after 240 seconds without an answer; no consumer pass claimed. Retry using a fresh consumer against the candidate source, and verify runtime projection separately.
-- Independent correction re-review: pending.
+- Fresh Hermes CLI consumer attempt timed out after 240 seconds without an answer. A separate fresh read-only agent consumed the exact candidate skill files and policy owners at `0570373f`; its composite stored XSS, SSRF, and open-lead pause scenario returned the intended distinct dispositions and read trace (`cache/delegation/live/deleg_6536751b/task-0.log`). That is candidate-source behavior, not runtime projection verification.
+- Independent correction review found no semantic conflicts but required deterministic route and negative-test coverage; added tests for both routes, missing reference and missing owner, plus the conditional browser route. The fenced relaxed-durability suite initially exposed a pre-existing exact-phrase assertion broken by line wrapping; restoring the phrase on one line fixed it. Re-run: 83 passed and 16 subtests; no durability claim. A final correction re-review remains pending.
 
 ## Blockers and deferred work
 
@@ -38,8 +38,8 @@ The seed's mechanical enforcement requires a separate explicit typed evidence/fa
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/lead-closure-durable-consumers`
-- **Latest immutable recovery checkpoint:** `0a884150` (includes local beta `8a3c7b77`)
-- **Feature implementation commit(s):** `0dd20df2c182260e32b54319dccad024def23e84`
+- **Latest immutable recovery checkpoint:** `0570373fa95dc8e9d3034dc57563681eba8a6d3e` (includes local beta `8a3c7b77` and owner routes)
+- **Feature implementation commit(s):** `0dd20df2c182260e32b54319dccad024def23e84`, `0570373fa95dc8e9d3034dc57563681eba8a6d3e`
 - **Exact resume point:** verify candidate consumers and review corrections; integrate locally only when gates pass, without pushing unrelated beta commits.
 - **Working-tree state at handoff:** changes committed at the next checkpoint.
 

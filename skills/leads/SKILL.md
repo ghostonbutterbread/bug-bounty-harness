@@ -114,8 +114,9 @@ wake condition in the handoff; keep its existing evidence linked. Scope a negati
 conclusion to the chain link, actor, action, consumer, and version actually
 observed as applicable. Unchecked siblings remain open questions, not proven
 safe. For the chain-closure decision, load `general-security-testing-policy`
-and its `references/testing-posture.md`. Every lead touched during a run
-receives a disposition:
+and its `references/testing-posture.md`.
+
+Every lead touched during a run receives a disposition:
 
 - **strengthened** — record new evidence and retain `active` or `candidate` as the MapStore lifecycle status;
 - **active/candidate** — still has a safe next action;

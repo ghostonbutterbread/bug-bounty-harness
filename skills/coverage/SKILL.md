@@ -112,6 +112,9 @@ not a reason to load the findings `/ledger` skill.
    stopping does not turn `in_progress` into a negative result. Use the
    observation appropriate to the claim: browser evidence for browser behavior,
    or the class-specific server, callback, state, or tool evidence for its claim.
+   For the chain-closure decision, load `general-security-testing-policy` and
+   its `references/testing-posture.md`; for browser-mediated work, also follow
+   `browser-session-policy`.
 
    ```bash
    bbh agents/coverage.py assess --program {program} --family web_bounty \

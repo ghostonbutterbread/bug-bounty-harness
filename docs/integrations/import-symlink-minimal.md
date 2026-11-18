@@ -6,7 +6,7 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-import-symlink-minimal`
 - **Base:** fetched `origin/beta` at `15a3e94d91759af8386d2e8688acb308ae691fca`
 - **Target:** `beta`; no stable promotion or runtime activation authorized
-- **Implementation / immutable recovery checkpoints:** `17034fcd9b87bc793c1850ba766b79f46e07b55d` (initial fix), `95858238a510abbeab25bc8dbfdd3ff9b144bfed` (first review correction), `cdf11030de9ce255b3b3a379beddd6533fd6ff63` (category guard, alias correction, and tested dossier); branch tip includes a later dossier-only handoff commit
+- **Implementation / immutable recovery checkpoints:** `17034fcd9b87bc793c1850ba766b79f46e07b55d` (initial fix), `95858238a510abbeab25bc8dbfdd3ff9b144bfed` (first review correction), `cdf11030de9ce255b3b3a379beddd6533fd6ff63` (category guard), `6a996f8ba40f5761ec7e7502672e5461f315a357` (explicit category-directory correction and tested dossier); branch tip includes a later dossier-only handoff commit
 - **Date:** 2026-11-17
 - **Inspiration:** real CLI false finding caused by a Core category link; the broader `fix/promo-report-source` candidate is blocked and was not transplanted.
 
@@ -57,6 +57,6 @@ Pinned and current Core both accept `fid=raw` and `reserve_finding_evidence_pack
 
 ## Handoff and gates
 
-- **Exact resume point:** parent obtains same-reviewer independent review of the complete feature range and this guard, including heuristic ownership limits, no-mutation refusal, explicit-source/alias cases, and current/pinned suite receipts. Reconcile fresh `origin/beta` if it moves. Coordinate the unresolved Core raw collision separately before claiming comprehensive collision safety.
+- **Exact resume point:** parent obtains same-reviewer independent review of the complete feature range, including the explicit category-directory correction at `6a996f8ba40f5761ec7e7502672e5461f315a357`, heuristic ownership limits, no-mutation refusal, external-source controls, and current/pinned suite receipts. Reconcile fresh `origin/beta` if it moves. Coordinate the unresolved Core raw collision separately before claiming comprehensive collision safety.
 - **Integration:** parent decision after review; reconcile fresh `origin/beta` if it moved. Dossier remains branch-local and should not land on beta.
 - **Activation/promotion:** separate authorization; raw collision remains unresolved. No shared ref merge, push, or runtime activation performed.

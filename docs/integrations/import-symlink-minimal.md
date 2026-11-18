@@ -1,6 +1,6 @@
 # Minimal report-import symlink fix integration dossier
 
-- **Status:** category guard implemented and tested; independent re-review pending; raw namespace blocker remains; not integrated
+- **Status:** explicit category-directory bypass corrected and tested; same-reviewer re-review pending; raw namespace blocker remains; not integrated
 - **Owner:** delegated BBH worker; parent owns review and integration
 - **Branch / owning ref:** `fix/import-symlink-minimal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-import-symlink-minimal`
@@ -12,14 +12,16 @@
 
 ## Implemented contract
 
-Automatic canonical reports-root discovery and scan skip category links only when their resolved targets are within this reports root and recognized by existing generated-output rules. Before source selection, hunter construction, or import, `sync_reports` checks the destination `categories/*/*.md` for symlinks not recognized by those rules. It refuses with an actionable diagnostic rather than lose or silently skip them, including when raw, home, or explicit sources would otherwise be selected. Relocating such a link outside the managed category namespace allows explicit import. Internal ordinary and dangling links are likewise refused. Explicit symlinks elsewhere remain supported. An explicit alias of the canonical reports root receives the same generated-link filtering as automatic discovery. The guard is not an atomic lock against concurrent external filesystem changes and applies to this importer, not other Core callers. Existing generated-output path/marker heuristics do not establish durable ownership of ambiguous packet-looking paths; do not claim comprehensive ownership protection.
+Automatic canonical reports-root discovery and scan skip category links only when their resolved targets are within this reports root and recognized by existing generated-output rules. Before source selection, hunter construction, or import, `sync_reports` checks the destination `categories/*/*.md` for symlinks not recognized by those rules. It refuses with an actionable diagnostic rather than lose or silently skip them, including when raw, home, or explicit sources would otherwise be selected. Relocating such a link outside the managed category namespace allows explicit import. Internal ordinary and dangling links are likewise refused. Explicit symlinks elsewhere remain supported. An explicitly selected directory anywhere within the canonical reports root, including aliases, uses the canonical root to recognize and skip generated navigation links; ordinary reports remain importable. The guard is not an atomic lock against concurrent external filesystem changes and applies to this importer, not other Core callers. Existing generated-output path/marker heuristics do not establish durable ownership of ambiguous packet-looking paths; do not claim comprehensive ownership protection.
 
 ## Evidence and review
 
 The category loss was reproduced against the real CLI and Core. On the prior `188df48192b5056de3c903cdf972df1fac442d83`, the new refusal tests failed because both automatic and explicit-source invocations returned success and imported, allowing Core to remove the source link. After the guard they pass and compare full disposable fixture trees (file bytes, link targets and directory entries) before and after refusal. The real CLI also verifies relocation and successful explicit import; refusal for internal, dangling, and desired-FID collision links; and the canonical source-root alias case. The alias regression failed before the alias fix with a false imported D02 and passes afterward. Core-generated category links and ordinary external/raw symlinks remain covered.
 
-- Pinned Core `6c36ee88a60073e1b687ec32deeade24ffafdd4f`: **83 tests passed, zero expected failures**.
-- Freshly fetched Core `origin/beta` `6142defb3de7cef44887c1685e4f670072585785`: **83 tests passed, zero expected failures**.
+Latest reviewer correction: the new real-CLI regression failed at `0ad82e9bd270bc2ddaf294eea2a298dc6db8e6ce`, with an explicit `reports/categories/idor` source importing generated `D01.md` as false `D02`; it passes after the correction. It also checks the categories parent, an alias of the category directory, preservation/import of an ordinary category report, and the existing external symlink controls. The unsafe-category refusal test now explicitly selects the unsafe category itself as well as an external source, asserting unchanged fixture trees.
+
+- Pinned Core `6c36ee88a60073e1b687ec32deeade24ffafdd4f`: **84 tests passed, zero expected failures**.
+- Freshly fetched Core `origin/beta` `6142defb3de7cef44887c1685e4f670072585785`: **84 tests passed, zero expected failures**.
 - Suite: `python -m unittest -q agents.test_report_source_cli agents.test_sync_reports agents.test_report_checker agents.test_finding_report`. It exercises real `scripts/bbh` subprocesses, not mocks for these paths. Both runs used the offline Docker isolation described below, with exact `git archive` Core snapshots. Independent re-review of the complete feature diff and correction is pending.
 
 Historical correction receipts (superseded by the above):

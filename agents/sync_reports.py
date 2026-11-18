@@ -120,8 +120,11 @@ def _resolve_source_root(
     ) or _program_root(program, source_dir)
 
 
-def _discover_report_files(source_dir: Path, *, skip_category_links: bool = False) -> list[Path]:
-    return discover_report_files(source_dir, skip_category_links=skip_category_links)
+def _discover_report_files(source_dir: Path, *, category_root: Path | None = None) -> list[Path]:
+    files = discover_report_files(source_dir)
+    if category_root is not None:
+        files = [path for path in files if not _is_category_navigation_link(path, category_root)]
+    return files
 
 
 def _loose_markdown_fallback(text: str, source_path: Path) -> dict[str, Any] | None:
@@ -670,8 +673,9 @@ def main(argv: list[str] | None = None) -> int:
             hunt_type=hunt_type,
             root_override=args.storage_root,
         )
-    skip_category_links = source_dir.resolve(strict=False) == reports_root.resolve(strict=False)
-    report_files = _discover_report_files(source_dir, skip_category_links=skip_category_links) if source_dir.is_dir() else []
+    resolved_reports_root = reports_root.resolve(strict=False)
+    category_root = resolved_reports_root if source_dir.resolve(strict=False).is_relative_to(resolved_reports_root) else None
+    report_files = _discover_report_files(source_dir, category_root=category_root) if source_dir.is_dir() else []
 
     if verbosity.verbose:
         print(f"[sync_reports] source_dir={source_dir} mode={source_mode or 'missing'} files={len(report_files)}")
@@ -691,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
         memory_write_detail = detail
         if verbosity.verbose and detail:
             print(detail)
-        report_files = _discover_report_files(source_dir, skip_category_links=skip_category_links)
+        report_files = _discover_report_files(source_dir, category_root=category_root)
         if verbosity.verbose:
             print(f"[sync_reports] memory_write_ok={ok} files_after_write={len(report_files)}")
 

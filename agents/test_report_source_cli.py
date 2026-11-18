@@ -156,10 +156,12 @@ class ReportSourceCliTest(unittest.TestCase):
         explicit = self.base / "explicit"
         self.report(explicit / "other.md", "other")
         before = self.tree_snapshot(self.base)
-        result = self.run_cli_result("--source-dir", explicit)
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(str(link), result.stderr)
-        self.assertEqual(before, self.tree_snapshot(self.base))
+        for selected in (explicit, link.parent):
+            with self.subTest(source=selected):
+                result = self.run_cli_result("--source-dir", selected)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(str(link), result.stderr)
+                self.assertEqual(before, self.tree_snapshot(self.base))
 
     def test_category_symlink_to_real_internal_source_is_not_navigation(self):
         from agents.report_paths import discover_report_files
@@ -190,6 +192,29 @@ class ReportSourceCliTest(unittest.TestCase):
         self.report(self.layout.reports_root / "working.md", "real")
         alias = self.base / "reports_alias"
         alias.symlink_to(self.layout.reports_root, target_is_directory=True)
+        output = self.run_cli("--source-dir", alias)
+        self.assertIn("mode=override files=1", output)
+        self.assertEqual({row["file"] for row in self.rows()}, {"src/original.py", "src/real.py"})
+
+    def test_explicit_category_directory_and_alias_skip_navigation_links(self):
+        original = self.home_reports / "original.md"
+        self.report(original, "original")
+        self.run_cli()
+        evidence = Path(self.rows()[0]["evidence_path"])
+        with evidence.open("a") as stream:
+            stream.write("\nFile: src/false_positive.py:7\n")
+        category = self.layout.reports_root / "categories" / "idor"
+        self.assertTrue((category / "D01.md").is_symlink())
+
+        for selected in (category, category.parent):
+            with self.subTest(source=selected):
+                output = self.run_cli("--source-dir", selected)
+                self.assertIn("mode=override files=0", output)
+                self.assertEqual([row["file"] for row in self.rows()], ["src/original.py"])
+
+        self.report(category / "working.md", "real")
+        alias = self.base / "category_alias"
+        alias.symlink_to(category, target_is_directory=True)
         output = self.run_cli("--source-dir", alias)
         self.assertIn("mode=override files=1", output)
         self.assertEqual({row["file"] for row in self.rows()}, {"src/original.py", "src/real.py"})

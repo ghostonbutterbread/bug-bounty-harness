@@ -62,6 +62,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    analysis, or report writing.
 10. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
+   - URL fetcher may build a shell command with the supplied URL -> `/rce`
+     and `rce-exploration`'s `references/url-fetch-shell-substitution.md`;
+     a fetch or callback alone is not evidence of command execution
    - header-required metadata or proxy trust behavior -> `/headers`
    - WAF/rate-limit blocks -> `/waf`
    - profile image or upload fetchers -> `/pfp`

@@ -91,6 +91,8 @@ Load a resource only when it answers the packet’s concrete question:
 - `references/surface-map.md` — execution-capable sink families and transforms.
 - `references/primitive-branch-map.md` — source-to-observation branches for a
   plausible RCE primitive.
+- `references/url-fetch-shell-substitution.md` — URL fetchers passing input
+  through shell commands; controlled discriminator and callback proof limits.
 - `references/validation-ladder.md` — confirmation hierarchy and safe stop boundary.
 - `references/precursor-ladder.md` — how to create low-impact primitive signal before proof.
 - `references/precondition-matrix.md` — runtime/deployment/privilege evidence.

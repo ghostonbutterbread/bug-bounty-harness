@@ -89,6 +89,41 @@ class ReportSourceCliTest(unittest.TestCase):
         self.assertIn("mode=canonical_reports files=1", self.run_cli())
         self.assertEqual([row["file"] for row in self.rows()], ["src/real.py"])
 
+    def test_external_category_symlink_takes_precedence_over_home(self):
+        target = self.base / "outside" / "reports" / "D01" / "original.md"
+        self.report(target, "external_category")
+        link = self.layout.reports_root / "categories" / "idor" / "original.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+        self.report(self.home_reports / "home.md", "home")
+        output = self.run_cli()
+        self.assertIn("mode=canonical_reports files=1", output)
+        self.assertIn("Imported: 1 new findings", output)
+        self.assertEqual([row["file"] for row in self.rows()], ["src/external_category.py"])
+        self.assertTrue(target.is_file())
+
+    @unittest.expectedFailure
+    def test_core_navigation_refresh_preserves_external_category_source_link(self):
+        # Core currently removes all stale category symlinks, even original sources.
+        target = self.base / "outside" / "original.md"
+        self.report(target, "external_category")
+        link = self.layout.reports_root / "categories" / "idor" / "original.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+        self.run_cli()
+        self.assertTrue(link.is_symlink(), "source category symlink must survive import")
+
+    def test_category_symlink_to_real_internal_source_is_not_navigation(self):
+        from agents.report_paths import discover_report_files
+
+        target = self.layout.reports_root / "working.md"
+        self.report(target, "internal")
+        link = self.layout.reports_root / "categories" / "idor" / "linked.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(os.path.relpath(target, link.parent))
+        self.assertEqual(set(discover_report_files(self.layout.reports_root, skip_category_links=True)),
+                         {link, target})
+
     def test_generated_category_stub_does_not_shadow_home(self):
         stub = self.layout.reports_root / "categories" / "idor" / "D01.md"
         stub.parent.mkdir(parents=True)

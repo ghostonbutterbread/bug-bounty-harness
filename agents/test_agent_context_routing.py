@@ -16,7 +16,11 @@ def test_root_instructions_point_to_compact_agent_entry_card():
     assert "general-security-testing-policy" in entry
     assert "live-testing-policy" in entry
     assert "/map-store" in entry
-    assert "/hypothesis-ledger" in entry
+    store_map = text("skills/data-store-guidance/SKILL.md")
+    assert "Load `/data-store-guidance` early" in entry
+    assert "**Private hypotheses**" in store_map
+    assert "owner/run-private candidates and their lifecycle. Owner: `/hypothesis-ledger`" in store_map
+    assert (ROOT / "skills/hypothesis-ledger/SKILL.md").is_file()
     assert "agents/index.md" in root_instructions
     assert "Do not paste this file as a generic agent bootstrap" in legacy
     assert "~/Shared/bounty_recon/{program}/ghost/knowledge.md" in legacy

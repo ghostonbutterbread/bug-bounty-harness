@@ -33,6 +33,8 @@ class RuntimeDependencyTests(unittest.TestCase):
             "beautifulsoup4>=4.15,<5",
             "websocket-client>=1.9,<2",
             "aiohttp>=3.12,<4",
+            "mitmproxy>=11,<12",
+            "playwright>=1.64,<2",
             "tree-sitter==0.26.0",
             "tree-sitter-javascript==0.25.0",
         ])
@@ -40,7 +42,7 @@ class RuntimeDependencyTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in ROOT.glob("requirements*.txt")),
                          ["requirements.txt"])
 
-    def test_manifest_contract_rejects_idna_drift(self) -> None:
+    def test_manifest_contract_rejects_dependency_drift(self) -> None:
         current = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("idna>=3,<4\n", current)
         variants = (
@@ -49,6 +51,12 @@ class RuntimeDependencyTests(unittest.TestCase):
             ("wrong range", current.replace("idna>=3,<4\n", "idna>=2,<4\n"), False),
             ("duplicate", current.replace("idna>=3,<4\n", "idna>=3,<4\nidna>=3,<4\n"), False),
             ("other dependency changed", current.replace("httpx>=0.28,<1\n", "httpx>=0.27,<1\n"), False),
+            ("missing mitmproxy", current.replace("mitmproxy>=11,<12\n", ""), False),
+            ("wrong mitmproxy range", current.replace("mitmproxy>=11,<12\n", "mitmproxy>=10,<12\n"), False),
+            ("duplicate mitmproxy", current.replace("mitmproxy>=11,<12\n", "mitmproxy>=11,<12\nmitmproxy>=11,<12\n"), False),
+            ("missing playwright", current.replace("playwright>=1.64,<2\n", ""), False),
+            ("wrong playwright range", current.replace("playwright>=1.64,<2\n", "playwright>=1.63,<2\n"), False),
+            ("duplicate playwright", current.replace("playwright>=1.64,<2\n", "playwright>=1.64,<2\nplaywright>=1.64,<2\n"), False),
         )
         with tempfile.TemporaryDirectory(prefix="bbh manifest ") as directory:
             root = Path(directory)

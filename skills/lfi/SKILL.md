@@ -30,6 +30,16 @@ Uses `/bypass` harness: `agents/bypass_harness.py`
 
 ## Techniques
 - Path traversal: `../../etc/passwd`, `%2e%2e%2f`
+- **Unverified parser-differential candidate:** repeat `/.&./` before a file path
+  when an observed path filter blocks ordinary traversal. A [source-reported
+  example](https://x.com/sirbagoza/status/2122866976183710164) shows a 200 with
+  passwd-like output versus a 400 for a different conventional request, but the
+  route and transformation are unknown. `.&.` is not normally a parent-directory
+  component; do not assume Apache, PHP, or a filesystem interprets it as `..`.
+  Compare the exact request and parsed value with a benign owned-file control and
+  ordinary traversal, preserving literal versus percent-encoded `&` (which can
+  delimit query parameters). Trace each normalization/consumer boundary; a status
+  delta alone is not proof of a file read or bypass.
 - Null bytes: `%00`, `%2500`
 - Wrappers: `php://filter/`, `data://`, `expect://`
 - Log files: `/var/log/apache2/access.log`

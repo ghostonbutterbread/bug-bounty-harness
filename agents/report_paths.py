@@ -37,21 +37,37 @@ class ReportSource:
     mode: str
 
 
-def discover_report_files(source_dir: Path) -> list[Path]:
-    """Return markdown report files under a selected source directory."""
+def _is_category_navigation_link(path: Path, source_dir: Path) -> bool:
+    """Recognize category links to generated output within this reports root."""
+    parts = path.relative_to(source_dir).parts
+    if not path.is_symlink() or len(parts) != 3 or parts[0] != "categories":
+        return False
+    target = path.resolve()
+    if not target.is_relative_to(source_dir.resolve()):
+        return False
+    return is_generated_report_output(target, source_root=source_dir)
+
+
+def discover_report_files(source_dir: Path, *, skip_category_links: bool = False) -> list[Path]:
+    """Return markdown reports, excluding canonical category navigation links.
+
+    Limit navigation detection to links resolving to generated output in the
+    selected canonical reports root; other symlinks can be original sources.
+    """
     return sorted(
         path
         for path in source_dir.rglob("*.md")
         if path.is_file()
+        and not (skip_category_links and _is_category_navigation_link(path, source_dir))
         and not is_generated_report_output(path, source_root=source_dir)
         and not is_seeded_report_index(path)
     )
 
 
-def has_report_markdown(source_dir: Path) -> bool:
+def has_report_markdown(source_dir: Path, *, skip_category_links: bool = False) -> bool:
     if not source_dir.is_dir():
         return False
-    return bool(discover_report_files(source_dir))
+    return bool(discover_report_files(source_dir, skip_category_links=skip_category_links))
 
 
 def is_seeded_report_index(path: Path) -> bool:
@@ -350,7 +366,7 @@ def select_report_source(
         lane=lane,
         root_override=root_override,
     ):
-        if has_report_markdown(source.path):
+        if has_report_markdown(source.path, skip_category_links=source.mode == "canonical_reports"):
             return source
 
     for source in home_source_report_sources(program):

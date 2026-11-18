@@ -15,19 +15,27 @@
 - Parent exercised the actual helper through real Hoster-to-Nebula SSH using
   isolated private state, a verified fixture lock/port/path shim and a disposable
   fake browser under the real Nebula user-systemd manager: old browser refused,
-  exact old cleanup succeeded, successor used a distinct unit/profile, and stale
-  cleanup did not stop the successor. Exact fixture units were stopped and fixture
-  directories removed. The fake browser was not Chrome; no target traffic or
-  personal browser was touched. Earlier actual user-systemd/SSH lock expiry and
+  exact old cleanup succeeded, successor used a distinct unit/profile, and
+  stale cleanup did not stop the successor. The same real SSH/user-systemd
+  fixture then passed with the installed headed Chrome in task-owned private
+  paths, X11 mode and about:blank, with background networking disabled and an
+  unavailable loopback proxy; the test used off-screen geometry and fixture
+  lock, unit, profile and port substitutions, not the production lane. Both
+  generations' exact units stopped and fixture directories were removed. The
+  initial Chrome fixture trapped because its private TMPDIR made Chromium's
+  SingletonSocket path too long; shortening that fixture path resolved the
+  observed crash. This is browser/process acceptance, not evidence of a human
+  handoff or target-site login. Earlier actual user-systemd/SSH lock expiry and
   durable handoff fixtures also passed. Offline focused suite: 39 passed with
   network disabled and private state. Host execution showed scheduling-sensitive
   timeouts and a bad-interpreter test that could search a real SSH executable;
-  the latter was fenced to the fixture-only PATH. The existing runtime-dependency
-  contract is behind `origin/beta` and must be reconciled before release.
-- Remaining: incorporate fetched `origin/beta`, re-run isolated tests, obtain
-  a correction review and verify runtime activation. Do not claim automatic
-  activity detection or a live Chrome test. If a legacy holder is present, leave
-  it alone and apply the new behavior only to newly acquired leases.
+  the latter was fenced to the fixture-only PATH. The fetched `origin/beta` tip
+  `1f881dc7` was merged into the feature branch and the isolated combined suite
+  passed 42 tests and 11 subtests after reconciliation.
+- Remaining: verify runtime activation and reconcile any subsequent beta advance.
+  Do not claim automatic activity detection or a target-site login test. If a legacy
+  holder is present, leave it alone and apply the new behavior only to newly
+  acquired leases.
 
 ## Delayed browser-start generation fence — historical checkpoint
 

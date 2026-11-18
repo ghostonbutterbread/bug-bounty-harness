@@ -236,9 +236,10 @@ bbh skills/nebula-browser-lane/scripts/hold_lane.py release --receipt "$receipt"
 unit. It verifies inactivity or a `LoadState=not-found` result; it does not
 require the current lease or stop a successor's different unit. A handoff
 reservation and browser operations are serialized: if either reports busy,
-wait and retry, and never ask the human before handoff succeeds. A dispatched
-start or stop with an interrupted, failed, or lost reply has an unknown outcome
-and blocks handoff, browser start, and acquisition. A failure to launch the local
+wait and retry, and never ask the human before handoff succeeds. Apart from the
+confirmed busy-port refusal described above, a dispatched start or stop with an
+interrupted, failed, or lost reply has an unknown outcome and blocks handoff,
+browser start, and acquisition. A failure to launch the local
 SSH executable is definitive for that new operation, but never clears an
 already uncertain one. Retry `browser-stop` with the **same exact receipt**
 until it succeeds; if the receipt or marker is damaged, stop and ask the owner

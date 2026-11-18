@@ -160,7 +160,7 @@ class TestSyncReports(unittest.TestCase):
     def _hunter(self, *, check_side_effect: list[tuple[bool, str | None, dict] | Exception]) -> SimpleNamespace:
         ledger = Mock()
         ledger.path = self.tmp / "ledger.json"
-        ledger.check.side_effect = check_side_effect
+        ledger.import_finding.side_effect = check_side_effect
         ledger.update.side_effect = lambda finding: {**finding, "fid": finding.get("fid") or "D01"}
         return SimpleNamespace(
             ledger=ledger,
@@ -183,7 +183,7 @@ class TestSyncReports(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting Class"):
             _flexible_findings_for_file(hunter, self.report_path, text)
         errors = io.StringIO()
-        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+        with patch("bounty_core.ledger.VersionedFindingsLedger.import_finding") as write, redirect_stderr(errors):
             rc = sync_reports_main("synthetic_program", lane="apk", source_dir=str(self.source_dir), storage_root=self.tmp / "storage-root")
         self.assertEqual(rc, 1)
         write.assert_not_called()
@@ -304,7 +304,7 @@ class TestSyncReports(unittest.TestCase):
             _flexible_findings_for_file(hunter, self.report_path, text)
 
         errors = io.StringIO()
-        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+        with patch("bounty_core.ledger.VersionedFindingsLedger.import_finding") as write, redirect_stderr(errors):
             rc = sync_reports_main(
                 "test_program", lane="apk", source_dir=self.source_dir.as_posix(),
                 storage_root=self.tmp / "storage-root",
@@ -435,12 +435,10 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_import_new_findings(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -454,41 +452,21 @@ class TestSyncReports(unittest.TestCase):
         )
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding1, finding2]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
-        self.assertEqual(hunter.ledger.check.call_count, 2)
-        self.assertEqual(mock_update_team_finding.call_count, 2)
-        mock_update_team_finding.assert_any_call(
-            "test_program",
-            {**finding1, "fid": "D01"},
-            snapshot_id="snap-test",
-            version_label="v-test",
-            run_id=mock_update_team_finding.call_args_list[0].kwargs["run_id"],
-            agent="sync-reports",
-            family="binaries",
-            lane="apk",
-            root_override=self.tmp / "storage-root",
-            write_report=False,
-            refresh=True,
-            update_current=False,
-            update_sighting=False,
-        )
-        self.assertEqual(mock_update_team_finding.call_args_list[1].args[:2], ("test_program", {**finding2, "fid": "D02"}))
-        self.assertEqual(mock_update_team_finding.call_args_list[1].kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args_list[1].kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args_list[1].kwargs["root_override"], self.tmp / "storage-root")
+        self.assertEqual(hunter.ledger.import_finding.call_count, 2)
+        hunter.ledger.import_finding.assert_any_call(finding1, packet_mode="evidence_only")
+        hunter.ledger.import_finding.assert_any_call(finding2, packet_mode="evidence_only")
+        hunter.ledger.check.assert_not_called()
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_skip_duplicates(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -502,26 +480,20 @@ class TestSyncReports(unittest.TestCase):
         )
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding1, finding2]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
-        self.assertEqual(hunter.ledger.check.call_count, 2)
-        mock_update_team_finding.assert_called_once()
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding2, "fid": "D02"}))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
+        self.assertEqual(hunter.ledger.import_finding.call_count, 2)
+        hunter.ledger.import_finding.assert_any_call(finding2, packet_mode="evidence_only")
+        hunter.ledger.check.assert_not_called()
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_report_fid_collision_is_skipped_and_reported(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -535,15 +507,13 @@ class TestSyncReports(unittest.TestCase):
         )
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding1, finding2]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         output, errors = io.StringIO(), io.StringIO()
         with redirect_stdout(output), redirect_stderr(errors):
             exit_code = sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
-        self.assertEqual(hunter.ledger.check.call_count, 2)
-        mock_update_team_finding.assert_called_once()
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding2, "fid": "D02"}))
+        self.assertEqual(hunter.ledger.import_finding.call_count, 2)
+        hunter.ledger.import_finding.assert_any_call(finding2, packet_mode="evidence_only")
         self.assertEqual(exit_code, 1)
         self.assertIn("FID collisions: 1 report needs manual reconciliation", output.getvalue())
         self.assertIn("finding FID already assigned: D06", errors.getvalue())
@@ -599,12 +569,10 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_report_preserves_reserved_fid_on_update(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -612,15 +580,10 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, finding)])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
-        mock_update_team_finding.assert_called_once()
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", finding))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
         hunter.ledger.update.assert_not_called()
 
     def test_source_root_explicit_override_wins_over_shared_brain_and_fallback(self):
@@ -699,12 +662,10 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_imports_from_canonical_raw_reports(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -717,26 +678,20 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
             sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_reads_legacy_reports_as_fallback(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -750,26 +705,20 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
             sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_prefers_source_reports_over_seeded_canonical_raw_indexes(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -795,16 +744,12 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
             sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
         hunter.ledger.update.assert_not_called()
 
     def test_discover_report_files_ignores_registered_packet_artifacts(self):
@@ -854,12 +799,10 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_skips_generated_canonical_findings_but_imports_raw(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -878,13 +821,12 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=reports_root.as_posix())
 
         mock_candidates.assert_called_once()
         self.assertEqual(mock_candidates.call_args.args[3], raw_body)
-        mock_update_team_finding.assert_called_once()
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
 
     def test_generated_only_canonical_navigation_does_not_suppress_source_fallback(self):
         home = self.tmp / "home"
@@ -975,12 +917,10 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
-    @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_reports_does_not_parse_generated_navigation_files(
         self,
         mock_hunter_cls,
-        mock_update_team_finding,
         mock_candidates,
         _mock_chain,
     ):
@@ -993,13 +933,12 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
         mock_candidates.assert_called_once()
         self.assertEqual(mock_candidates.call_args.args[3], self.report_path)
-        mock_update_team_finding.assert_called_once()
+        hunter.ledger.import_finding.assert_called_once_with(finding, packet_mode="evidence_only")
 
     def test_sync_reports_explicit_root_writes_ledger_reports_and_coverage_canonically(self):
         program = "explicit_program"

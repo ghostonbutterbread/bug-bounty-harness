@@ -217,7 +217,8 @@ with socket.socket() as probe:
         probe.bind(('127.0.0.1', PORT))
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
-            raise RuntimeError('remote CDP port busy; stale cleanup or owner reconciliation required') from exc
+            print('remote CDP port busy; stale cleanup or owner reconciliation required', file=sys.stderr)
+            sys.exit(73)  # Confirmed before starting a browser; no uncertain start.
         raise RuntimeError('remote CDP bind check failed: ' + str(exc)) from exc
 profile = Path.home() / 'AI' / 'nebula-lane' / 'runs' / browser_id / 'chrome-profile'
 profile.mkdir(parents=True, exist_ok=True)
@@ -321,6 +322,12 @@ def browser(action, receipt_path, directory):
                 except subprocess.TimeoutExpired:
                     ssh.kill()
                     ssh.wait()
+        if action == 'browser-start' and code == 73:
+            # Remote command positively reported a busy port before starting a
+            # browser. This is not an ambiguous lost-reply outcome.
+            start_marker.unlink()
+            sync_dir(directory)
+            return 1
         if code:
             print('browser operation failed; outcome unknown; reconcile exact cleanup', file=sys.stderr)
             return 1

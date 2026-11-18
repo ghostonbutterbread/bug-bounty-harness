@@ -1,4 +1,35 @@
-## Delayed browser-start generation fence — uncommitted
+## Reviewed cooperative lease — current candidate
+
+- Task `fix/nebula-stale-lock`; beta base `8cee9829`, selected target `beta`.
+  The current helper expires the lock after 600–900 seconds without an explicit
+  agent renewal. It does not observe actual task or browser activity, and an
+  active agent that fails to renew may lose the lease. Human handoff pauses the
+  deadline; the durable reservation survives holder death. Old holders are not
+  retrofitted. A timed-out browser is preserved, and a successor must clean the
+  exact old unit or reconcile it before using the occupied CDP port.
+- Independent review cleared the generation/handoff corrections and the confirmed
+  busy-port exit path. A busy port is reported before browser startup and clears
+  the local start reservation; other failures remain ambiguous and require
+  exact-receipt reconciliation. The regression was observed failing before this
+  correction. Corrected skill guidance distinguishes both cases.
+- Parent exercised the actual helper through real Hoster-to-Nebula SSH using
+  isolated private state, a verified fixture lock/port/path shim and a disposable
+  fake browser under the real Nebula user-systemd manager: old browser refused,
+  exact old cleanup succeeded, successor used a distinct unit/profile, and stale
+  cleanup did not stop the successor. Exact fixture units were stopped and fixture
+  directories removed. The fake browser was not Chrome; no target traffic or
+  personal browser was touched. Earlier actual user-systemd/SSH lock expiry and
+  durable handoff fixtures also passed. Offline focused suite: 39 passed with
+  network disabled and private state. Host execution showed scheduling-sensitive
+  timeouts and a bad-interpreter test that could search a real SSH executable;
+  the latter was fenced to the fixture-only PATH. The existing runtime-dependency
+  contract is behind `origin/beta` and must be reconciled before release.
+- Remaining: incorporate fetched `origin/beta`, re-run isolated tests, obtain
+  a correction review and verify runtime activation. Do not claim automatic
+  activity detection or a live Chrome test. If a legacy holder is present, leave
+  it alone and apply the new behavior only to newly acquired leases.
+
+## Delayed browser-start generation fence — historical checkpoint
 
 - A private fsynced start reservation is created before SSH dispatch. An
   interrupted, timed-out, failed, or lost-reply start blocks handoff, acquisition,

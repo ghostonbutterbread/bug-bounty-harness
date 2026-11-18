@@ -29,6 +29,9 @@ def test_busy_remote_port_refuses_browser_start(tmp_path):
             assert result.returncode != 0
             assert 'busy' in result.stderr.lower() and 'cleanup' in result.stderr.lower(), result.stderr
             assert not (tmp_path / 'units').exists()
+            assert not (Path(env['XDG_STATE_HOME']) / 'nebula-lane/browser-start.json').exists(), (
+                'confirmed busy port performed no startup and must not block cleanup of the old owner'
+            )
         finally:
             stop(owner)
 
@@ -100,17 +103,10 @@ def test_expired_generation_cleanup_never_stops_successor(tmp_path):
         assert old_data['browser_id'] != old_data['generation']
         blocked = invoke(env, 'browser-start', '--receipt', str(new))
         assert blocked.returncode != 0 and 'busy' in blocked.stderr.lower()
-        # The failed new start is uncertain and must be fenced before any
-        # different receipt can perform cleanup.
-        assert invoke(env, 'browser-stop', '--receipt', str(new)).returncode == 0
+        # A confirmed busy port never started this generation, so the old
+        # owner's exact cleanup can proceed without discarding the new lease.
         assert invoke(env, 'browser-start', '--receipt', str(old)).returncode != 0
         assert invoke(env, 'browser-stop', '--receipt', str(old)).returncode == 0
-        assert invoke(env, 'release', '--receipt', str(new)).returncode == 0
-        successor.wait(timeout=5)
-        new = tmp_path / 'fresh.json'
-        successor = start(env, new, '30')
-        assert line_with_timeout(successor).startswith('nebula lane lock held')
-        new_data = json.loads(new.read_text())
         launched = invoke(env, 'browser-start', '--receipt', str(new))
         assert launched.returncode == 0, launched.stderr
         unit = 'nebula-lane-' + new_data['browser_id'] + '.service'
@@ -541,6 +537,9 @@ def test_failed_ssh_exec_is_definitive_and_does_not_reserve_stop(tmp_path):
     try:
         assert line_with_timeout(owner).startswith('nebula lane lock held')
         (tmp_path / 'bin/ssh').write_text('#!/no/such/interpreter\n')
+        # A missing interpreter makes execvp search the next PATH entry; do not
+        # allow this negative fixture to fall through to the machine's real SSH.
+        env['PATH'] = str(tmp_path / 'bin')
         result = invoke(env, 'browser-stop', '--receipt', str(receipt))
         assert result.returncode != 0
         handoff = invoke(env, 'begin-handoff', '--receipt', str(receipt))

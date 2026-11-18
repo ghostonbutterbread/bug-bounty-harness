@@ -211,13 +211,13 @@ inside Chrome before navigating to a target. Pause for the human on the physical
 screen. Do not use this lane to replace a `chromium-handoff` CAPTCHA path.
 
 If the remote port is busy, **do not connect**: an old or legacy browser may
-still be listening. First run `browser-stop` with this attempted start's receipt
-until it succeeds; a failed or interrupted dispatched start has an uncertain outcome.
-Then use the exact old receipt to stop the old browser, if available. Without
-its receipt, stop and ask the owner to reconcile the legacy session; never kill
-it or reuse its profile. After stopping this generation, release and acquire a
-fresh lease before another start. Startup failure or an SSH timeout can leave an
-owned unit running; do not attach, and use exact-receipt cleanup.
+still be listening. A confirmed `remote CDP port busy` result means this start
+never launched; use the exact old receipt to stop the old browser, if available,
+then retry with the current receipt. Without the old receipt, ask the owner to
+reconcile the legacy session; never kill it or reuse its profile. Other failures,
+interruptions, or SSH timeouts may leave an owned unit running: do not attach;
+run `browser-stop` with this attempted start's exact receipt until it succeeds,
+then release and acquire a fresh lease before another start.
 The bind check and later start are cooperative, not atomic fencing of unmanaged
 processes or a network partition. A successful start is not a continuing lease:
 renew during work and stop on uncertainty.

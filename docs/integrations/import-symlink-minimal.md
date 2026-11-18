@@ -6,7 +6,7 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-import-symlink-minimal`
 - **Base:** fetched `origin/beta` at `15a3e94d91759af8386d2e8688acb308ae691fca`
 - **Target:** `beta`; no stable promotion or runtime activation authorized
-- **Implementation / immutable recovery checkpoints:** `17034fcd9b87bc793c1850ba766b79f46e07b55d` (initial fix), `95858238a510abbeab25bc8dbfdd3ff9b144bfed` (review correction); branch tip includes a later dossier-only commit
+- **Implementation / immutable recovery checkpoints:** `17034fcd9b87bc793c1850ba766b79f46e07b55d` (initial fix), `95858238a510abbeab25bc8dbfdd3ff9b144bfed` (first review correction), `cdf11030de9ce255b3b3a379beddd6533fd6ff63` (category guard, alias correction, and tested dossier); branch tip includes a later dossier-only handoff commit
 - **Date:** 2026-11-17
 - **Inspiration:** real CLI false finding caused by a Core category link; the broader `fix/promo-report-source` candidate is blocked and was not transplanted.
 

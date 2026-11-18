@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEWED_CORE_SHA = "2ca5734e7aba20f21a875758be85b86833d45fd1"
+REVIEWED_CORE_SHA = "9db8b23d7405587bc123338ae0aa44d4d51c95a3"
 SUPERSEDED_CORE_SHA = "ce8718b6bfb39fb08533f506bd2bfe627b52e5da"
 
 

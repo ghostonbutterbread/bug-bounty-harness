@@ -37,21 +37,29 @@ class ReportSource:
     mode: str
 
 
-def discover_report_files(source_dir: Path) -> list[Path]:
-    """Return markdown report files under a selected source directory."""
+def discover_report_files(source_dir: Path, *, skip_category_links: bool = False) -> list[Path]:
+    """Return markdown report files under a selected source directory.
+
+    Core owns categories/<category>/<fid>.md as navigation links. Only apply
+    that layout rule when scanning the automatic canonical reports root; an
+    explicitly selected source can legitimately contain symlinks.
+    """
     return sorted(
         path
         for path in source_dir.rglob("*.md")
         if path.is_file()
+        and not (skip_category_links and path.is_symlink()
+                 and len(path.relative_to(source_dir).parts) == 3
+                 and path.relative_to(source_dir).parts[0] == "categories")
         and not is_generated_report_output(path, source_root=source_dir)
         and not is_seeded_report_index(path)
     )
 
 
-def has_report_markdown(source_dir: Path) -> bool:
+def has_report_markdown(source_dir: Path, *, skip_category_links: bool = False) -> bool:
     if not source_dir.is_dir():
         return False
-    return bool(discover_report_files(source_dir))
+    return bool(discover_report_files(source_dir, skip_category_links=skip_category_links))
 
 
 def is_seeded_report_index(path: Path) -> bool:
@@ -350,7 +358,7 @@ def select_report_source(
         lane=lane,
         root_override=root_override,
     ):
-        if has_report_markdown(source.path):
+        if has_report_markdown(source.path, skip_category_links=source.mode == "canonical_reports"):
             return source
 
     for source in home_source_report_sources(program):

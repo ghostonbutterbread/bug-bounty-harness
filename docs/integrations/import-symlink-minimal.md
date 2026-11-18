@@ -1,6 +1,6 @@
 # Minimal report-import symlink fix integration dossier
 
-- **Status:** blocked for same-reviewer re-review and Core source-ownership fixes; not integrated
+- **Status:** category guard implemented and tested; independent re-review pending; raw namespace blocker remains; not integrated
 - **Owner:** delegated BBH worker; parent owns review and integration
 - **Branch / owning ref:** `fix/import-symlink-minimal`
 - **Worktree:** `/home/ryushe/worktrees/bbh-import-symlink-minimal`
@@ -12,9 +12,17 @@
 
 ## Implemented contract
 
-Automatic canonical reports-root discovery and the subsequent scan skip category links only when their resolved targets are within that reports root and recognized by existing generated-output rules. External links and links to ordinary internal sources remain eligible. Existing generated-marker filtering continues to exclude marked fallback stubs. Ordinary real raw reports, raw symlinks, and explicitly selected external symlink sources remain eligible. This does not identify all provider packets or solve ambiguous raw packet ownership. **The importer selects and reads an external category source, but Core subsequently deletes the category link during navigation refresh; see the separate blocker below.**
+Automatic canonical reports-root discovery and scan skip category links only when their resolved targets are within this reports root and recognized by existing generated-output rules. Before source selection, hunter construction, or import, `sync_reports` checks the destination `categories/*/*.md` for symlinks not recognized by those rules. It refuses with an actionable diagnostic rather than lose or silently skip them, including when raw, home, or explicit sources would otherwise be selected. Relocating such a link outside the managed category namespace allows explicit import. Internal ordinary and dangling links are likewise refused. Explicit symlinks elsewhere remain supported. An explicit alias of the canonical reports root receives the same generated-link filtering as automatic discovery. The guard is not an atomic lock against concurrent external filesystem changes and applies to this importer, not other Core callers. Existing generated-output path/marker heuristics do not establish durable ownership of ambiguous packet-looking paths; do not claim comprehensive ownership protection.
 
 ## Evidence and review
+
+The category loss was reproduced against the real CLI and Core. On the prior `188df48192b5056de3c903cdf972df1fac442d83`, the new refusal tests failed because both automatic and explicit-source invocations returned success and imported, allowing Core to remove the source link. After the guard they pass and compare full disposable fixture trees (file bytes, link targets and directory entries) before and after refusal. The real CLI also verifies relocation and successful explicit import; refusal for internal, dangling, and desired-FID collision links; and the canonical source-root alias case. The alias regression failed before the alias fix with a false imported D02 and passes afterward. Core-generated category links and ordinary external/raw symlinks remain covered.
+
+- Pinned Core `6c36ee88a60073e1b687ec32deeade24ffafdd4f`: **83 tests passed, zero expected failures**.
+- Freshly fetched Core `origin/beta` `6142defb3de7cef44887c1685e4f670072585785`: **83 tests passed, zero expected failures**.
+- Suite: `python -m unittest -q agents.test_report_source_cli agents.test_sync_reports agents.test_report_checker agents.test_finding_report`. It exercises real `scripts/bbh` subprocesses, not mocks for these paths. Both runs used the offline Docker isolation described below, with exact `git archive` Core snapshots. Independent re-review of the complete feature diff and correction is pending.
+
+Historical correction receipts (superseded by the above):
 
 The initial real `scripts/bbh agents/sync_reports.py` regression showed an evidence link causing a false D02 on base; the fix uses the home source instead. Independent review then found that the initial blanket category-symlink skip silently selected a lower-priority home report over a real external category source. A real-CLI regression reproduced that failure at `dabd9c9ca678e432830e54688bb57208c477309f`; after the correction the external source wins and imports. Existing real-CLI tests positively generate an evidence link through Core, then verify it is skipped, and verify raw reports, raw links, explicit external links, and generated stubs. A further test preserves discovery of a category link to a real internal source.
 
@@ -35,11 +43,9 @@ docker run --rm --network none -v "$PWD:/source:ro" -v /home/ryushe/.hermes/cach
 
 Same independent reviewer must re-review the correction and its affected tests. Parent owns review, integration, and tracking.
 
-## Blocker: Core category-source deletion
+## Category-source deletion boundary
 
-Core's `bounty_core/reports.py` `_cleanup_stale_category_entries` unlinks every stale category symlink without checking ownership; `safe_symlink_or_link_stub` can also replace an existing symlink at a desired name. In the disposable real CLI reproduction, the external source file survived and was imported, but its `reports/categories/idor/original.md` source symlink disappeared during the subsequent Core navigation refresh. Thus source-link preservation and repeat-import access are **not** complete. This is a provider mutation, not the BBH discovery predicate, and cannot safely be fixed by declaring all category links generated or restoring over a newly generated link.
-
-The named `test_core_navigation_refresh_preserves_external_category_source_link` is committed as `expectedFailure` to expose the blocker, not to claim a passing preservation requirement. Core owner must introduce reliable ownership/collision handling so original symlinks are neither removed nor overwritten; then remove the decorator and rerun that test and both exact four-module suites against the fixed Core plus the pinned-compatibility case. Until then do not integrate as a complete no-loss fix.
+Core's `bounty_core/reports.py` `_cleanup_stale_category_entries` unlinks every stale category symlink without checking ownership; `safe_symlink_or_link_stub` can also replace an existing symlink at a desired name. In the disposable real CLI reproduction, the external source file survived and was imported, but its `reports/categories/idor/original.md` source symlink disappeared during the subsequent Core navigation refresh. The BBH guard now refuses that state before mutation and provides a relocation remedy; it does not change Core or protect other Core entry points. Reliable provider ownership/collision handling remains a longer-term requirement. The earlier expected-failure test was replaced by real refusal, no-mutation, and successful relocation/import assertions; there is no claim that Core preserves arbitrary category links during refresh.
 
 ## Blocker: Core raw namespace collision
 
@@ -49,6 +55,6 @@ Pinned and current Core both accept `fid=raw` and `reserve_finding_evidence_pack
 
 ## Handoff and gates
 
-- **Exact resume point:** request the same reviewer re-check `dabd9c9ca678e432830e54688bb57208c477309f..95858238a510abbeab25bc8dbfdd3ff9b144bfed` plus this handoff and rerun affected tests; coordinate both Core ownership blockers before claiming no-loss behavior, then rerun the real CLI collision scenarios and suites against exact combined versions.
+- **Exact resume point:** parent obtains same-reviewer independent review of the complete feature range and this guard, including heuristic ownership limits, no-mutation refusal, explicit-source/alias cases, and current/pinned suite receipts. Reconcile fresh `origin/beta` if it moves. Coordinate the unresolved Core raw collision separately before claiming comprehensive collision safety.
 - **Integration:** parent decision after review; reconcile fresh `origin/beta` if it moved. Dossier remains branch-local and should not land on beta.
 - **Activation/promotion:** separate authorization; raw collision remains unresolved. No shared ref merge, push, or runtime activation performed.

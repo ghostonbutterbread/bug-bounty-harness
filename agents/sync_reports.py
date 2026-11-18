@@ -35,7 +35,10 @@ from agents.manual_hunter import (
     _normalize_text,
     _tier_field_value,
 )
-from agents.report_paths import canonical_raw_reports_dir, discover_report_files, select_report_source
+from agents.report_paths import (
+    _is_category_navigation_link, canonical_raw_reports_dir, canonical_reports_root,
+    discover_report_files, select_report_source,
+)
 from agents.report_checker import (
     FindingRecord, _load_ledger_findings, _load_markdown_findings,
     _load_markdown_findings_from_text, _merge_findings, _report_defaults_for_path,
@@ -619,6 +622,22 @@ def main(argv: list[str] | None = None) -> int:
         hunt_type=args.hunt_type or args.lane,
     )
     hunt_type = args.hunt_type or lane
+    reports_root = canonical_reports_root(
+        program, hunt_type, family=family, lane=lane,
+        root_override=args.storage_root, create=False,
+    )
+    # Core refreshes this destination even for explicit or fallback sources.
+    # Refuse before constructing the hunter (which can create storage).
+    for link in sorted((reports_root / "categories").glob("*/*.md")):
+        if link.is_symlink() and not _is_category_navigation_link(link, reports_root):
+            print(
+                f"[sync_reports] unsafe category symlink: {link}. "
+                "Category paths are managed navigation and may be removed or replaced. "
+                "Move the source link outside categories, then use --source-dir "
+                "on its new directory and retry; no import was started.",
+                file=sys.stderr,
+            )
+            return 1
     source_dir, source_mode = _find_reports_dir(
         program,
         args.source_dir,
@@ -651,7 +670,8 @@ def main(argv: list[str] | None = None) -> int:
             hunt_type=hunt_type,
             root_override=args.storage_root,
         )
-    report_files = _discover_report_files(source_dir, skip_category_links=source_mode == "canonical_reports") if source_dir.is_dir() else []
+    skip_category_links = source_dir.resolve(strict=False) == reports_root.resolve(strict=False)
+    report_files = _discover_report_files(source_dir, skip_category_links=skip_category_links) if source_dir.is_dir() else []
 
     if verbosity.verbose:
         print(f"[sync_reports] source_dir={source_dir} mode={source_mode or 'missing'} files={len(report_files)}")
@@ -671,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         memory_write_detail = detail
         if verbosity.verbose and detail:
             print(detail)
-        report_files = _discover_report_files(source_dir, skip_category_links=source_mode == "canonical_reports")
+        report_files = _discover_report_files(source_dir, skip_category_links=skip_category_links)
         if verbosity.verbose:
             print(f"[sync_reports] memory_write_ok={ok} files_after_write={len(report_files)}")
 

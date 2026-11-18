@@ -1125,44 +1125,25 @@ class ManualHunterTests(unittest.TestCase):
         self.assertFalse(stated["class_inferred"])
         self.assertEqual(stated["class_name"], "error-handling")
 
-    @patch("agents.manual_hunter.update_team_finding")
-    def test_ingest_uses_team_finding_adapter_after_duplicate_reservation(self, mock_update_team_finding) -> None:
+    def test_ingest_materializes_once_in_explicit_storage(self) -> None:
         storage_root = self.tmp / "explicit-storage"
         hunter = ManualHunter(self.program, source_root=self.target_root, storage_root=storage_root)
         parsed = hunter.parse_text(
-            "\n".join(
-                [
-                    "Title: SQLite injection via exposed IPC port",
-                    "Type: arbitrary SQL execution",
-                    "Class: native-module-abuse",
-                    "Severity: HIGH",
-                    "File: .webpack/renderer/preload.js:4",
-                    "Description: The preload bridge exposes SQLite execution to renderer-controlled messages.",
-                ]
-            ),
+            "Title: SQLite injection via exposed IPC port\n"
+            "Type: arbitrary SQL execution\nClass: native-module-abuse\nSeverity: HIGH\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: The preload bridge exposes SQLite execution to renderer-controlled messages.\n",
             source_label="unit-test",
         )
-        reserved_finding = {**parsed.finding, "fid": "D77"}
-        hunter.ledger = Mock(wraps=hunter.ledger)
-        hunter.ledger.check.return_value = (False, None, reserved_finding)
-        mock_update_team_finding.return_value = reserved_finding
-
-        with (
-            patch.object(hunter, "_print_chain_suggestions"),
-            redirect_stdout(io.StringIO()),
-        ):
-            rc = hunter.ingest(parsed)
-
-        self.assertEqual(rc, 0)
-        hunter.ledger.check.assert_called_once_with(parsed.finding)
-        hunter.ledger.update.assert_not_called()
-        mock_update_team_finding.assert_called_once()
-        self.assertEqual(mock_update_team_finding.call_args.args[:2], (self.program, reserved_finding))
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
-        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], storage_root.resolve(strict=False))
-        self.assertFalse(mock_update_team_finding.call_args.kwargs["write_report"])
-        self.assertTrue(mock_update_team_finding.call_args.kwargs["refresh"])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(hunter.ingest(parsed), 0)
+        row, = hunter.ledger.list_all()
+        self.assertEqual(row["file"], ".webpack/renderer/preload.js")
+        self.assertEqual(len(row["sightings"]), 1)
+        self.assertEqual(row["sightings"][0]["agent"], "manual-hunter")
+        self.assertTrue(Path(row["evidence_path"]).is_file())
+        self.assertFalse((Path(row["report_dir"]) / "REPORT.md").exists())
+        self.assertTrue(Path(row["report_dir"]).is_relative_to(storage_root))
 
     def test_hunt_context_static_coverage_is_lane_scoped(self) -> None:
         (self.target_root / "renderer").mkdir(parents=True, exist_ok=True)

@@ -1205,7 +1205,9 @@ class ManualHunter:
         )
 
     def ingest(self, parsed: ParsedFinding, *, link_duplicate_comment: bool = False) -> int:
-        is_duplicate, existing_fid, finding = self.ledger.check(parsed.finding)
+        is_duplicate, existing_fid, finding = self.ledger.import_finding(
+            parsed.finding, packet_mode=EVIDENCE_ONLY
+        )
         finding["fid"] = existing_fid or finding.get("fid", "")
         title = _normalize_text(finding.get("title") or finding.get("type"))
 
@@ -1226,21 +1228,6 @@ class ManualHunter:
                 print("Use --link-duplicate-comment to attach the note to the existing finding.")
             return 1
 
-        finding = update_team_finding(
-            self.program,
-            finding,
-            snapshot_id=self.snapshot_id or None,
-            version_label=self.version_label or None,
-            run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
-            agent="manual-hunter",
-            family=self.family,
-            lane=self.lane,
-            root_override=self.storage_root,
-            write_report=False,
-            refresh=True,
-            update_current=False,
-            update_sighting=False,
-        )
         evidence_path = _normalize_text(finding.get("evidence_path"))
         if evidence_path:
             print(f"Evidence packet: {evidence_path}")
@@ -1424,8 +1411,9 @@ class ManualHunter:
                     try:
                         self.ingest_file(note_path, link_duplicate_comment=link_duplicate_comment)
                     except Exception as exc:
-                        print(f"Failed to ingest {note_path}: {exc}")
-                    files_state[str(note_path)] = fingerprint
+                        print(f"Failed to ingest {note_path}: {exc}; will retry on the next poll")
+                    else:
+                        files_state[str(note_path)] = fingerprint
                 state["files"] = files_state
                 self.state_store.save(state)
                 time.sleep(max(0.2, poll_interval))

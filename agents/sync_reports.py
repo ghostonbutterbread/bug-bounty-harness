@@ -17,14 +17,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
-from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     FIELD_ALIASES,
     ClassConflictError,
     FIELD_RE,
     InvalidReviewTierError,
     ManualHunter,
-    ParsedFinding,
     ReviewTierDecisionRequired,
     _default_run_id,
     _derive_title,
@@ -739,15 +737,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[sync_reports] parsed {len(candidates)} findings from {report_path}")
 
         for candidate in candidates:
-            parsed = ParsedFinding(
-                finding=dict(candidate),
-                raw_text=report_path.read_text(encoding="utf-8", errors="replace"),
-                source_label=str(report_path),
-                source_path=report_path,
-            )
             try:
-                is_duplicate, existing_fid, finding = hunter.ledger.check(candidate)
+                is_duplicate, existing_fid, finding = hunter.ledger.import_finding(
+                    candidate, packet_mode="evidence_only"
+                )
             except ValueError as exc:
+                if not str(exc).startswith("finding FID already assigned: "):
+                    raise
                 # A report that names an FID which is already assigned to a
                 # different ledger identity (e.g. the finding's file path
                 # changed across a rebuild) is a reconciliation decision for
@@ -761,21 +757,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{existing_fid} already exists, skipped")
                 continue
 
-            finding = update_team_finding(
-                program,
-                finding,
-                snapshot_id=getattr(hunter, "snapshot_id", None) or None,
-                version_label=getattr(hunter, "version_label", None) or None,
-                run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
-                agent="sync-reports",
-                family=getattr(hunter, "family", None),
-                lane=getattr(hunter, "lane", None),
-                root_override=getattr(hunter, "storage_root", None),
-                write_report=False,
-                refresh=True,
-                update_current=False,
-                update_sighting=False,
-            )
             evidence_output = Path(str(finding.get("evidence_path") or ""))
             related = _chain_suggestions(program, hunt_type, finding, hunter=hunter)
 

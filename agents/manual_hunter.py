@@ -1411,8 +1411,9 @@ class ManualHunter:
                     try:
                         self.ingest_file(note_path, link_duplicate_comment=link_duplicate_comment)
                     except Exception as exc:
-                        print(f"Failed to ingest {note_path}: {exc}")
-                    files_state[str(note_path)] = fingerprint
+                        print(f"Failed to ingest {note_path}: {exc}; will retry on the next poll")
+                    else:
+                        files_state[str(note_path)] = fingerprint
                 state["files"] = files_state
                 self.state_store.save(state)
                 time.sleep(max(0.2, poll_interval))

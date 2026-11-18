@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta` (not stable directly).
 - **Last updated:** 2026-11-18.
 - **Owning feature branch/ref:** `fix/beta-five-gate-regressions`.
-- **Latest immutable recovery checkpoint:** pending implementation commit.
-- **Feature implementation commit(s):** pending implementation commit.
+- **Latest immutable recovery checkpoint:** `e7f8f985c93587ea8106129bb9c3c5f59b051a60` (implementation; branch tip has a later dossier-only handoff commit).
+- **Feature implementation commit(s):** `e7f8f985c93587ea8106129bb9c3c5f59b051a60`.
 - **Inspiration / canonical references:** `SCRIPT_POLICY.md`, `agents/index.md`, `skills/data-store-guidance/SKILL.md`, `skills/xss/SKILL.md`, XSS source-acquisition and shared JS analysis lens. History `b9ddf120`, `2ee868cc`, `0eaf8c07` explains intentional routing.
 
 ## Intent and implemented contract
@@ -33,8 +33,8 @@ Independent review of exact branch diff, test semantics, isolation/receipts and 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/beta-five-gate-regressions`.
-- **Latest immutable recovery checkpoint:** pending implementation commit.
-- **Feature implementation commit(s):** pending implementation commit.
+- **Latest immutable recovery checkpoint:** `e7f8f985c93587ea8106129bb9c3c5f59b051a60` (implementation; branch tip has a later dossier-only handoff commit).
+- **Feature implementation commit(s):** `e7f8f985c93587ea8106129bb9c3c5f59b051a60`.
 - **Exact resume point:** independently review committed diff and receipts, then parent decides beta integration. On acceptance remove this branch-local dossier from the integration result.
 - **Working-tree state at handoff:** intended clean after commits.
 

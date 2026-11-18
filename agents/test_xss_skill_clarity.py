@@ -84,8 +84,21 @@ def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> N
     source_script = ROOT / "agents/xss_source_sites.py"
     sink_script = ROOT / "agents/xss_sink_sites.py"
     assert source_script.is_file() and sink_script.is_file()
-    for route in ("browser-session-policy", "chromium-test", "js-pull", "js-hunt"):
+    for route in ("browser-session-policy", "chromium-test", "js-pull"):
         assert route in router and route in reference
+    js = (ROOT / "skills/js/SKILL.md").read_text(encoding="utf-8")
+    lens_path = ROOT / "skills/js/references/analysis-lens.md"
+    lens = " ".join(lens_path.read_text(encoding="utf-8").split())
+    for text in (router, reference):
+        assert "skills/js/references/analysis-lens.md" in text
+        assert "`js` → `js-pull`" in text
+    assert "references/analysis-lens.md" in js
+    assert "JS in an existing investigation" in js
+    assert "caller to callee" in lens
+    assert "forward from the value and backward from its final consumer" in lens
+    assert "parsing, coercion, escaping" in lens
+    assert "framework raw-HTML/template/trust APIs" in reference
+    assert "API request builders" in " ".join(reference.split())
     for cue in ("Network", "Sources", "lazy-loaded", "forms", "hidden inputs"):
         assert cue in router
     assert "inventory --page` fetches HTML script URLs and bounded" in reference

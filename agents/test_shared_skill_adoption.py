@@ -23,11 +23,22 @@ class SharedSkillAdoptionTests(unittest.TestCase):
                 self.assertTrue((skill_dir / reference).is_file(), reference)
 
     def test_discovery_docs_and_skills_do_not_reference_source_repo(self) -> None:
-        for path in (ROOT / "SKILL_REGISTRY.md", ROOT / "README.md", ROOT / "agents/index.md"):
+        for path in (ROOT / "SKILL_REGISTRY.md", ROOT / "README.md"):
             text = path.read_text()
             self.assertIn("bounty-storage", text)
             self.assertIn("huge-ingest", text)
             self.assertIn("vulnerability-patch-research", text)
+        entry = (ROOT / "agents/index.md").read_text()
+        stores = (ROOT / "skills/data-store-guidance/SKILL.md").read_text()
+        registry = (ROOT / "SKILL_REGISTRY.md").read_text()
+        self.assertIn("Load `/data-store-guidance` early", entry)
+        retained = next(line for line in stores.splitlines() if "**Retained artifacts**" in line)
+        self.assertIn("/bounty-storage", retained)
+        self.assertIn("/vulnerability-patch-research", entry)
+        self.assertIn("SKILL_REGISTRY.md", (ROOT / "README.md").read_text())
+        for skill in ("bounty-storage", "huge-ingest", "vulnerability-patch-research"):
+            row = next(line for line in registry.splitlines() if f"**{skill}**" in line)
+            self.assertIn(f"skills/{skill}/SKILL.md", row)
         for path in (ROOT / "skills/bounty-storage/SKILL.md", ROOT / "skills/huge-ingest/SKILL.md", ROOT / "skills/vulnerability-patch-research/SKILL.md"):
             self.assertNotIn("projects/general-skills", path.read_text())
 

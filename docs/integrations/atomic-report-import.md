@@ -8,7 +8,7 @@
 - **Intended integration target:** `beta` (eventual authorized promotion to `master` is separate)
 - **Last updated:** 2026-11-17
 - **Owning feature branch/ref:** `fix/atomic-report-import`
-- **Latest immutable recovery checkpoint / feature implementation:** `6329b0f4ea48281726acfe42ec064cbfd5bbd85b`; branch tip contains this later dossier-only handoff.
+- **Latest immutable recovery checkpoint / manual implementation:** `3b449721be66d5367f613505b5e56db178340209`; branch tip contains a later dossier-only handoff. Earlier sync implementation: `6329b0f4ea48281726acfe42ec064cbfd5bbd85b`.
 - **Inspiration / canonical reference:** Core candidate `/home/ryushe/worktrees/core-raw-collision-minimal` at `266d0da8d7cc21bfbd5165667b2bf0aa734bb121`, unreviewed/unpublished; `VersionedFindingsLedger.import_finding(..., packet_mode='evidence_only')`.
 
 ## Intent and implemented contract

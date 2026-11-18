@@ -25,6 +25,13 @@ def fixture_env(tmp_path):
     (checkout / ".venv/bin/python").symlink_to(sys.executable)
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
+    # No system PATH fallback: a broken/missing fake ssh must never invoke a
+    # host SSH binary. Link only the utilities the offline fixture needs.
+    (bindir / 'python3').symlink_to(sys.executable)
+    for command in ('flock', 'sh', 'cat', 'sleep', 'true', 'touch'):
+        executable = shutil.which(command)
+        assert executable is not None
+        (bindir / command).symlink_to(executable)
     ssh = bindir / "ssh"
     ssh.write_text('''#!/usr/bin/env python3
 import os, selectors, subprocess, sys
@@ -40,6 +47,10 @@ while sel.get_map():
             sel.unregister(key.fileobj)
             if key.data == 'input':
                 remote.stdin.close()
+            else:
+                # EOF can precede poll() observing exit; waiting avoids leaving
+                # the selector stuck forever on the still-open SSH stdin.
+                sys.exit(remote.wait())
             continue
         if key.data == 'input':
             os.write(remote.stdin.fileno(), data)
@@ -50,7 +61,8 @@ while sel.get_map():
 sys.exit(remote.wait())
 ''')
     ssh.chmod(0o755)
-    env = {"PATH": f"{bindir}:{Path(sys.executable).parent}:/usr/bin:/bin", "HOME": str(tmp_path),
+    env = {"PATH": str(bindir), "HOME": str(tmp_path),
+           "XDG_STATE_HOME": str(tmp_path / "state"),
            "XDG_CONFIG_HOME": str(tmp_path / "config"),
            "XDG_DATA_HOME": str(tmp_path / "data"),
            "XDG_CACHE_HOME": str(tmp_path / "cache"),

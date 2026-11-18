@@ -33,7 +33,10 @@ def test_nebula_lane_replaces_portafort_facts() -> None:
     assert "/tmp/nebula-lane.lock" in text
     assert "bbh skills/nebula-browser-lane/scripts/hold_lane.py" in text
     assert "nebula lane lock held" in text
-    assert "still-running SSH" in text
+    assert "900 seconds" in text
+    assert 'begin-handoff' in text and 'complete-handoff' in text
+    assert 'In-flight SSH/CDP commands are not detected' in text
+    assert 'not converted' in text
     assert "ssh -f" not in _bash_blocks(text)
     assert 'systemd-run --user' in text
     assert 'journalctl --user' in text
@@ -45,8 +48,7 @@ def test_nebula_lane_replaces_portafort_facts() -> None:
     assert "does not replace `chromium-handoff`" in joined
     assert "Do not drop Mullvad, change egress to beat the challenge, or evade rate controls." in joined
     assert "It does not route here" not in text
-    assert "$HOME/AI/nebula-lane/chrome-profile" in text
-    assert "WAYLAND_DISPLAY=wayland-0" in text
+    assert "$HOME/AI/nebula-lane/runs/<browser_id>/chrome-profile" in text
     assert "DISPLAY=:0" in text
     assert "mullvad_exit_ip: true" in text
     assert "Firefox is off-limits" in text
@@ -63,3 +65,22 @@ def test_description_is_quoted_and_index_sized() -> None:
     body = description.removeprefix('description: "').removesuffix('"')
     assert body == "Captcha/login on Nebula after harness GPU fails."
     assert len(body) <= 60
+
+
+def test_systemd_launch_documents_ten_and_fifteen_minute_leases() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    blocks = _bash_blocks(text)
+    assert '--timeout 600' in blocks
+    assert '--timeout 900' in text
+    assert 'do not shorten it for ordinary work' not in text
+    helper = (ROOT / 'skills/nebula-browser-lane/scripts/hold_lane.py').read_text()
+    assert 'observed-activity lease' not in helper
+
+
+def test_browser_workflow_uses_generation_owned_cli() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    blocks = _bash_blocks(text)
+    assert 'browser-start --receipt "$receipt"' in blocks
+    assert 'browser-stop --receipt "$receipt"' in blocks
+    assert 'google-chrome-stable --user-data-dir' not in blocks
+    assert 'fail-closed partial recovery' in text

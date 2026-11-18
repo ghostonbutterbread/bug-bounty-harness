@@ -10,9 +10,10 @@ screen after the harness GPU/headed lane (`chromium-test`) already failed:
 login, signup, password-reset, magic-link Continue, CAPTCHA, and
 authenticity/IP blocks. Not a WAF-payload bypass.
 
-When a prompt is on Nebula's screen, tell Ryushe immediately (site + what to
-click) and wait. Do not loop image challenges on harness Chromium (including
-llvmpipe WebGL).
+When a prompt is on Nebula's screen, reserve the human handoff as described
+below **before** asking Ryushe to interact. Once reservation succeeds, tell
+Ryushe immediately (site + what to click) and wait. Do not loop image
+challenges on harness Chromium (including llvmpipe WebGL).
 
 ## Policy boundary
 
@@ -33,8 +34,8 @@ it stays connected, and only inside the hard requirement below.
 - Desktop: KDE Plasma Wayland (`/run/user/1000/wayland-0`). XWayland exposes
   `:0`. A non-interactive SSH session does not inherit the desktop session, so
   the launch command must export display variables itself. `DISPLAY=:0` is the
-  default. If Chrome misbehaves under XWayland, quit only the lane Chrome and
-  relaunch with `WAYLAND_DISPLAY=wayland-0` as well.
+  default. If Chrome misbehaves under XWayland, stop and coordinate; do not
+  substitute an unmanaged launch command.
 - Run every `ssh nebula` command on the harness host that already has the
   `nebula` alias and `~/.ssh/nebula_ed25519` (currently Hoster). Ghost does
   not have the key. Do not copy the private key to another machine.
@@ -96,8 +97,12 @@ Confirm the printed checkout is the intended reviewed lane before dispatch:
 ```bash
 systemd-run --user --unit="$unit" --property=MemoryHigh=2G \
   --property=MemoryMax=3G --property=CPUWeight=100 -- \
-  "$bbh_bin" skills/nebula-browser-lane/scripts/hold_lane.py
+  "$bbh_bin" skills/nebula-browser-lane/scripts/hold_lane.py --timeout 600
 ```
+
+This example sets a 10-minute lease. Use `--timeout 900` for 15 minutes;
+omitting the option also defaults to 900 seconds. Renew comfortably inside the
+chosen interval.
 
 From a different machine, use `hoster-ssh`'s `hoster_user_unit.py` helper to
 dispatch the same foreground command, not an invented OMP spawn command. First
@@ -109,7 +114,7 @@ substitute that observed path for `/absolute/hoster/path/to/bbh`:
 HELPER="$HOME/.hermes/synced-skills/hoster-ssh/scripts/hoster_user_unit.py"
 unit="hoster-nebula-lane-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 python3 "$HELPER" --unit="$unit" -- /absolute/hoster/path/to/bbh \
-  skills/nebula-browser-lane/scripts/hold_lane.py
+  skills/nebula-browser-lane/scripts/hold_lane.py --timeout 600
 printf 'Record unit=%s\n' "$unit"
 ```
 
@@ -139,40 +144,119 @@ SSH PID is **not atomic proof** of continuing remote ownership. Loss can race a
 separate remote command or its cleanup. If the unit exits, connection state is
 uncertain, or ownership cannot be established, stop lane work and preserve the
 ambiguous state; do not kill other SSH processes or touch another owner's
-resources. A still-running SSH holder may retain the lock after an agent
-abandons it: this is not idle detection or an idle timeout. Explicitly stop the
-recorded unit at the end.
+resources.
 
-## Headed Chrome (dedicated profile, loopback CDP)
+### Explicit lease activity and human handoff
+
+The holder defaults to **900 seconds since its last explicit renewal**, not
+observed browser, SSH, or task activity. The readiness journal line prints the
+private receipt path; record that path and the exact unit. Keep the receipt
+private: it authorizes this generation. All cooperating invocations must use the
+same Hoster account, HOME, and `XDG_STATE_HOME` as the holder (default
+`$HOME/.local/state`); the coordination and durable handoff marker live under
+`$XDG_STATE_HOME/nebula-lane` or `$HOME/.local/state/nebula-lane`. Do not alter
+or delete them to resolve ambiguity. From a new tool call on Hoster, restore the
+recorded receipt path and run:
 
 ```bash
-ssh nebula 'export DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/$(id -u)
-PROFILE=$HOME/AI/nebula-lane/chrome-profile
-mkdir -p "$PROFILE"
-google-chrome-stable --user-data-dir="$PROFILE" \
-  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9333 \
-  --remote-allow-origins="*" --no-first-run --no-default-browser-check \
-  --start-maximized about:blank >$HOME/AI/nebula-lane/chrome-lane.log 2>&1 &'
+receipt='/absolute/path/from/the/holder/journal'
+bbh skills/nebula-browser-lane/scripts/hold_lane.py renew --receipt "$receipt"
 ```
 
-No `--headless`. CDP binds `127.0.0.1` only. On the harness host:
-`chromium.connect_over_cdp("http://127.0.0.1:9333")` (Chrome needs a few
-seconds before the endpoint answers). Pause for the human on the physical
+Renew before starting each device operation and periodically while operating,
+well within the selected timeout. **In-flight SSH/CDP commands are not detected or
+protected automatically**; continue renewing during long operations. A failed
+renewal means stop immediately, preserve state and re-acquire before proceeding.
+The holder serializes renewal with expiry, but this does not atomically fence
+separate raw SSH/CDP commands. Unmanaged raw SSH/CDP and other hosts do not
+obey this cooperative control. Existing pre-lease SSH holders are not converted
+retroactively; the same remote flock still blocks a new holder.
+
+Before asking a human to interact, successfully reserve the handoff:
+
+```bash
+bbh skills/nebula-browser-lane/scripts/hold_lane.py begin-handoff --receipt "$receipt"
+# Only after that succeeds, ask the human to act and wait for confirmation.
+bbh skills/nebula-browser-lane/scripts/hold_lane.py complete-handoff --receipt "$receipt"
+```
+
+The reservation pauses expiry and persists privately even if the holder dies.
+After confirmed human completion, `complete-handoff` resumes the live lease or,
+if the holder died, clears the matching reservation and requires a fresh
+acquisition. Never clear it based on elapsed time. If the receipt is lost or
+ownership/handoff is ambiguous, stop and coordinate with the owner rather than
+seizing the lane. Close the exact lease when finished with `release --receipt
+"$receipt"` (or stop the recorded unit after completing handoff). The release
+reply starts shutdown; inspect the recorded unit for exit before considering
+local cleanup complete. Expiry and release close only this holder's SSH stdin
+and reap its exact child; they do not
+kill Chrome, remove the profile or lock inode, or touch another session. SSH
+server disconnect detection may be delayed. Set `--timeout SECONDS` on the
+holder's launch command for the chosen ordinary-work interval.
+
+## Headed Chrome (generation-owned profile, loopback CDP)
+
+```bash
+bbh skills/nebula-browser-lane/scripts/hold_lane.py browser-start --receipt "$receipt"
+```
+
+Only after success, connect on Hoster with
+`chromium.connect_over_cdp("http://127.0.0.1:9333")`. The command renews the
+current lease, checks a real remote bind of `127.0.0.1:9333`, and starts and
+checks a uniquely named user-systemd unit. Its independent non-secret browser ID
+selects `$HOME/AI/nebula-lane/runs/<browser_id>/chrome-profile`; the generation
+capability is never put in the remote profile path or process arguments. Chrome
+is headed, with `DISPLAY=:0`, and starts at `about:blank`. Verify VPN egress
+inside Chrome before navigating to a target. Pause for the human on the physical
 screen. Do not use this lane to replace a `chromium-handoff` CAPTCHA path.
 
-If that Chrome is unusable under XWayland, quit only the lane process and
-relaunch the same command with `WAYLAND_DISPLAY=wayland-0` added to the
-`export`. Do not switch browsers.
+If the remote port is busy, **do not connect**: an old or legacy browser may
+still be listening. First run `browser-stop` with this attempted start's receipt
+until it succeeds; a failed or interrupted dispatched start has an uncertain outcome.
+Then use the exact old receipt to stop the old browser, if available. Without
+its receipt, stop and ask the owner to reconcile the legacy session; never kill
+it or reuse its profile. After stopping this generation, release and acquire a
+fresh lease before another start. Startup failure or an SSH timeout can leave an
+owned unit running; do not attach, and use exact-receipt cleanup.
+The bind check and later start are cooperative, not atomic fencing of unmanaged
+processes or a network partition. A successful start is not a continuing lease:
+renew during work and stop on uncertainty.
 
 ## Cleanup
 
-Close Playwright on Hoster. Separate Nebula SSH commands have no established
-atomic remote-owner guarantee if lock loss or a replacement owner races them.
-Therefore do **not** automatically kill Chrome, delete its profile, remove the
-lock inode, or remove the old readiness file based on a local PID/unit check.
-Preserve and record leftovers; if remote ownership is uncertain, stop and
-coordinate safe cleanup with the owner. In particular, do not touch another
-owner's session.
+Close Playwright on Hoster and, after any human handoff is completed, stop the
+exact generation-owned browser before releasing the lease:
+
+```bash
+bbh skills/nebula-browser-lane/scripts/hold_lane.py browser-stop --receipt "$receipt"
+bbh skills/nebula-browser-lane/scripts/hold_lane.py release --receipt "$receipt"
+```
+
+`browser-stop` also accepts an expired old receipt and stops only its exact named
+unit. It verifies inactivity or a `LoadState=not-found` result; it does not
+require the current lease or stop a successor's different unit. A handoff
+reservation and browser operations are serialized: if either reports busy,
+wait and retry, and never ask the human before handoff succeeds. A dispatched
+start or stop with an interrupted, failed, or lost reply has an unknown outcome
+and blocks handoff, browser start, and acquisition. A failure to launch the local
+SSH executable is definitive for that new operation, but never clears an
+already uncertain one. Retry `browser-stop` with the **same exact receipt**
+until it succeeds; if the receipt or marker is damaged, stop and ask the owner
+to reconcile.
+
+A stop durably tombstones its browser ID, even if the unit has not appeared yet;
+a delayed start of that ID is refused. That ID cannot be restarted: release and
+acquire a new lease for another browser. Never delete local markers or remote
+`$HOME/AI/nebula-lane/browser-generations` or `stop-operations` records while
+late SSH commands could still arrive. Interrupted control/browser commands
+return failure; their remote outcome may still be unknown. The helper never
+deletes profiles or the lock inode.
+Keep receipts private and record retained profile leftovers. If the holder times
+out, its lock can expire while Chrome remains: a successor can acquire the lock
+but must not start or attach while the port is occupied; exact cleanup or owner
+reconciliation is then required.
+This is a fail-closed partial recovery, not seamless automatic browser cleanup.
+Legacy receipts without `browser_id` cannot be used for browser cleanup.
 
 Stop only this task's exact recorded Hoster unit, then inspect its state and
 journal for exit (use the `hoster-ssh` bounded inspection/stop route from a

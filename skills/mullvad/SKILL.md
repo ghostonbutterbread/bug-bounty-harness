@@ -37,19 +37,27 @@ consult `scripts/README.md` and `egress_snapshot.md` for `egress_snapshot.py`
 and the installed version.
 For Hermes' usual synced skill location, the actual entrypoint is
 `python3 "$HOME/.hermes/synced-skills/script-manager/scripts/egress_snapshot.py"`;
-other runtimes use their resolved skill directory. Do not assume this provider
-revision is installed. With a stable, private, opaque run-owned incident key
-(not an IP, secret, or target identifier), run `record KEY` promptly and retain
+other runtimes use their resolved skill directory. Verify the installed help and
+execute on the actual egress machine, using its authorized remote control when
+necessary; the tool has no `--host` option. With a stable, private, opaque
+run-owned incident key (not an IP, secret, or target identifier), run `record KEY` promptly and retain
 the key in the run context. The diagnostic's external probe is permissible only
 after the preflight below; if the helper is unavailable or recording fails,
 retain the run record and note that the baseline is unknown. Do not substitute
 another public-IP probe. Continue other permitted investigation or other leads;
-recording does not require a refresh. Later, manually and optionally run
-`check KEY` or `refresh KEY` with the same key, if supported by the installed
-version and after all safety gates. Refresh rechecks under the shared lock; an
-already changed host IP does not trigger another switch. If unchanged, it may
-switch once to a different live-listed same-city West Coast exit of the verified
-current manager. It is not automatic, guaranteed to switch, or a manager change.
+recording does not require a refresh. Later, optionally run `check KEY` or
+`refresh KEY` with the same key after all safety gates. **Refresh can change the
+VPN exit**: it rechecks under a shared lock and reports `already_refreshed` if
+the host IP changed; if unchanged, it may switch once to a different live-listed
+same-city West Coast exit of the current manager. It is not automatic, guaranteed
+to switch, or a manager change. The lock coordinates cooperating processes of
+the same UID and shared filesystem view, not other users or VPN tools.
+
+An uncertain or interrupted switch can leave a persistent latch blocking later
+refreshes. Do not remove it or retry a switch speculatively: follow the installed
+`egress_snapshot.md` recovery conditions and coordinate operator recovery. The
+caller remains responsible for program and workload rules, VPN protection, and
+recovery access; the helper's point-in-time checks are not a kill switch.
 
 The baseline is a point-in-time post-block host-direct IPv4 observation: it
 cannot establish the blocked IP if a switch happened before capture. A `different`
@@ -83,51 +91,29 @@ Before a remote handoff, read the playbook's preflight gate: verify `tailscale s
 - **Standalone-managed Mullvad:** Leave Tailscale connected for peer traffic if useful, but require that its exit selection is already empty (or that Ryushe explicitly directed clearing it) and read back that state; set `mullvad auto-connect set on` and check `mullvad auto-connect get`. Inspect independent GUI Auto-connect if installed; keep it consistent with the selected manager. Check `mullvad status -v` for the actually connected West Coast relay.
 - **After boot/restart:** Check service/startup state, selected exit or connected relay, and public egress **on the host/path doing the work** before scoped traffic resumes. Enabled startup plus a saved exit preference does not prove the relay is reachable or prevent ISP traffic during boot/failure. If checks fail, stop target traffic and recover a verified VPN path; do not silently proceed over the ISP. Do not reboot an active host merely to test this rule.
 
-## Tailscale path (preferred)
+## Setup, handoff and recovery details
 
-```bash
-tailscale exit-node list --filter=USA
-# Set EXIT_NODE to an exact live-listed WA/OR/CA Mullvad hostname or tailnet IP first.
-: "${EXIT_NODE:?Set EXIT_NODE from the live list before changing routes}"
-# Set LAN_ACCESS=false only for an explicit host-specific exception.
-LAN_ACCESS=true
-tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
-tailscale set --exit-node="$EXIT_NODE"
-# If standalone Mullvad is installed, inspect its status separately.
-tailscale get exit-node
-ip -4 rule; ip -4 route get 1.1.1.1
-resolvectl status
-```
+For a directed setup, handoff, or standalone fallback, use the applicable
+[playbook procedures](../../prompts/mullvad-playbook.md#choose-the-path-on-each-host)
+and its [remote handoff gate](../../prompts/mullvad-playbook.md#preflight-gate-for-a-remote-handoff).
+The incident helper is for same-manager refresh, not manager setup or switching.
+A manager change requires explicit direction; never silently change lockdown,
+layer managers, or clear a selected Tailscale exit.
 
-**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
-
-```bash
-curl -4fsS --max-time 10 https://ip.me
-curl -4fsS --max-time 10 https://am.i.mullvad.net/json
-```
-
-After the handoff, if installed, the standalone tunnel must say **Disconnected**; if verified absent, no status is required. The chosen Tailscale node must match a listed Mullvad host; the public IP must not be the ordinary ISP IP; and Mullvad's JSON must report `mullvad_exit_ip: true` with `mullvad_exit_ip_hostname` matching that host's short relay name. Rotation repeats `tailscale set --exit-node=<different-listed-west-coast-host>` and the checks, **not** the standalone disconnect. The node's `100.x` tailnet IP is not its public exit IP. Select by the exact name shown in `tailscale exit-node list` or by its listed tailnet IP if the name is not accepted.
-
-## Standalone Mullvad path (fallback)
-
-```bash
-mullvad relay list             # discover current West Coast relays
-mullvad relay set location us sea  # example: listed Seattle city
-mullvad connect --wait
-mullvad status -v
-ip -4 rule; ip -4 route get 1.1.1.1
-resolvectl status
-```
-
-**Stop here:** inspect the manager status, effective route and DNS path against the recovery preconditions above. If they do not establish the intended VPN path, or DNS/proxy routing is unclear, do not run the probes; ask Ryushe. Check IPv6 separately when used. Only after the gate passes, run:
-
-```bash
-curl -4fsS --max-time 10 https://ip.me
-curl -4fsS --max-time 10 https://am.i.mullvad.net/json
-```
-
-If already connected via the CLI, rotate to a different listed West Coast city/relay with `mullvad relay set location ... && mullvad reconnect --wait`. Verify the CLI is connected and `mullvad status -v` shows an **actual connected relay/location in WA, OR, or CA** matching the selection, Tailscale has **no** selected or effective exit and no unresolved saved/effective mismatch, the public IP is not the ISP's, and Mullvad reports `mullvad_exit_ip: true`. After a failed Tailscale migration that returns to standalone Mullvad, set daemon auto-connect **on** and verify it; restore any GUI preference only if consistent with standalone mode. Do not leave the standalone fallback with auto-connect off merely because it was off before the attempt.
-
-Verify on the actual egress host/path (account for proxies, and check IPv6 when relevant). If checks fail, stop target traffic, restore a verified VPN path, and do not silently use ISP egress. For scoped failures, record the prior/new manager, relay, symptom, command and retest without logging raw IPs. Stop and ask if a selected Tailscale exit would need to be cleared, the target forbids VPNs, the issue is an account/application ban, state-changing work is at risk, or three exit changes fail.
-
-The fallback is an **explicit, verified manager switch**, not tested automatic failover or a kill switch. Compare `tailscale get exit-node`, `tailscale debug prefs` (RouteAll/ExitNodeID) and `tailscale status --json` (ExitNodeStatus), then check `ip -4 rule`, `ip -4 route get 1.1.1.1`, `resolvectl status`, public hostname resolution, IPv6 where present, and independent SSH plus affected workloads after a handoff; a saved exit preference, peer ping or host curl alone is not enough. At the 2026-10-08 validation Ghost still needed Tailscale operator privilege; Hoster's DNS failure was subsequently repaired by Ryushe after an interrupted disconnect, and a later read-only check found a Tailscale Seattle exit active with standalone disconnected but daemon auto-connect still **on**. Recheck both hosts' actual state before acting; reconcile a saved-versus-effective exit mismatch and mode-specific auto-connect mismatch instead of assuming either snapshot is current. Review any LAN-versus-DNS privacy policy, fail-closed/automatic fallback design, and failure-injection evidence separately before claiming either property.
+For non-incident rotation or recovery, apply the safety gates and the playbook's
+[Tailscale procedure](../../prompts/mullvad-playbook.md#tailscale-rotation-preferred-once-migrated)
+or [standalone procedure](../../prompts/mullvad-playbook.md#standalone-cli-fallback--rotation).
+Do not bypass a missing incident baseline with manual rotation. After **any**
+change, including a successful incident refresh, verify manager, relay and
+intended route, DNS, relevant IPv6, independent remote access and affected
+workloads on the actual path before resuming traffic. Check public Mullvad egress
+and rule out the ISP address as specified in the applicable playbook procedure;
+the helper's changed IPv4 is not proof of either. Public
+verification probes remain subject to the local route and DNS gate above; a
+host IPv4 result alone is insufficient. Stop traffic if verification fails; never
+silently use ISP egress. Record the symptom, prior/new manager and relay, command,
+verification and retest without raw IPs. Stop and ask Ryushe if an exit must be
+cleared, a manager switch is required, VPN use is prohibited, an account or
+application ban is involved, state-changing work is at risk, or three exit
+changes fail. The fallback is an explicit verified transition, not automatic
+failover or fail-closed protection.

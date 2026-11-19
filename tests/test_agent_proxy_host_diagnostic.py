@@ -18,10 +18,13 @@ class AgentProxyHostDiagnosticTests(unittest.TestCase):
         self.assertIn("`egress_snapshot.py`", text)
         self.assertIn('python3 "$HOME/.hermes/synced-skills/script-manager/scripts/egress_snapshot.py"', text)
         self.assertIn("Load General Skills `script-manager`", text)
-        self.assertIn("Do not assume this provider revision is installed", text)
-        self.assertIn("manually and optionally run", text)
-        self.assertIn("already changed host IP does not trigger another switch", text)
-        self.assertIn("same-city West Coast exit of the verified current manager", text)
+        self.assertIn("Verify the installed help and execute on the actual egress machine", text)
+        self.assertIn("optionally run `check KEY` or `refresh KEY`", text)
+        self.assertIn("reports `already_refreshed` if the host IP changed", text)
+        self.assertIn("same-city West Coast exit of the current manager", text)
+        self.assertIn("same UID and shared filesystem view, not other users or VPN tools", text)
+        self.assertIn("uncertain or interrupted switch can leave a persistent latch", text)
+        self.assertIn("Do not remove it or retry a switch speculatively", text)
         self.assertIn("not automatic, guaranteed to switch, or a manager change", text)
         self.assertIn("stable, private, opaque run-owned incident key", text)
         for command in ("`record KEY`", "`check KEY`", "`refresh KEY`"):
@@ -40,6 +43,35 @@ class AgentProxyHostDiagnosticTests(unittest.TestCase):
         self.assertIn("not proof that the target unblocked", text)
         self.assertIn("Do not force rotation", text)
         self.assertIn("`same` or `unknown` is not permission to rotate", text)
+
+    def test_manual_procedures_remain_routed_and_guarded(self):
+        skill = (ROOT / "skills/mullvad/SKILL.md").read_text()
+        playbook = (ROOT / "prompts/mullvad-playbook.md").read_text()
+        normalized = " ".join(skill.split())
+        for link, heading in (
+            ("#choose-the-path-on-each-host", "## Choose the path on each host"),
+            ("#preflight-gate-for-a-remote-handoff", "## Preflight gate for a remote handoff"),
+            ("#tailscale-rotation-preferred-once-migrated", "## Tailscale rotation (preferred once migrated)"),
+            ("#standalone-cli-fallback--rotation", "## Standalone CLI fallback / rotation"),
+        ):
+            with self.subTest(link=link):
+                self.assertIn("../../prompts/mullvad-playbook.md" + link, skill)
+                self.assertIn(heading, playbook)
+        for gate in (
+            "Do not bypass a missing incident baseline with manual rotation",
+            "Check public Mullvad egress and rule out the ISP address",
+            "change, including a successful incident refresh, verify manager, relay and intended route, DNS, relevant IPv6, independent remote access and affected workloads",
+            "A manager change requires explicit direction",
+            "never silently change lockdown, layer managers, or clear a selected Tailscale exit",
+            "verification probes remain subject to the local route and DNS gate above",
+        ):
+            self.assertIn(gate, normalized)
+        self.assertIn("agent/tool transcripts or logs", playbook)
+        standalone = playbook.split("## Standalone CLI fallback / rotation", 1)[1].split("## Boot/restart checks", 1)[0]
+        self.assertIn("public IP is not the normal ISP IP", standalone)
+        self.assertIn("`mullvad_exit_ip: true`", standalone)
+        self.assertNotIn("curl -4fsS --max-time 10 https://ip.me", playbook)
+        self.assertNotIn("curl -6fsS --max-time 10 https://ip.me", playbook)
 
 
 if __name__ == "__main__":

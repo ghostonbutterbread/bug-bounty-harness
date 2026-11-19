@@ -49,7 +49,7 @@ def verify(policy_root):
     forbid(chromium, "If `captcha-policy` selects an egress comparison")
     require(handoff, "`captcha-policy`", "inspection-only", "do not interact with the target", "securely prefill", "interrupted challenge is ineligible")
     require(nebula, "Ryushe is at Nebula's screen", "not an unattended device capability", "Do not rotate", "Never drop Mullvad")
-    require(nebula, "human-controlled physical-screen flow", "human performs the egress check and target interactions", "Prefer a task-scoped MITM", "continue directly through the verified VPN", "record that traffic is unproxied", "Nebula-only exception", "actual browser proxy route and exact CA trust", "launch command below does not establish or verify")
+    require(nebula, "human-controlled physical-screen flow", "human performs the egress check and target interactions", "Prefer a task-scoped MITM", "do not make it mandatory", "may use the verified VPN directly, even if a proxy is available", "record that traffic is unproxied", "Nebula-only exception", "429 cooldown", "still prohibits the corresponding target interaction", "actual browser proxy route and exact CA trust", "launch command below does not establish or verify")
     forbid(nebula, "do not drive network traffic without the agent-proxy gate")
     require(mullvad, "`egress_inspect.py`", "read-only IPv4 local snapshot", "regardless of whether a host baseline can be captured", "non-secret incident context in the run record", "helper is unavailable or recording fails", "baseline is unknown", "deduplicates only the host-direct path", "whether a remote proxy path changed", "Do not force rotation", "Do not log raw IPs")
     # Ensure the route check rejects a removed handoff edge.

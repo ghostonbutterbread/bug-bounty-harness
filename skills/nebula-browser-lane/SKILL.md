@@ -30,9 +30,10 @@ performs the egress check and target interactions at Nebula's screen, while the
 agent waits. An active `operator_review`, 429 cooldown, or other applicable stop
 still prohibits the corresponding target interaction; handoff does not reset it.
 
-Prefer a task-scoped MITM for agent-driven browser traffic when available. If a
-proxy is unavailable, agent-driven work on this human-present Nebula lane may
-continue directly through the verified VPN; record that traffic is unproxied.
+Prefer a task-scoped MITM for agent-driven browser traffic when practical, but
+do not make it mandatory. Agent-driven work on this human-present Nebula lane
+may use the verified VPN directly, even if a proxy is available; record that
+traffic is unproxied.
 Ryushe explicitly permits this Nebula-only exception to the general mandatory
 proxy route; scope, rate, human handoff and VPN protections still apply. When
 using a proxy, verify the actual browser proxy route and exact CA trust, and verify

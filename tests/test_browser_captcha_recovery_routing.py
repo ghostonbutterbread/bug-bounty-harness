@@ -44,13 +44,19 @@ class BrowserCaptchaRecoveryRoutingTests(unittest.TestCase):
     def test_nebula_prefers_proxy_but_permits_verified_vpn_direct(self):
         text = skill("nebula-browser-lane")
         self.assertIn("Prefer a task-scoped MITM", text)
-        self.assertIn("continue directly through the verified VPN", text)
+        self.assertIn("do not make it mandatory", text)
+        self.assertIn("may use the verified VPN directly, even if a proxy is available", text)
         self.assertIn("record that traffic is unproxied", text)
         self.assertIn("Nebula-only exception", text)
         self.assertIn("actual browser proxy route and exact CA trust", text)
         self.assertIn("remote proxy can change the exit IP", text)
+        self.assertIn("429 cooldown", text)
+        self.assertIn("still prohibits the corresponding target interaction", text)
         self.assertIn("launch command below does not establish or verify", text)
-        self.assertNotIn("do not drive network traffic without the agent-proxy gate", text)
+        for stale_gate in ("do not drive network traffic without the agent-proxy gate",
+                           "Before any agent-driven target interaction",
+                           "requires the task proxy and CA gate"):
+            self.assertNotIn(stale_gate, text)
 
     def test_nebula_managed_lease_and_handoff_survive_reconciliation(self):
         text = skill("nebula-browser-lane")

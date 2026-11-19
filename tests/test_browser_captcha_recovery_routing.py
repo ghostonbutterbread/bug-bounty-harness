@@ -41,20 +41,29 @@ class BrowserCaptchaRecoveryRoutingTests(unittest.TestCase):
         self.assertIn("human performs the egress check and target interactions", text)
         self.assertIn("not an unattended device capability", text)
 
-    def test_nebula_blocks_agent_target_interaction_without_proxy_and_trust(self):
+    def test_nebula_prefers_proxy_but_permits_verified_vpn_direct(self):
         text = skill("nebula-browser-lane")
-        self.assertIn("Before any agent-driven target interaction", text)
-        self.assertIn("dedicated task-scoped local MITM", text)
+        self.assertIn("Prefer a task-scoped MITM", text)
+        self.assertIn("do not make it mandatory", text)
+        self.assertIn("may use the verified VPN directly, even if a proxy is available", text)
+        self.assertIn("record that traffic is unproxied", text)
+        self.assertIn("Nebula-only exception", text)
         self.assertIn("actual browser proxy route and exact CA trust", text)
-        self.assertIn("stop and report the missing prerequisite", text)
+        self.assertIn("remote proxy can change the exit IP", text)
+        self.assertIn("429 cooldown", text)
+        self.assertIn("still prohibits the corresponding target interaction", text)
         self.assertIn("launch command below does not establish or verify", text)
+        for stale_gate in ("do not drive network traffic without the agent-proxy gate",
+                           "Before any agent-driven target interaction",
+                           "requires the task proxy and CA gate"):
+            self.assertNotIn(stale_gate, text)
 
     def test_nebula_managed_lease_and_handoff_survive_reconciliation(self):
         text = skill("nebula-browser-lane")
         for phrase in ("hold_lane.py renew --receipt", "hold_lane.py begin-handoff --receipt",
                        "hold_lane.py complete-handoff --receipt", "hold_lane.py browser-start --receipt",
                        "hold_lane.py browser-stop --receipt", "hold_lane.py release --receipt",
-                       "Never clear it based on elapsed time", "do not drive network traffic without the agent-proxy gate"):
+                       "Never clear it based on elapsed time", "Apply the proxy or direct-VPN decision above"):
             self.assertIn(phrase, text)
         self.assertNotIn('pkill -f', text)
 

@@ -6,8 +6,8 @@
 - **Base commit:** `c1cc1002e6561682d3f21b73182d0a4f36f4160a` (local beta contains fetched origin/beta)
 - **Intended integration target:** `beta`
 - **Owning feature branch/ref:** `feat/ato-reset-mentality-tf8d68cfe`
-- **Latest immutable recovery checkpoint:** none yet; commit this dossier with the implementation.
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `92f50712e1a589c081ca79029306d182f0dd0d2e`
+- **Feature implementation commit(s):** `92f50712e1a589c081ca79029306d182f0dd0d2e`
 - **Inspiration / canonical references:** `policy-authoring`, `/ato`, `/password-reset`, `/data-store-guidance`, `/attempt-recording-policy`.
 
 ## Intent and implemented contract
@@ -18,22 +18,22 @@ Make ATO teach curious authentication/authority reasoning and route to specialis
 
 - `/usr/bin/python3 -m pytest -q tests/test_password_reset_guidance.py`: 6 passed.
 - `git diff --check`: passed before adding this dossier.
-- Independent complete-diff review: pending.
-- Offline behavioral consumer exercise and projected-reference route check: pending.
+- Independent complete-diff review: changes requested on dossier checkpoint and advanced route negative test; corrections pending re-review.
+- Offline behavioral consumer exercise: two fictional recovery scenarios examined; routes, safety and unknowns checked. Six source-tree relative path checks passed. No real target traffic.
 - Integration ancestry: base is local beta `c1cc1002`, ahead of fetched `origin/beta`; preserve all existing beta commits.
 
 ## Blockers and deferred work
 
-- Missing evidence: independent review and an offline fresh-consumer exercise against the feature files. Run before beta integration; no live target needed.
+- Missing evidence: re-review the two reviewer-requested corrections and rerun focused tests before beta integration; no live target needed.
 - Runtime activation is separate from beta integration and must not be claimed without verified selected projection; remote deployment and push are not authorized by the request.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/ato-reset-mentality-tf8d68cfe`
-- **Latest immutable recovery checkpoint:** pending implementation checkpoint commit.
-- **Feature implementation commit(s):** pending.
-- **Exact resume point:** commit candidate, perform independent review and offline consumer exercise, fix concrete findings, then reconcile beta.
-- **Working-tree state at handoff:** intentionally uncommitted until candidate checkpoint.
+- **Latest immutable recovery checkpoint:** `92f50712e1a589c081ca79029306d182f0dd0d2e`
+- **Feature implementation commit(s):** `92f50712e1a589c081ca79029306d182f0dd0d2e`
+- **Exact resume point:** finish reviewer-requested corrections and re-review, then reconcile beta.
+- **Working-tree state at handoff:** checkpoint commit is recoverable; corrections are pending commit.
 
 ## Decision gates
 

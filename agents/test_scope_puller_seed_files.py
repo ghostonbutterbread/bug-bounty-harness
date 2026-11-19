@@ -89,6 +89,18 @@ def test_incomplete_duplicate_template_is_not_published_and_retry_succeeds(monke
     assert "unknown" in path.read_text().lower()
 
 
+def test_concurrent_manual_entry_wins_initialization_race(monkeypatch, tmp_path: Path) -> None:
+    link = os.link
+    path = tmp_path / "duplicate-intelligence.md"
+    def concurrent_create(source, target):
+        path.write_text("Operator data\n")
+        link(source, target)
+    monkeypatch.setattr(os, "link", concurrent_create)
+    assert not scope_puller.initialize_duplicate_intelligence(tmp_path)
+    assert path.read_text() == "Operator data\n"
+    assert set(tmp_path.iterdir()) == {path}
+
+
 def test_bugcrowd_descriptive_web_apps_grant_is_written(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     raw = {"data": {"scope": [{"name": "in", "inScope": True, "targets": [

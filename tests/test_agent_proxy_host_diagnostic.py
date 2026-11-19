@@ -42,7 +42,9 @@ def test_incident_record_precedes_optional_same_manager_refresh():
     ):
         assert requirement.lower() in incident.lower(), requirement
     assert incident.index("After preflight") < incident.index("`record KEY`")
-    assert incident.index("`record KEY`") < incident.index("optionally run `check KEY` or `refresh KEY`")
+    assert incident.index("`record KEY`") < incident.index("may use `refresh KEY` with the same key")
+    assert "never rotate to get past a CAPTCHA or active `operator_review`" in incident
+    assert "Optionally run `check KEY` first with the same key" in incident
 
 
 def test_all_changes_require_private_full_path_verification():

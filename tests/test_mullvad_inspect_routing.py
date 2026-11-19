@@ -38,6 +38,32 @@ def test_preflight_preserves_manager_and_fresh_setup_is_guarded():
     assert "pre-switch LAN SSH alone is insufficient" in preflight
 
 
+def test_incident_triage_and_rotation_use_practical_judgment():
+    skill = normalized(SKILL.read_text())
+    preflight = section(skill, "## Preflight", "## Suspected IP-related incident")
+    incident = section(skill, "## Suspected IP-related incident", "## Conditional procedures and verification")
+    for phrase in (
+        "Before rotation or other remote changes", "known sensitive work",
+        "obvious shared work", "safe stopping point",
+        "do not require proof that the host is idle",
+        "independently tested recovery proven to survive the change",
+    ):
+        assert phrase in preflight, phrase
+    for phrase in (
+        "new incident has no prior baseline", "promptly run `record KEY`",
+        "Briefly investigate applicable likely causes", "browser/session state",
+        "DNS or proxy", "without prolonged investigation",
+        "IP is a plausible cause", "may use `refresh KEY` with the same key as needed",
+        "No explicit program permission to rotate is needed where its rules are silent",
+        "explicit prohibitions", "rate limits", "Follow `captcha-policy`",
+        "never rotate to get past a CAPTCHA or active `operator_review`",
+        "do not substitute another public-IP probe",
+        "bypass an unavailable baseline with manual rotation", "same UID and shared filesystem view",
+    ):
+        assert phrase in incident, phrase
+    assert incident.index("promptly run `record KEY`") < incident.index("browser/session state")
+
+
 def test_conditional_procedures_exist_and_fresh_setup_does_not_probe_first():
     skill = SKILL.read_text()
     playbook = PLAYBOOK.read_text()
@@ -81,7 +107,7 @@ def test_remote_standalone_absent_tailscale_keeps_recovery_gates():
         assert requirement in choose, requirement
     for requirement in ("directed fresh standalone setup", "Tailscale is verified absent", "remote handoff gate", "do not perform Tailscale-only setup or privilege checks"):
         assert requirement in fresh, requirement
-    for requirement in ("if Tailscale is installed compare", "Skip those checks only if Tailscale is verified absent", "presence or state is uncertain or inaccessible, stop for operator recovery", "When a Tailscale operation is planned", "a privilege error is a stop", "safe workload change window", "rehearsed rollback", "With only pre-switch LAN SSH and no independent recovery, stop", "or standalone tunnel as applicable", "health of each affected browser, agent, proxy, container and service", "local route and DNS probe gate"):
+    for requirement in ("if Tailscale is installed compare", "Skip those checks only if Tailscale is verified absent", "presence or state is uncertain or inaccessible, stop for operator recovery", "When a Tailscale operation is planned", "a privilege error is a stop", "safe workload change window", "rehearsed rollback", "With only pre-switch LAN SSH and no independent recovery, stop", "or standalone tunnel as applicable", "health of known affected browser, agent, proxy, container and service workloads where relevant", "local route and DNS probe gate"):
         assert requirement in remote, requirement
     assert "When Tailscale is absent and no selection could have been stored, skip this step" in standalone
     assert "installed but its CLI/daemon is inaccessible" in standalone

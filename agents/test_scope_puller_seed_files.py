@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from agents import scope_puller
@@ -11,6 +12,13 @@ from agents.scope_validator import ScopeValidator
 
 def test_scope_puller_imports_as_package() -> None:
     assert scope_puller.canonical_program_slug("https://bugcrowd.com/engagements/demo") == "demo"
+
+
+def test_scope_directory_for_owner_handle_uses_final_handle(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    scope_puller.save_scope("owner/demo", {"domains": {"example.test"}, "urls": set()}, legacy=False)
+    assert (tmp_path / "Shared/scopes/demo/duplicate-intelligence.md").is_file()
+    assert not (tmp_path / "Shared/scopes/owner/demo/duplicate-intelligence.md").exists()
 
 
 def test_manual_duplicate_intelligence_created_once_and_preserved(monkeypatch, tmp_path: Path) -> None:
@@ -42,6 +50,43 @@ def test_duplicate_intelligence_failure_does_not_discard_saved_scope(monkeypatch
     scope_puller.save_scope("demo", data, legacy=False)
     assert "*.example.test" in (tmp_path / "Shared/scopes/demo/in-scope.txt").read_text()
     assert "manual duplicate intelligence could not be initialized" in capsys.readouterr().out
+
+
+def test_incomplete_duplicate_template_is_not_published_and_retry_succeeds(monkeypatch, tmp_path: Path) -> None:
+    path_open = Path.open
+    fdopen = os.fdopen
+
+    class FailingWriter:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def write(self, value):
+            self.handle.write(value[:12])
+            raise OSError("fixture write failure")
+
+    def failing_open(path, mode="r", *args, **kwargs):
+        handle = path_open(path, mode, *args, **kwargs)
+        return FailingWriter(handle) if path.name == "duplicate-intelligence.md" and mode == "x" else handle
+
+    def failing_fdopen(fd, *args, **kwargs):
+        return FailingWriter(fdopen(fd, *args, **kwargs))
+
+    with monkeypatch.context() as failure:
+        failure.setattr(Path, "open", failing_open)
+        failure.setattr(os, "fdopen", failing_fdopen)
+        with pytest.raises(OSError, match="fixture write failure"):
+            scope_puller.initialize_duplicate_intelligence(tmp_path)
+    path = tmp_path / "duplicate-intelligence.md"
+    assert not path.exists()
+    assert scope_puller.initialize_duplicate_intelligence(tmp_path)
+    assert "unknown" in path.read_text().lower()
 
 
 def test_bugcrowd_descriptive_web_apps_grant_is_written(monkeypatch, tmp_path: Path) -> None:

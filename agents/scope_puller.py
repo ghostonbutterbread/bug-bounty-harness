@@ -5,7 +5,9 @@ import argparse
 import html
 import ipaddress
 import json
+import os
 import re
+import tempfile
 import unicodedata
 import urllib.request
 from html.parser import HTMLParser
@@ -786,17 +788,25 @@ def render_program_policy(scope_data: dict) -> str:
 def initialize_duplicate_intelligence(base: Path) -> bool:
     """Create a manual, non-authoritative record without replacing user data."""
     path = base / "duplicate-intelligence.md"
+    if os.path.lexists(path):
+        return False
+    fd, name = tempfile.mkstemp(prefix=".duplicate-intelligence-", dir=base)
+    temporary = Path(name)
     try:
-        with path.open("x", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(
                 "# Duplicate intelligence\n\n"
                 "No observations recorded. Duplicate risk is unknown until evidence is supplied.\n\n"
                 "## Program-level observations\n\n"
                 "## Target and vulnerability-category observations\n"
             )
-    except FileExistsError:
-        return False
-    return True
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def save_scope(program: str, scope_data: dict, *, legacy: bool = True):

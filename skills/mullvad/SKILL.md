@@ -3,117 +3,130 @@ name: mullvad
 description: "Check VPN egress and preserve the active manager safely."
 ---
 
-# Mullvad Egress: Tailscale First, Standalone Fallback
+# Mullvad egress
 
-Use this skill for VPN setup, West Coast exit selection/rotation, or scoped network-path recovery. Read the BBH repository's `prompts/mullvad-playbook.md` before a one-time manager handoff or fallback. **Safety boundary: never clear a selected Tailscale exit node (`tailscale set --exit-node=` or equivalent) unless Ryushe explicitly directs it.** An empty selection can expose the host's ISP IP. Rotate directly to another listed exit; if none works, pause target traffic and ask for direction rather than clearing it. Changing the exit does **not** authorize evading target rules, rate limits, account bans, WAF enforcement, or explicit VPN blocking.
+Use for VPN setup, West Coast exit rotation, or network-path recovery. Preserve
+the working manager; prefer Tailscale for a new directed setup, not as a reason
+to displace standalone Mullvad.
 
-**LAN default with an exit node:** Unless Ryushe specifies otherwise for that
-host, set `tailscale set --exit-node-allow-lan-access=true` before selecting a
-Tailscale exit and preserve that preference on rotation/restart. Verify both
-the preference **and the effective LAN return route** (`ip route get <LAN peer>`
-must select the LAN interface), then independently test LAN SSH. A saved `true`
-preference is not proof that a route survived a network-manager restart;
-reasserting the same flag can succeed without restoring the missing route.
-If the exception is missing, use an independently tested console/recovery path
-for privileged route or daemon repair; do not restart Tailscale from the only
-working tailnet SSH connection or clear the selected exit to regain access.
+## Preflight — before external traffic or VPN action
 
-## Identify and preserve the current VPN manager
+1. Inspect the actual egress host and path, including remote hosts, proxies and
+   containers: `tailscale get exit-node`, `tailscale status --json` if installed,
+   `mullvad status -v` if installed, and effective IPv4/IPv6 routes as applicable.
+   A connected tailnet alone is not an internet exit. Confirm the selected
+   Tailscale exit is online and routes relevant traffic, or standalone Mullvad is
+   connected and routes it. Repeat after network changes.
+2. A failed status command does not prove a manager absent. Skip standalone
+   status, disconnect, auto-connect and GUI checks only if verified absent. If
+   presence or state is uncertain, or managers conflict, stop external traffic
+   and ask Ryushe. If a route or exit fails verification, pause ordinary work;
+   same-manager rotation remains subject to the gates below. Ask if recovery
+   cannot be verified or requires a manager switch. Never silently use ISP egress.
+3. Preserve the active manager; do not disconnect, layer, or switch managers to
+   start work. A transition requires Ryushe's explicit direction. Never clear a
+   selected Tailscale exit (`tailscale set --exit-node=` or equivalent) without
+   his explicit direction; if direct rotation fails, pause and ask instead.
+4. During recovery keep ordinary traffic paused. Send a bounded, non-sensitive
+   public DNS/egress probe only after local manager status, the effective route
+   for the probe's address family, and its DNS path support the intended VPN
+   route. If unclear, do not probe; ask Ryushe. Resume only after verification.
+   These checks are not a kill switch or proof of fail-closed protection.
 
-For an optional read-only IPv4 local snapshot, load the General Skills
-`script-manager` skill and consult its `scripts/README.md` index for
-`egress_inspect.py` and its usage. It informs, but does not replace, the checks
-and gates below; it does not verify DNS, IPv6, fail-closed protection, or ISP
-exposure, and does not detect the public IP. If the helper is unavailable,
-continue the existing inspection commands; do not infer that a manager is absent.
+**Fresh setup exception:** When Ryushe explicitly directs a fresh setup, no
+Tailscale exit is selected and standalone Mullvad is verified absent or
+disconnected, a working manager is not required to begin setup. First compare
+`tailscale get exit-node`, `tailscale debug prefs` (RouteAll/ExitNodeID),
+`tailscale status --json` (ExitNodeStatus), and effective routes if Tailscale is
+installed. Require no selected, saved or effective exit; any saved ID,
+mismatch or inaccessible state means stop for operator recovery, not overwrite.
+If Tailscale is verified absent, skip its checks. Keep ordinary traffic paused
+and public probes behind the gate above; follow the fresh setup procedure below.
 
-For a suspected IP-related block, promptly record the incident regardless of
-whether a host baseline can be captured; a CAPTCHA or 403 alone is not an
-IP-block classification. Record non-secret incident context in the run record:
-the symptom, independent reason for suspicion, affected path, time, and baseline
-availability. Do not include raw IPs, credentials, or sensitive target data.
-Load General Skills `script-manager`, resolve its installed skill directory, and
-consult `scripts/README.md` and `egress_snapshot.md` for `egress_snapshot.py`
-and the installed version.
-For Hermes' usual synced skill location, the actual entrypoint is
+For remote changes require a safe workload window and independently tested
+recovery proven to survive the change; pre-switch LAN SSH alone is insufficient.
+With a Tailscale exit, default to LAN access enabled unless Ryushe specifies a
+host exception; when LAN access is used, verify its effective return route and
+consider LAN DNS exposure. Verify independent SSH where relevant; remote changes
+always require independently tested recovery. Do not restart Tailscale from the
+only working tailnet SSH connection. Do not timeout or kill a slow Mullvad disconnect or interrupt
+its daemon during DNS reset; monitor separately and coordinate recovery.
+
+Optional: load `script-manager` and consult `scripts/README.md` for the read-only
+IPv4 local snapshot `egress_inspect.py`. It does not detect public IP or verify
+DNS, IPv6, ISP exposure or fail-closed protection. If unavailable, continue local
+inspection; do not infer a manager is absent.
+
+## Suspected IP-related incident
+
+A CAPTCHA or 403 alone is not an IP-block classification. Record non-secret
+incident context in the run record regardless of whether a host baseline can be
+captured: symptom, independent reason for suspicion, affected path, time and
+baseline availability. Do not log raw IPs, credentials or sensitive target data.
+
+Load General Skills `script-manager` and consult `scripts/README.md` and
+`egress_snapshot.md`. Verify installed help and run `egress_snapshot.py` on the
+actual egress host using authorized remote control if needed; it has no `--host`.
+The usual Hermes entrypoint is
 `python3 "$HOME/.hermes/synced-skills/script-manager/scripts/egress_snapshot.py"`;
-other runtimes use their resolved skill directory. Verify the installed help and
-execute on the actual egress machine, using its authorized remote control when
-necessary; the tool has no `--host` option. With a stable, private, opaque
-run-owned incident key (not an IP, secret, or target identifier), run `record KEY` promptly and retain
-the key in the run context. The diagnostic's external probe is permissible only
-after the preflight below; if the helper is unavailable or recording fails,
-retain the run record and note that the baseline is unknown. Do not substitute
-another public-IP probe. Continue other permitted investigation or other leads;
-recording does not require a refresh. Later, optionally run `check KEY` or
-`refresh KEY` with the same key after all safety gates. **Refresh can change the
-VPN exit**: it rechecks under a shared lock and reports `already_refreshed` if
-the host IP changed; if unchanged, it may switch once to a different live-listed
-same-city West Coast exit of the current manager. It is not automatic, guaranteed
-to switch, or a manager change. The lock coordinates cooperating processes of
-the same UID and shared filesystem view, not other users or VPN tools.
+other runtimes use their resolved installed skill directory. After preflight,
+promptly run `record KEY` with a stable, private, opaque run-owned incident key
+(not an IP, secret or target identifier), and retain the key in run context.
+If the helper is unavailable or recording fails, note the baseline is unknown;
+do not substitute another public-IP probe. Continue other permitted investigation;
+recording does not require refresh.
 
-An uncertain or interrupted switch can leave a persistent latch blocking later
-refreshes. Do not remove it or retry a switch speculatively: follow the installed
-`egress_snapshot.md` recovery conditions and coordinate operator recovery. The
-caller remains responsible for program and workload rules, VPN protection, and
-recovery access; the helper's point-in-time checks are not a kill switch.
+Later, optionally run `check KEY` or `refresh KEY` with that same key after all
+safety gates. **Refresh can change the VPN exit**: under a shared lock it reports
+`already_refreshed` if the host IP changed; if unchanged it may switch once to a
+live-listed, different same-city West Coast exit of the current manager. It is
+not automatic, guaranteed to switch, or a manager change. The lock coordinates
+only cooperating processes of the same UID and shared filesystem view, not other
+users or VPN tools. An uncertain or interrupted switch can leave a persistent
+latch; pause ordinary traffic and do not remove it or retry speculatively. Follow
+the installed helper's recovery conditions and coordinate operator recovery.
 
 The baseline is a point-in-time post-block host-direct IPv4 observation: it
-cannot establish the blocked IP if a switch happened before capture. A `different`
-result means host IPv4 changed since that baseline; refresh deduplicates only the
-host-direct path. It cannot establish whether a remote proxy path changed, and is
-not proof that the target unblocked. `same` or `unknown` is not permission to
-rotate. Do not force rotation, substitute a direct switch, or escalate because
-capture or comparison is unavailable. Preserve the existing manager, region,
-scope, rate and operator-review gates. Do not log raw IPs; protect any private
-baseline data per the installed helper's documentation.
+cannot establish the blocked IP if a switch preceded capture, accept an arbitrary
+program-specific IP, or establish whether a remote proxy path changed. Refresh
+deduplicates only the host-direct path; `different` means host IPv4 changed since
+the baseline, not that the target unblocked. `same` or `unknown` is not permission
+to rotate. Do not force rotation or bypass an unavailable baseline with a manual
+switch. Protect private baseline data per the helper documentation. Program
+rules, workload safety and recovery remain the caller's responsibility.
 
-Before external traffic or any VPN action, inspect the actual egress host/path locally: `tailscale get exit-node`, `tailscale status --json`, `mullvad status -v`, and the effective IPv4/IPv6 routes as applicable. A connected tailnet alone is not an internet exit. Account for remote hosts, proxies, and containers; repeat after network changes. A verified absent manager is distinct from an installed manager whose state cannot be inspected; do not infer absence merely from a failed status command. Throughout this skill and the playbook, standalone Mullvad status, disconnect, auto-connect and GUI checks apply only if it is installed; if verified absent, skip them rather than requiring a Disconnected status. If its presence or state is uncertain, stop external traffic and ask Ryushe. Confirm that the selected Tailscale exit is online and routes the relevant traffic, or that standalone Mullvad is connected and routes it. If manager state is unknown or conflicting, stop external traffic and ask Ryushe. If a route or selected exit fails verification, stop ordinary external work; same-manager direct exit rotation remains permitted under the existing safety gates below, but ask Ryushe if recovery cannot be verified or would require a manager switch. Never silently fall back to ISP egress. This preflight is an instruction, not a kill switch.
+## Conditional procedures and verification
 
-During recovery, keep ordinary work traffic paused. Only after local manager status and effective routes for the probe's address family and DNS path support the intended VPN route may a bounded, non-sensitive public DNS/egress verification probe be sent; if that cannot be established locally, do not send it and ask Ryushe. This local evidence reduces exposure risk but does not prove fail-closed protection. Resume work only after verification succeeds.
+Read only the applicable sections of `prompts/mullvad-playbook.md`. Locate it
+with `bbh --print-command prompts/mullvad-playbook.md`; compare `bbh --root` to
+the physical source checkout of this projected skill. If provenance cannot be
+established or the lanes differ, stop rather than reading a different lane.
 
-Preserve the verified manager: use the existing Tailscale exit if selected and active, or the existing standalone Mullvad tunnel if connected with no Tailscale exit selected. Do not disconnect, clear an exit, switch managers, or layer them just to start work. A manager transition is a separate, explicitly directed operation; the existing safety and recovery gates below still apply.
+- **Directed fresh setup or transition:** Read “Choose the path on each host”
+  and, for a remote change, “Preflight gate for a remote handoff”. For fresh
+  setup read “Directed fresh setup”; for a transition use the applicable one-time
+  move or standalone fallback procedure. Do not silently change lockdown or
+  disrupt workloads.
+- **Rotation or recovery:** Read the current manager's “Tailscale rotation” or
+  “Standalone CLI fallback / rotation” and, for failures, “Failure and rollback
+  boundary” and “Scoped connectivity recovery”. Choose a different live-listed
+  WA/OR/CA exit; ask before leaving that region and never use `auto:any`.
+- **Boot, restart or LAN route drift:** Read “Boot/restart checks”; when LAN
+  access is used, verify the effective return route, not just saved preference.
+  Check the control paths applicable to that host.
 
-## Choose one VPN manager per host
-
-1. When establishing a new managed path with operator direction, check `tailscale status`, `tailscale get exit-node`, and `tailscale exit-node list --filter=USA`. If the host is connected to its tailnet, authorized for the Mullvad add-on, and a US West Coast Mullvad node is listed, **prefer Tailscale** only where that does not displace an existing working manager without an explicitly directed transition. A Tailscale connection alone does not route public internet traffic through Mullvad; the selected exit node does.
-2. If Tailscale is not installed, not connected, not permitted for Mullvad on this host, or has no usable West Coast exit, **use the standalone Mullvad CLI only when no Tailscale exit is already selected** (or after Ryushe explicitly directs a manager switch and clearing the exit). Do not disconnect a working standalone tunnel merely to discover that the Tailscale exit is unavailable.
-3. Keep one active egress owner: on a planned Tailscale handoff, inspect the standalone tunnel, daemon auto-connect (`mullvad auto-connect get`), **independent GUI Auto-connect** (if the app is present), and lockdown setting. Pause target traffic and check active workloads/recovery access; turn **off both standalone Mullvad auto-connect paths** before `mullvad disconnect --wait` and selection of the Tailscale Mullvad exit. If a GUI auto-connect path is present but cannot be disabled and verified, do not claim a persistent handoff. Ryushe approves the mode-specific auto-connect rule, not silent changes to lockdown or disruption of active workloads. For CLI fallback, inspect the Tailscale exit using `tailscale get exit-node`, `tailscale debug prefs`, `tailscale status --json` and effective routes **before** reconnecting Mullvad. If an exit is selected, do not clear it or layer managers: pause traffic and ask Ryushe to explicitly direct a manager switch. If the saved/effective state disagrees or Tailscale is inaccessible, stop for operator recovery. Then set `mullvad auto-connect set on` and verify it. A transition can briefly expose ISP egress or interrupt remote access.
-
-Stay in US West Coast cities (WA, OR, CA); inspect the **live** exit list or Mullvad relay list rather than relying on a fixed hostname. Ask Ryushe before leaving that region. Do not use `auto:any`: it need not choose a West Coast Mullvad exit.
-
-Before a remote handoff, read the playbook's preflight gate: verify `tailscale set` privilege, out-of-band console or recovery proven to survive exit selection, a safe window and workload-specific checks; capture route, policy rules, DNS, egress and both managers' settings. Pre-switch LAN SSH alone is not proof of recovery; an exit with LAN access disabled can sever it. Exit-node LAN access can preserve remote SSH while permitting LAN DNS outside the VPN, so verify that tradeoff and honor an explicit host-specific opt-out. A slow Mullvad disconnect/DNS reset is **not** proof of a hang: do not impose a short timeout, kill its CLI, or interrupt the daemon. Monitor progress from a separate session; if genuinely stuck, coordinate privileged recovery with the operator. Verify public DNS **and** egress afterward; direct-IP HTTPS alone does not clear a DNS failure.
-
-## Startup follows the selected manager
-
-- **Tailscale-managed Mullvad:** On systemd Linux, check `systemctl is-enabled tailscaled` and `systemctl is-active tailscaled`; if not enabled, inspect the existing service owner before deliberately enabling the installed `tailscaled` service. The Tailscale client must already be authenticated/online, a **specific listed West Coast Mullvad exit** selected, and `tailscale get exit-node` must show that selection. If standalone Mullvad is installed, set `mullvad auto-connect set off`, read it back, and ensure independent GUI Auto-connect (if present) is **off**; leave its daemon available for later fallback, but disconnected. If verified absent, skip those standalone checks. A one-time `tailscale up` or merely active tailnet state is not a startup guarantee. On another OS, check its own Tailscale startup manager.
-- **Standalone-managed Mullvad:** Leave Tailscale connected for peer traffic if useful, but require that its exit selection is already empty (or that Ryushe explicitly directed clearing it) and read back that state; set `mullvad auto-connect set on` and check `mullvad auto-connect get`. Inspect independent GUI Auto-connect if installed; keep it consistent with the selected manager. Check `mullvad status -v` for the actually connected West Coast relay.
-- **After boot/restart:** Check service/startup state, selected exit or connected relay, and public egress **on the host/path doing the work** before scoped traffic resumes. Enabled startup plus a saved exit preference does not prove the relay is reachable or prevent ISP traffic during boot/failure. If checks fail, stop target traffic and recover a verified VPN path; do not silently proceed over the ISP. Do not reboot an active host merely to test this rule.
-
-## Setup, handoff and recovery details
-
-For a directed setup, handoff, or standalone fallback, use the applicable
-[playbook procedures](../../prompts/mullvad-playbook.md#choose-the-path-on-each-host)
-and its [remote handoff gate](../../prompts/mullvad-playbook.md#preflight-gate-for-a-remote-handoff).
-The incident helper is for same-manager refresh, not manager setup or switching.
-A manager change requires explicit direction; never silently change lockdown,
-layer managers, or clear a selected Tailscale exit.
-
-For non-incident rotation or recovery, apply the safety gates and the playbook's
-[Tailscale procedure](../../prompts/mullvad-playbook.md#tailscale-rotation-preferred-once-migrated)
-or [standalone procedure](../../prompts/mullvad-playbook.md#standalone-cli-fallback--rotation).
-Do not bypass a missing incident baseline with manual rotation. After **any**
-change, including a successful incident refresh, verify manager, relay and
-intended route, DNS, relevant IPv6, independent remote access and affected
-workloads on the actual path before resuming traffic. Check public Mullvad egress
-and rule out the ISP address as specified in the applicable playbook procedure;
-the helper's changed IPv4 is not proof of either. Public
-verification probes remain subject to the local route and DNS gate above; a
-host IPv4 result alone is insufficient. Stop traffic if verification fails; never
-silently use ISP egress. Record the symptom, prior/new manager and relay, command,
-verification and retest without raw IPs. Stop and ask Ryushe if an exit must be
-cleared, a manager switch is required, VPN use is prohibited, an account or
-application ban is involved, state-changing work is at risk, or three exit
-changes fail. The fallback is an explicit verified transition, not automatic
-failover or fail-closed protection.
+After any change, including incident refresh, verify the manager, relay, intended
+route, public DNS, relevant IPv6 and affected workloads on the actual path. Verify
+independent remote access where relevant; it is required for a remotely managed
+host, but not for a local host with no relevant remote access. Privately verify
+Mullvad egress and rule out the ISP address
+as the applicable playbook requires; do not place raw addresses or provider output
+in transcripts or logs. If private verification is unavailable, keep traffic
+paused and arrange operator verification. A changed host IP alone is insufficient.
+Probe only after the local route and DNS gate; stop traffic if verification fails.
+Record the symptom, prior/new manager and relay, command, verification and retest
+without raw IPs. Ask Ryushe if an exit must be cleared, a manager switch is
+needed, VPN use is prohibited, an account/application ban is involved,
+state-changing work is at risk, or three exit changes fail. Changing exits never
+authorizes evading target rules, rate limits, bans, WAF enforcement or explicit
+VPN blocks. Fallback is an explicit verified transition, not automatic failover.

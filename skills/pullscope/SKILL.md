@@ -1,6 +1,6 @@
 ---
 name: pullscope
-description: Use when pulling bug bounty scope, checking in-scope assets, fetching HackerOne, Bugcrowd, or Intigriti program scope, or initializing normalized target lists before recon or testing.
+description: Use when pulling scope or recording target duplicate risk.
 ---
 # Pullscope — Fetch Bug Bounty Scope
 
@@ -30,6 +30,7 @@ Fetches and parses scope from bug bounty platforms (HackerOne, Bugcrowd, Intigri
 ├── assets.json                  # Normalized target groups/assets
 ├── rules-of-engagement.json     # Platform, source URL, rules text, machine tags
 ├── program-policy.md            # Human-readable policy summary
+├── duplicate-intelligence.md    # Manual, non-authoritative risk observations
 └── raw/                         # Raw platform response snapshots
 ```
 
@@ -40,6 +41,14 @@ Fetches and parses scope from bug bounty platforms (HackerOne, Bugcrowd, Intigri
 4. Scope readers prefer `~/Shared/scopes/{program}/` and fall back to legacy `~/Shared/bounty_recon/{program}/scope/`
 
 For Bugcrowd, public `/engagements/<program>` scraping is the default. Intigriti uses public rendered program pages (normally `owner/program` or a full program URL), not an authenticated API. Use `--api` only when an authenticated API path is intentionally implemented and configured.
+
+## Manual duplicate intelligence
+
+When the operator supplies competition, known-issue, duplicate, accepted-report, or disclosure information, record it in `duplicate-intelligence.md` under the canonical scope directory reported by the puller. The puller uses the final handle as the directory slug (for example, `owner/demo` uses `~/Shared/scopes/demo/`); verify the program identity before using an existing directory. The puller initializes this file only if absent and never replaces it on refresh. For an existing scope without it, create it when needed. Remove the initial no-observations sentence once facts are recorded. Recording supplied observations is local only: do not fetch a platform, call an API, or start a scope refresh just to enter them.
+
+Keep program totals separate from exact target or wildcard and vulnerability-category observations. For each entry preserve the supplied asset, count and its exact meaning, category when known, source or operator attribution, observation date if known, and any limitations; use `unknown` for missing fields. Keep distinct snapshots rather than silently replacing historical numbers. Add relevant disclosed-report links and an explicitly labeled risk assessment with its reason if supported. Do not manufacture data, a rate, or a low-risk rating from missing observations. Do not infer a subdomain-specific count from a wildcard or equate accepted, unique, total, and duplicate counts. Apply program confidentiality and storage rules; never store credentials, session material, or unapproved private report content here.
+
+Use this record to inform target selection and report triage, not as scope authorization or proof that a finding is a duplicate. Do not abandon a strong signal solely because a target is crowded; compare functionality and root cause. Pass relevant observations and provenance to hunting children.
 
 ## Related
 - scope_manager.py — validates targets against scope

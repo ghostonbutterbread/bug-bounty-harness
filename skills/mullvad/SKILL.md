@@ -43,7 +43,12 @@ mismatch or inaccessible state means stop for operator recovery, not overwrite.
 If Tailscale is verified absent, skip its checks. Keep ordinary traffic paused
 and public probes behind the gate above; follow the fresh setup procedure below.
 
-For remote changes require a safe workload window and independently tested
+Before rotation or other remote changes, briefly check known sensitive work in
+your own task and obvious shared work on the affected host; wait for a safe
+stopping point or coordinate with its owner if disruption matters. Use available
+task/session status when relevant; do not require proof that the host is idle.
+A running agent or open connection alone does not establish sensitive work. The
+helper cannot assess workloads. For remote changes require independently tested
 recovery proven to survive the change; pre-switch LAN SSH alone is insufficient.
 With a Tailscale exit, default to LAN access enabled unless Ryushe specifies a
 host exception; when LAN access is used, verify its effective return route and
@@ -71,13 +76,24 @@ The usual Hermes entrypoint is
 `python3 "$HOME/.hermes/synced-skills/script-manager/scripts/egress_snapshot.py"`;
 other runtimes use their resolved installed skill directory. After preflight,
 promptly run `record KEY` with a stable, private, opaque run-owned incident key
-(not an IP, secret or target identifier), and retain the key in run context.
-If the helper is unavailable or recording fails, note the baseline is unknown;
-do not substitute another public-IP probe. Continue other permitted investigation;
-recording does not require refresh.
+(not an IP, secret or target identifier), and retain the key in run context. A
+new incident has no prior baseline; recording captures the current host-direct
+IP, not necessarily the IP that was blocked. If the helper is unavailable or
+recording fails, note the baseline is unknown; do not substitute another
+public-IP probe or bypass an unavailable baseline with manual rotation. Continue
+other permitted investigation; recording does not require refresh.
 
-Later, optionally run `check KEY` or `refresh KEY` with that same key after all
-safety gates. **Refresh can change the VPN exit**: under a shared lock it reports
+Briefly investigate applicable likely causes such as browser/session state
+(including owned WAF cookies), DNS or proxy issues without prolonged investigation.
+If the IP is a plausible cause, the agent may use `refresh KEY` with the same
+key as needed after the workload, recovery and scope gates below. No explicit
+program permission to rotate is needed where its rules are silent; follow explicit
+prohibitions, rate limits, bans and other program rules. Follow `captcha-policy`:
+never rotate to get past a CAPTCHA or active `operator_review`. Do not change
+another user's state or evade an enforced restriction.
+
+Optionally run `check KEY` first with the same key. **Refresh can change the VPN
+exit**: under a shared lock it reports
 `already_refreshed` if the host IP changed; if unchanged it may switch once to a
 live-listed, different same-city West Coast exit of the current manager. It is
 not automatic, guaranteed to switch, or a manager change. The lock coordinates
@@ -126,7 +142,8 @@ paused and arrange operator verification. A changed host IP alone is insufficien
 Probe only after the local route and DNS gate; stop traffic if verification fails.
 Record the symptom, prior/new manager and relay, command, verification and retest
 without raw IPs. Ask Ryushe if an exit must be cleared, a manager switch is
-needed, VPN use is prohibited, an account/application ban is involved,
-state-changing work is at risk, or three exit changes fail. Changing exits never
+needed, VPN use is prohibited, an account/application ban is involved, or known
+sensitive work cannot be safely coordinated. If repeated changes do not resolve
+the issue, reassess the evidence rather than cycling blindly. Changing exits never
 authorizes evading target rules, rate limits, bans, WAF enforcement or explicit
 VPN blocks. Fallback is an explicit verified transition, not automatic failover.

@@ -30,15 +30,16 @@ performs the egress check and target interactions at Nebula's screen, while the
 agent waits. An active `operator_review`, 429 cooldown, or other applicable stop
 still prohibits the corresponding target interaction; handoff does not reset it.
 
-Before any agent-driven target interaction, establish the dedicated task-scoped
-local MITM required by `proxy-routing-policy` and verify the actual browser proxy
-route and exact CA trust. The same policy applies to other active agent browser
-traffic, including an agent-driven egress check. If those prerequisites are
-missing or unverified, stop and report the missing prerequisite instead of driving
-the browser; human presence and a VPN check do not establish the proxy or trust.
-The launch command below does not establish or verify a task proxy or CA. Do not
-configure or alter the remote device blindly, infer an unattended capability, or
-use CDP to drive target interaction until the prerequisites are actually met.
+Prefer a task-scoped MITM for agent-driven browser traffic when practical, but
+do not make it mandatory. Agent-driven work on this human-present Nebula lane
+may use the verified VPN directly, even if a proxy is available; record that
+traffic is unproxied.
+Ryushe explicitly permits this Nebula-only exception to the general mandatory
+proxy route; scope, rate, human handoff and VPN protections still apply. When
+using a proxy, verify the actual browser proxy route and exact CA trust, and verify
+the browser's effective VPN egress: a remote proxy can change the exit IP. The
+launch command below does not establish or verify a task proxy or CA. Do not
+configure or alter the remote device blindly or infer an unattended capability.
 
 ## Connection
 
@@ -77,7 +78,8 @@ use CDP to drive target interaction until the prerequisites are actually met.
 3. **Verify egress inside Chrome** before any target navigation: have the human
    load `https://am.i.mullvad.net/json` in the physical-screen flow and confirm
    `mullvad_exit_ip: true` + expected relay. Host-side `curl` is not enough.
-   Agent-driven browser traffic requires the task proxy and CA gate above first.
+   Agent-driven traffic may use the direct VPN exception above; proxy use still
+   requires the route and CA checks above.
 4. **No secrets on the device; dedicated profile only.** Never open or copy
    the owner's personal Chrome profiles.
 5. **Chrome only — Firefox is off-limits.** Firefox is the owner's personal
@@ -226,9 +228,9 @@ checks a uniquely named user-systemd unit. Its independent non-secret browser ID
 selects `$HOME/AI/nebula-lane/runs/<browser_id>/chrome-profile`; the generation
 capability is never put in the remote profile path or process arguments. Chrome
 is headed, with `DISPLAY=:0`, and starts at `about:blank`. A CDP connection is
-not evidence of task proxy routing or CA trust; do not drive network traffic
-without the agent-proxy gate above. Have the human verify VPN egress inside
-Chrome before target navigation and pause for the human on the physical screen.
+not evidence of task proxy routing or CA trust. Apply the proxy or direct-VPN
+decision above. Have the human verify VPN egress inside Chrome before target
+navigation and pause for the human on the physical screen.
 Do not use this lane to replace a `chromium-handoff` CAPTCHA path.
 
 If the remote port is busy, **do not connect**: an old or legacy browser may

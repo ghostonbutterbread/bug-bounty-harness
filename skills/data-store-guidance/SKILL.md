@@ -9,6 +9,7 @@ This is the store-ownership map: what each store holds and its owning skill.
 Commands, schemas and procedures belong to those owning skills.
 
 - **Scope** — program rules and permitted assets. Owner: `/pullscope`.
+- **Duplicate intelligence** — operator-supplied program, target and vulnerability-category competition observations alongside scope, not scope grants or proof. Owner: `/pullscope`.
 - **Recon** — collected host, URL, parameter and asset inventories, aggregates and run manifests. Owners: `/recon`, `/recon-ry`.
 - **URL/parameter review** — URL and parameter observations, imports and review state. Owner: `/url-ingest`.
 - **Runtime maps** — observed application routes, flows, objects and auth boundaries. Owner: `/live-map`.

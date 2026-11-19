@@ -17,7 +17,8 @@ smallest safe next step under the current goal.
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
 2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Read `prompts/error-triage-context-pack.md`.
-4. Classify by current goal plus observed response:
+4. Classify by current goal plus observed response. For a CAPTCHA-bearing `403`,
+   follow `captcha-policy` before `/403`; keep applicable rate-control stops:
    - login/session/account setup errors -> `skills/error-triage/references/technique-packs/auth-errors.md`
    - `401`, `403`, ownership, or authorization errors -> `skills/error-triage/references/technique-packs/access-errors.md`
    - `500`, framework, server, or infrastructure errors -> `skills/error-triage/references/technique-packs/server-errors.md`
@@ -27,7 +28,8 @@ smallest safe next step under the current goal.
    - unclear, mixed, custom, or unhandled errors -> `skills/error-triage/references/technique-packs/unhandled-errors.md`
 5. Read `prompts/error-triage-playbook.md` for deep review, stuck analysis, or report writing.
 6. Route instead of duplicating:
-   - concrete owned `403` -> `/403`
+   - concrete owned `403` without a CAPTCHA -> `/403`
+   - CAPTCHA -> `captcha-policy`
    - WAF/rate-limit behavior -> `/waf`
    - auth boundary -> `/access-control`
    - object ownership -> `/idor`
@@ -51,7 +53,11 @@ Do not promote generic errors, expected failed login, expected forbidden access,
 
 ## Stop Conditions
 
-Stop when the error is rate limiting, bot protection, CAPTCHA, out-of-scope, destructive, tied to non-owned resources, or requires credentials/resources whose ownership is unclear.
+Stop blocked automation for rate limiting, including `429`, and obey its cooldown;
+while a controller has an active `operator_review`, do not resume blocked automation.
+For CAPTCHA decisions load `captcha-policy`; that route does not release either
+stop. Stop for other bot protection, out-of-scope or destructive actions,
+non-owned resources, or unclear credential/resource ownership.
 
 If the error is ambiguous but still in scope and safe, do not stop just because the
 status code is not mapped. Record the uncertainty and pick a bounded exploratory

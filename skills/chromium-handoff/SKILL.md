@@ -12,13 +12,26 @@ manually.
 This skill does not launch the browser. Use `chromium-test` first, then attach
 this handoff server to the existing CDP endpoint.
 
-For a login handoff, if the selected account's saved credentials are available,
-securely prefill the login fields in the same task browser when the available
-vault/browser tools support it. Keep secrets out of agent output; never direct
-secret entry through the screenshot handoff's unmasked text box. Do not navigate
-away from an existing CAPTCHA just to fill the form. If secure prefill is
-unavailable, say what remains for Ryushe; hand over the existing browser,
-pause, and continue in that session after he completes the CAPTCHA and login.
+For CAPTCHA recovery, load `captcha-policy` for the decision and use this
+skill only for an eligible existing browser. Preserve that browser's session
+and effective egress throughout handoff; do not relaunch or replace it to
+qualify. If an affecting rotation changed its egress, the interrupted challenge
+is ineligible for same-session handoff; follow `captcha-policy` instead.
+
+When the affected bucket has an active `operator_review`, handoff is
+inspection-only: tell the operator do not interact with the target, including
+solving the CAPTCHA, clicking, typing, reloading or navigating, until an explicit
+authorized reset. Do not prefill during the review. Operator continuation alone
+does not reset it. Follow `captcha-policy` for other applicable stops.
+
+For a login handoff without an applicable interaction stop, if the selected
+account's saved credentials are available, securely prefill the login fields in
+the same task browser when the available vault/browser tools support it. Keep
+secrets out of agent output; never direct secret entry through the screenshot
+handoff's unmasked text box. Do not navigate away from an existing CAPTCHA just
+to fill the form. If secure prefill is unavailable, say what remains for Ryushe;
+hand over the existing browser and pause. Continue in that session only after
+he completes the CAPTCHA and login and all applicable stops are lifted.
 
 ## Handoff Selection Rule
 
@@ -116,7 +129,7 @@ assume an ACL change is authorized.
    Allocate this external port from `9501–9599`, but do **not** reuse a port
    already owned by an active screenshot route:
    ```bash
-   HANDOFF_PORT=<kasmvnc_web_port> \
+   env -u HANDOFF_HOST -u HANDOFF_PATH HANDOFF_PORT=<kasmvnc_web_port> \
    HANDOFF_PORT_MIN=8463 HANDOFF_PORT_MAX=8499 \
    HANDOFF_HTTPS_PORT=<unique_tailnet_https_port> \
      "skills/chromium-handoff/scripts/handoff_transport.sh" start
@@ -126,10 +139,14 @@ assume an ACL change is authorized.
    fallback only against the loopback KasmVNC web port.
 4. For a screenshot handoff, prefer Tailscale Serve. Create the task-specific
    path route and give Ryushe the HTTPS URL for `/handoff/<handoff_port>`:
+   For the default screenshot route, clear inherited transport overrides on
+   start, status, and stop; record and reuse any deliberate custom settings.
    ```bash
-   HANDOFF_PORT=<handoff_port> \
+   env -u HANDOFF_HTTPS_PORT -u HANDOFF_PATH -u HANDOFF_HOST \
+   -u HANDOFF_PORT_MIN -u HANDOFF_PORT_MAX HANDOFF_PORT=<handoff_port> \
      "skills/chromium-handoff/scripts/handoff_transport.sh" start
-   HANDOFF_PORT=<handoff_port> \
+   env -u HANDOFF_HTTPS_PORT -u HANDOFF_PATH -u HANDOFF_HOST \
+   -u HANDOFF_PORT_MIN -u HANDOFF_PORT_MAX HANDOFF_PORT=<handoff_port> \
      "skills/chromium-handoff/scripts/handoff_transport.sh" status
    ```
 4. Always give the SSH fallback for that same handoff port. Run these **on
@@ -142,12 +159,28 @@ assume an ACL change is authorized.
    Use a different free local port only when `<handoff_port>` is already used on
    Ryushe's workstation. On macOS use `open` rather than `xdg-open`.
 5. Pause automation until Ryushe says to continue.
-6. On resume **or task end**, withdraw this task's Tailscale route with the same
-   transport settings used to publish it, and stop the screenshot handoff
-   service if one was started. On resume, retain the task browser, its display,
-   and proxy while continuing work. At task end, stop them through their
-   recorded owners and verify the local CDP endpoint is closed before removing
-   the matching disposable profile.
+6. On resume or task end, withdraw this task's Tailscale route with the same
+   transport settings used to publish it. For a default screenshot path route:
+   ```bash
+   env -u HANDOFF_HTTPS_PORT -u HANDOFF_PATH -u HANDOFF_HOST \
+   -u HANDOFF_PORT_MIN -u HANDOFF_PORT_MAX HANDOFF_PORT=<handoff_port> \
+     "skills/chromium-handoff/scripts/handoff_transport.sh" stop
+   ```
+   For a KasmVNC root route published with the range in step 3, use its recorded
+   local web port and the **same dedicated tailnet HTTPS port**:
+   ```bash
+   env -u HANDOFF_HOST -u HANDOFF_PATH HANDOFF_PORT=<kasmvnc_web_port> \
+   HANDOFF_PORT_MIN=8463 HANDOFF_PORT_MAX=8499 \
+   HANDOFF_HTTPS_PORT=<unique_tailnet_https_port> \
+     "skills/chromium-handoff/scripts/handoff_transport.sh" stop
+   ```
+   If publication used a custom `HANDOFF_PATH`, port range, or host, supply the
+   same settings on stop. Check the displayed Serve status to confirm the exact
+   route is gone; the helper tolerates an `off` error and does not prove removal.
+   Stop the screenshot handoff service if one was started. On resume, retain the
+   task browser, its display, and proxy while continuing work. At task end, stop
+   them through their recorded owners and verify the local CDP endpoint is closed
+   before removing the matching disposable profile.
 
 ## Failure and Fallback
 
@@ -172,7 +205,9 @@ assume an ACL change is authorized.
 - Do not use Tailscale Funnel or any public reverse proxy for browser handoff.
 - Do not print, store, or copy raw cookies, bearer tokens, API keys, or session
   material from the browser or proxy.
-- Do not use CAPTCHA-solving services, IP rotation, or challenge-bypass loops.
+- Do not use CAPTCHA-solving services or challenge-bypass loops. Handoff must
+  not change egress; any separate CAPTCHA recovery decision belongs to
+  `captcha-policy`, not to this transport.
 - Do not perform state-changing actions after handoff unless Ryushe explicitly
   approves the exact action.
 - Stop and ask if the page would require purchases, billing changes, invites,

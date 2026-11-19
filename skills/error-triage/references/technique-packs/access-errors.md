@@ -2,16 +2,19 @@
 
 Use for `401`, `403`, authorization failures, ownership denials, and resource-bound access errors.
 
+For a CAPTCHA-bearing `403`, follow `captcha-policy` before `/403`; retain
+any active cooldown or `operator_review`.
+
 ## Checks
 
 - Identify whether the resource is owned, approved test-account owned, server/API-owned, or unknown.
 - Compare logged-out, intended user, and approved alternate user if available.
 - Check whether the response body leaks private data despite denial.
-- For concrete owned `403`, route to `/403`.
+- For concrete owned `403` without a CAPTCHA, route to `/403`.
 
 ## Route
 
-- `403` on owned/server/API endpoint -> `/403`
+- `403` without a CAPTCHA on owned/server/API endpoint -> `/403`
 - object ownership boundary -> `/idor`
 - role/tenant/workflow/auth-state boundary -> `/access-control`
 - trusted-header/path/method behavior -> `/headers` or `/bypass`

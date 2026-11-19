@@ -55,6 +55,20 @@ Use this to reduce automation/fingerprint mismatch; it is not a guarantee of
 passing a challenge and must not be used to evade program rules or access
 controls.
 
+Do not revisit a CAPTCHA before following `captcha-policy` for the authorized
+attempt and bounded recovery. A 429 cooldown remains a stop, and repeated
+CAPTCHAs put automated traffic under `adaptive-rate-control`'s
+`operator_review`; do not resume blocked automation on another device or
+egress, or treat handoff as an authorized reset.
+
+CAPTCHA alone is not evidence of an IP-related block. If independent evidence
+makes an IP-related block plausible, load `mullvad` to record the incident and
+inspect the actual path separately from CAPTCHA handling. A host snapshot does
+not establish proxy egress; the task-proxy incident prototype is offline-only
+and is not a live coordinator. Do not rotate to beat a CAPTCHA. Preserve the
+eligible browser for handoff; 429 cooldowns, account and program limits remain
+in force.
+
 1. Keep the default headed mode: do **not** pass `--headless`. Connect to the
    returned CDP endpoint from the automation client or a permitted manual
    display workflow. Completion: the launch plan has no `--headless` flag.
@@ -75,12 +89,16 @@ controls.
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
    the Nouveau driver and may not provide it.
 
-5. Revisit the blocked URL once in that browser and capture only sanitized
-   observations (challenge/app content visible, request shape, screenshots).
-   If it remains blocked, record that outcome and stop escalation rather than
-   retrying indiscriminately.
-6. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
-   confirm CDP is closed, remove the run profile, and release its MITM lane.
+5. For a CAPTCHA, load `captcha-policy` for CAPTCHA recovery decisions before
+   any revisit. For other blocks, revisit the blocked URL once only when rules
+   and applicable stops permit, and capture only sanitized observations
+   (challenge/app content visible, request shape, screenshots). If it remains
+   blocked, record that outcome; do not retry indiscriminately or pursue evasion.
+6. If the policy selects an existing-session handoff, preserve the eligible
+   browser for handoff with its session and egress unchanged. At terminal task
+   completion follow the normal Hoster lifecycle contract: stop the recorded
+   browser root, confirm CDP is closed, remove the disposable run profile, and
+   release its MITM lane.
 
 ### GPU/WebGL in-page verification and re-provisioning on bot blocks
 
@@ -96,9 +114,11 @@ challenge displayed — purely because the provisioned browser had no WebGL.
 The same flow passed in Ryushe's ordinary browser, and went **403 → 201** in
 the provisioned browser once WebGL was exposed as the only changed variable.
 
-When a scoped run hits a bot blocker, managed challenge, or that silent
-bot-score rejection pattern, and program rules and rate limits allow continued
-work:
+CAPTCHA handling is governed by `captcha-policy`, not this GPU workflow. Do not
+make WebGL verification a prerequisite for the policy's normal attempt or
+same-browser handoff, and do not use this workflow to replace that browser.
+For a non-CAPTCHA bot blocker, managed challenge, or that silent bot-score
+rejection pattern, when program rules and rate limits allow continued work:
 
 1. **Suspect missing GPU/WebGL first.** Verify **in-page**, not at process
    level, via CDP:
@@ -126,20 +146,25 @@ work:
    a direct implementation-only launcher call with an environment wrapper but
    without `external` receives the default ANGLE/GL flags. Do not set a shared
    user-manager environment variable merely to enable ordinary WebGL. If
-   in-page WebGL is absent, inspect the recorded Chrome command and display,
-   release the exact browser, and treat the environment as blocked rather than
-   mutating identity requests to compensate. A control write in a WebGL-less
-   browser is confounded and says nothing about payload validity.
+   in-page WebGL is absent, inspect the recorded Chrome command and display and
+   treat the environment as blocked rather than mutating identity requests to
+   compensate. For a CAPTCHA, preserve the eligible browser while following
+   `captcha-policy`, including any later same-session handoff; otherwise release
+   the exact browser through its lifecycle when it is no longer needed.
+   A control write in a WebGL-less browser is confounded and says nothing about
+   payload validity.
 3. **Verify in-page before retrying a blocked flow.** Require `webgl: true` and a
    present renderer string before retrying the blocked flow (a truthful
    `llvmpipe` software renderer is acceptable; it is what KasmVNC GLX
    provides). If the surface still rejects after WebGL is real, stop
-   escalating: record the outcome and hand the interactive flow to Ryushe via
-   the KasmVNC handoff instead of moving toward evasion.
+   this GPU escalation and record the outcome. For CAPTCHA recovery follow
+   `captcha-policy`; otherwise hand the interactive flow to Ryushe via the
+   eligible KasmVNC handoff instead of moving toward evasion.
 4. **Environment repair only.** This exposes the GPU/WebGL capability the
    machine actually has and reports a truthful renderer string. Do not extend
    it into fingerprint spoofing, stealth patches, faked renderer strings,
-   CAPTCHA-solving services, or IP rotation — those remain prohibited.
+   or CAPTCHA-solving services. This is not permission for direct IP rotation;
+   CAPTCHA recovery decisions belong to `captcha-policy`.
 
 ### Remote CDP Navigation from Ghost
 
@@ -455,8 +480,9 @@ bbh skills/chromium-test/scripts/browser_provisioner.py request \
 The JSON record includes `kasmvnc.web_url` (`http://127.0.0.1:<port>/`) and a
 scoped `kasmvnc.stop_command`. Use only a task-specific **Tailscale Serve**
 route to terminate HTTPS in front of that local HTTP endpoint; never use
-Funnel or a public/LAN listener. Stop the recorded KasmVNC display after the
-handoff alongside the browser and profile cleanup.
+Funnel or a public/LAN listener. On same-task resume, retain the display and
+browser; stop the recorded KasmVNC display alongside browser and profile cleanup
+at terminal task end.
 
 ## MITM Proxy Certificate Handling
 
@@ -638,8 +664,10 @@ path is not yet known; do not use a different path to bypass a named lease.
    separate run-scoped profile without a program/account selector, request
    `--task-owned` with `--agent-id`, `--run-id`, and `--purpose`; the provisioner
    has no `--ephemeral-profile` option. A lease remains locked
-   while work awaits input: renew it with `--work-state awaiting-input`; only a
-   terminal completion, handoff, or cancellation may call `release` with both
+   while work awaits input: renew it with `--work-state awaiting-input`.
+   A same-task operator handoff is not terminal; keep the existing lease and
+   browser until resume or a terminal disposition. Only terminal completion,
+   transfer to another owner, or cancellation may call `release` with both
    `--disposition` and a non-secret `--profile-health` for the next agent.
 1. Request the engagement browser through the provisioner. When the final
    profile path has not already been verified local, request `--url about:blank`
@@ -692,9 +720,11 @@ path is not yet known; do not use a different path to bypass a named lease.
    exact proxy URL and CA to the launcher before Chrome starts.
 2. Use the owner-recorded browser control path to connect browser automation or
    manual debugging; do not disclose or borrow another agent's CDP endpoint.
-3. For challenge/fingerprint/browser-only escalation, revisit the blocked URL in
-   this browser profile before running more probes. Confirm whether the app
-   layer, JS, route params, and proxy-observed requests are now visible.
+3. For CAPTCHA, follow `captcha-policy` before any revisit; active review or
+   another stop forbids target interaction. For other challenge/fingerprint/
+   browser-only escalation, revisit the blocked URL only when applicable rules
+   permit. Confirm whether the app layer, JS, route params, and proxy-observed
+   requests are now visible.
 4. Perform only the requested scoped action in that browser profile.
 5. Observe this run's restricted task flow file while driving. For direct
    replay, use the returned `task_proxy.proxy_server` and trust its
@@ -715,8 +745,9 @@ path is not yet known; do not use a different path to bypass a named lease.
      --lease-id <lease-id> --agent-id <agent-id> \
      --disposition completed --profile-health healthy
    ```
-   Use `handoff` or `cancelled` instead of `completed` when that is the actual
-   outcome; choose health from the observed profile state, not by default.
+   Use `handoff` only for a terminal transfer to another owner, not a same-task
+   operator pause; use `cancelled` when that is the actual outcome. Choose health
+   from the observed profile state, not by default.
    Verify the recorded root and CDP endpoint close; persistent account profiles remain.
    Dispose of a task-only profile only after its root is stopped and it is no
    longer in use. Never infer cleanup from directory deletion alone.

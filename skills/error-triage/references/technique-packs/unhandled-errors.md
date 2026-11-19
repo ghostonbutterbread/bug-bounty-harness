@@ -17,7 +17,8 @@ Use for custom application errors, mixed signals, unknown status codes, nonstand
 - header/content negotiation suspicion -> `/headers`
 - auth, role, tenant, or object boundary suspicion -> `/access-control` or `/idor`
 - generic bypass family with a concrete hypothesis -> `/bypass`
-- anti-abuse, CAPTCHA, WAF, or unexplained blocking -> `/waf` or stop
+- CAPTCHA -> `captcha-policy` for the challenge decision
+- anti-abuse, WAF, or unexplained blocking -> `/waf` or stop; a 429 cooldown and active `operator_review` remain stops for blocked automation
 
 ## Evidence Required
 
@@ -29,4 +30,4 @@ Use for custom application errors, mixed signals, unknown status codes, nonstand
 
 ## Stop
 
-Stop when ownership is unclear, the next step would touch non-owned data, the operation is destructive, the behavior looks like anti-abuse enforcement, or the only available next tests would be broad guessing.
+Stop when ownership is unclear, the next step would touch non-owned data, the operation is destructive, non-CAPTCHA behavior looks like anti-abuse enforcement, or the only available next tests would be broad guessing. For CAPTCHA, follow `captcha-policy`; other applicable stops, including active rate-control review, remain in force.

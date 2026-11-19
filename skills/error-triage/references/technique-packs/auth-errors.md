@@ -13,7 +13,8 @@ Use when login, signup, session refresh, MFA, password reset, or account setup r
 
 - If testing auth logic, continue in `/access-control` or the relevant auth lane.
 - If setting up an account, treat repeated auth failure as a blocker.
-- If the error is caused by WAF/CAPTCHA/rate limiting, route to `/waf` or manual handoff.
+- For CAPTCHA, load `captcha-policy` for the challenge decision.
+- For WAF or rate limiting, route to `/waf` or manual handoff. A 429 cooldown and active `operator_review` remain stops for blocked automation.
 
 ## Evidence Required
 

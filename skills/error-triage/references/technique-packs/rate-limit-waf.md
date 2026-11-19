@@ -12,7 +12,7 @@ Use for `429`, CAPTCHA, Cloudflare/Turnstile, WAF blocks, bot challenges, tempor
 ## Route
 
 - WAF fingerprinting -> `/waf`
-- browser challenge/CAPTCHA -> `/chromium-handoff`
+- CAPTCHA -> `captcha-policy` (which determines whether handoff is eligible)
 - target-enforced rate limit -> back off and record
 - repeated blocks -> stop
 
@@ -25,4 +25,8 @@ Use for `429`, CAPTCHA, Cloudflare/Turnstile, WAF blocks, bot challenges, tempor
 
 ## Stop
 
-Stop on CAPTCHA, bot challenge, account lock, IP ban, or target policy enforcement unless Ryushe explicitly approves the next step.
+Stop blocked automation on `429` and obey its cooldown; while a controller has
+an active `operator_review`, do not resume blocked automation. CAPTCHA recovery
+follows `captcha-policy` and does not release either stop. Stop for other bot
+challenges, account lock, IP ban, or target policy enforcement unless Ryushe
+explicitly approves the next step under the applicable policies.

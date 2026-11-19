@@ -17,7 +17,9 @@ For each task, record a unique run ID, local/leased MITM host:port, flow-file pa
 
 On Hoster, lease an available loopback listener in `8081-8090`. Ports `8091-8095` are reserved for the Chromium task-proxy overflow: Proxy Store rejects them even in a custom standalone range. Do not use port `8080`; it is not the agent MITM lane. Keep the MITM service and flow file owner-restricted because captured flows can contain session material.
 
-Route all active work through that listener:
+Route active work through that listener; for the narrowly permitted host-direct
+IP diagnostic, follow `proxy-routing-policy` instead. It does not authorize
+sending target traffic outside the task proxy:
 
 ```text
 curl/httpx/scripts: http://127.0.0.1:<leased-port>

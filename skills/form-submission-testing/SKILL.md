@@ -52,8 +52,8 @@ owns bundle inventory; this skill owns only the controlled form workflow.
 
 ## CAPTCHA and Other Boundaries
 
-- A CAPTCHA is a control, not a malformed field. Do not bypass it, rotate IPs, automate solving, or modify its verification values to force submission.
-- Record where it appears and whether it blocks baseline or only a branch. Follow `live-testing-policy` for an approval request or stop condition.
+- A CAPTCHA is a control, not a malformed field. For an authorized flow, load `captcha-policy` for normal browser attempts, recovery, and handoff; do not modify its verification values to force submission.
+- Record where it appears and whether it blocks baseline or only a branch. Follow `live-testing-policy` and `captcha-policy` for continuation and stop decisions.
 - Never interpret a client-side disabled button as server-side protection without an allowed baseline or independently observed server behavior.
 
 ## Pitfalls

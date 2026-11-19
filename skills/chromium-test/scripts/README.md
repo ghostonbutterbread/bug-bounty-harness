@@ -61,6 +61,11 @@
 - `browser_lifecycle.py` — node-local process identity, locking, atomic private records,
   and bounded opt-in startup metadata (contract below).
 - `kasmvnc_session.py` — task-owned headed display lifecycle.
+- `task_proxy_incident.py` — **offline-fixture-only; live admission is closed**.
+  Its `record`/`compare` interface binds a private incident to one local
+  provisioner task-proxy generation and compares a fixed IP endpoint through
+  that listener. It is not a blocker detector, rotation controller, host-direct
+  observation, or coverage for `hoster_mitm_lane.py`. See the record below.
 - `mitm_lane.py` — local task MITM lane lifecycle.
 - `hoster_mitm_lane.py` — bounded Hoster-backed MITM lane lifecycle.
 - `proxy_store.py` — sanitized SQLite index for captured lane traffic.
@@ -95,6 +100,42 @@ show which checkout supplies the command; Python tools then use that checkout's
 in the intended checkout rather than trying system Python. The `.venv/bin/python`
 and `uv ... python -m pytest` examples below are **test verification commands**,
 not alternative browser launch commands.
+
+## `task_proxy_incident.py`
+
+- **Purpose:** compare one fixed HTTPS endpoint's observed address through a
+  provisioner-owned local task proxy, tied to exact task and service generation.
+- **Command shape (currently always blocked):**
+  `bbh skills/chromium-test/scripts/task_proxy_incident.py record --agent-id AGENT --run-id RUN --expected-lane LANE --incident-id ID --state-dir PRIVATE_DIR`;
+  use `compare` with the same arguments to compare against that incident.
+- **Mutates:** a new 0700 local directory and immutable 0600 incident record;
+  comparisons are read-only after directory validation. The record contains a
+  per-incident keyed address digest and generation metadata, not the raw address.
+  The key is stored with the digest: this is not encryption and a reader can
+  enumerate low-entropy IPv4 candidates. The proxy's restricted raw capture
+  can itself contain the IP response; do not assume the index/capture is redacted.
+  Never place the incident directory on Shared or an untrusted filesystem; handle
+  capture and index under their applicable storage rules. IDs are locally
+  selected; reusing an ID fails instead of overwriting the baseline. A failed
+  directory fsync after rename leaves publication uncertain: inspect the exact
+  private record rather than assuming it is absent or overwriting it.
+- **Boundary:** live calls remain blocked before a network request. The
+  preflight takes the provisioner's cooperative lock (which may create its
+  lock file), reads the exact generation and validates its recorded capture
+  and writer descriptor before reaching the closed gate. It does not attest
+  the executable, effective configuration, upstream TLS, DNS, Mullvad route,
+  or host-wide protection. A comparison is not permission to rotate or evade controls.
+  The separate Hoster MITM entrypoints, external proxies and remote namespaces
+  are unsupported. This fixture evidence is not live proxy or VPN verification.
+  The five-second socket timeout is per blocking network operation, not a total
+  observation deadline; certificate/state loading and repeated reads are not
+  bounded by it. A public IPv4 or IPv6 literal can be returned, but its family
+  and classification do not prove the proxy's ultimate route or location.
+- **Verification:** `tests/test_task_proxy_incident.py` in the network-none
+  Docker fixture described in the feature dossier. Local TLS proxy and systemd
+  identity substitutions are synthetic; test actual services only after review
+  and explicit authorization. Owner: Chromium task-proxy lane. Last verified:
+  2026-11-17.
 
 ## `browser_manager_row_repair.py`
 

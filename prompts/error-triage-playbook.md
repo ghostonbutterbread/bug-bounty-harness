@@ -9,7 +9,7 @@ The same error can be evidence or a blocker depending on the task.
 - During auth testing, `auth failed` may be expected evidence.
 - During account setup, `auth failed` may block the workflow.
 - During fuzzing, `403` may be a lead if ownership and scope are safe.
-- During live testing, `429` or CAPTCHA usually means stop/back off.
+- During live testing, stop blocked automation on `429` and follow cooldown and controller review; route CAPTCHA decisions to `captcha-policy`.
 
 ## Triage Steps
 
@@ -30,15 +30,19 @@ The same error can be evidence or a blocker depending on the task.
 
 ## Route Matrix
 
+For a CAPTCHA-bearing `403`, follow `captcha-policy` before `/403`; this
+does not release any `429` cooldown or active `operator_review`.
+
 | Signal | Default Route |
 |--------|---------------|
-| owned `403` | `/403` |
+| owned `403` without a CAPTCHA | `/403` |
 | `401` or auth-state mismatch | `/access-control` |
 | object ownership denial | `/idor` or `/access-control` |
 | `405` or method-specific behavior | `/headers` method-override |
 | `400` or parser/schema/content-type error | `/headers` content-negotiation or `/bypass` parser |
 | `500` with framework/server hints | server-error triage, then `/fuzz`, `/headers`, or source review |
-| `429`, CAPTCHA, WAF page | `/waf`, manual handoff, or stop |
+| CAPTCHA | `captcha-policy` |
+| `429`, WAF page | stop blocked automation for `429`; route WAF evidence to `/waf` |
 | soft 404/weird route error | `/fuzz` or `/live-map` |
 | fresh CSRF token or one-shot browser request needed | `/single-request-grabber` |
 | unclear/custom/mixed error | record ambiguity, then bounded baseline retry, `/live-map`, `/fuzz`, `/headers`, or manual handoff |
@@ -68,4 +72,4 @@ Error triage:
 
 ## Stop Conditions
 
-Stop if the error is tied to a non-owned private object, destructive operation, anti-abuse control, target policy enforcement, unclear credentials, or unexplained high-volume blocking.
+Stop if the error is tied to a non-owned private object, destructive operation, non-CAPTCHA anti-abuse control, target policy enforcement, unclear credentials, or unexplained high-volume blocking. For CAPTCHA, follow `captcha-policy` without releasing rate-control or other applicable stops.

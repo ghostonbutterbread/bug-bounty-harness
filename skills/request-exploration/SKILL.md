@@ -74,6 +74,28 @@ Examples:
 - REST endpoint that accepts JSON. Try sending the same payload as URL-encoded form data and compare whether validation or access-control behavior differs.
 - Add or change the Accept header to `application/xml`, `text/html`, or `*/*` and observe whether the response format reveals internal error messages or different parser paths.
 
+### Server-side JavaScript prototype pollution
+
+When structured input plausibly reaches a JavaScript recursive merge or nested
+property setter, trace the input to the merge and then to a consumer of inherited
+properties. Compare `__proto__` and `constructor.prototype` paths separately
+using a unique inert marker; reproduce the actual library/version and consumer
+in a disposable process when practical. JSON parsing alone is not pollution.
+A reflected marker, copied own property, or changed cookie `Path` is a lead,
+not proof of inherited state: compare a clean baseline and an independent owned
+observation before drawing a conclusion. Query ResearchMap for `server-side
+prototype pollution` or `constructor prototype` for the source-reported card.
+
+A prototype write may persist in a shared process and affect other users, even
+when the marker looks harmless. Before a live probe, assess blast radius and
+follow scope and live-testing policy; stop on instability. Do not include
+`isAdmin` or `role` in an initial probe. Test any authorization or session
+impact separately with permitted owned accounts: an inherited value cannot
+supersede an existing own property, and a write path does not guarantee a
+consumer or privilege change. The source's combined polyglot and its one-shot
+and zero-false-positive claims are hypotheses, not guarantees:
+https://x.com/BRuteLogic/status/2122692483754979435.
+
 ### 6. Parser differential testing
 Same payload, different encoding: URL-encode, double URL-encode, Unicode escape, hex, base64. Different quoting: single vs double, no quotes. Nested JSON vs flat. Array vs scalar for single-value fields.
 

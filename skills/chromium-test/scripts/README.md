@@ -131,11 +131,23 @@ not alternative browser launch commands.
   observation deadline; certificate/state loading and repeated reads are not
   bounded by it. A public IPv4 or IPv6 literal can be returned, but its family
   and classification do not prove the proxy's ultimate route or location.
-- **Verification:** `tests/test_task_proxy_incident.py` in the network-none
-  Docker fixture described in the feature dossier. Local TLS proxy and systemd
-  identity substitutions are synthetic; test actual services only after review
-  and explicit authorization. Owner: Chromium task-proxy lane. Last verified:
-  2026-11-17.
+- **Verification:** from the repository root, with Docker and the locally available
+  `python:3.12-slim` image (the command never pulls):
+  ```sh
+  docker run --rm --pull=never --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --tmpfs /fixture:rw,exec,uid=1000,gid=1000,mode=0700,size=128m \
+    --user 1000:1000 -e HOME=/fixture -e TMPDIR=/fixture \
+    -e XDG_CONFIG_HOME=/fixture/config -e XDG_CACHE_HOME=/fixture/cache \
+    -e XDG_DATA_HOME=/fixture/data -e XDG_STATE_HOME=/fixture/state \
+    -e BROWSER_PROVISIONER_STATE=/fixture/manager.sqlite \
+    -e HARNESS_SHARED_BASE=/fixture/shared -e PYTHONDONTWRITEBYTECODE=1 \
+    -v "$PWD:/repo:ro" -w /repo python:3.12-slim \
+    python -m unittest tests.test_task_proxy_incident -v
+  ```
+  Local TLS proxy and systemd identity substitutions are synthetic; test actual
+  services only after review and explicit authorization. Owner: Chromium
+  task-proxy lane. Last verified: 2026-11-17.
 
 ## `browser_manager_row_repair.py`
 

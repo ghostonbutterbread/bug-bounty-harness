@@ -65,3 +65,59 @@ def test_existing_payload_examples_remain_available() -> None:
         '{"email":"owned-a@example.com","backup_email":"owned-b@example.com"}',
     ):
         assert example in text
+
+
+def assert_auth_recovery_routes(ato: str, reset: str, recipient: str) -> None:
+    """Check routing and retained boundaries, not the quality of agent reasoning."""
+    ato, reset, recipient = (" ".join(text.split()) for text in (ato, reset, recipient))
+    for phrase in (
+        "Understand and question authority", "/assumption-testing", "/password-reset",
+        "another account, purpose, session, transaction", "missing delivery, authority, binding",
+        "/attempt-recording-policy", "/map-store", "/hypothesis-ledger", "/bounty-storage",
+        "brute-forcing codes/tokens",
+    ):
+        assert phrase in ato, phrase
+    for phrase in (
+        "Recipient confusion", "JSON objects/arrays", "Link/code construction and binding",
+        "Proof and final reset", "Lifecycle and alternate paths", "Delivery and exposure",
+        "references/recipient-parsing.md", "references/ato-patterns.md",
+        "research-knowledge-management", "/data-store-guidance", "/attempt-recording-policy",
+        "brute forcing tokens/codes", "If a baseline cannot yet be observed",
+    ):
+        assert phrase in reset, phrase
+    for phrase in (
+        "Generate a distinct parser hypothesis", "decoding order", "duplicate precedence",
+        "strongest benign explanation", "expected recipient and final account", "falsify",
+        "no fixed idea cap", "not proof of a reset takeover",
+    ):
+        assert phrase in recipient, phrase
+    assert "/ghost/ato/" not in ato
+    assert "/ghost/password-reset/" not in reset
+
+
+def assert_advanced_route(reset: str, skill: Path) -> None:
+    paragraph = next(
+        p for p in reset.split("\n\n")
+        if p.startswith("When an observed parser, representation, or stack")
+    )
+    assert "references/recipient-parsing.md" in paragraph
+    assert (skill / "references/recipient-parsing.md").is_file()
+
+
+def test_auth_recovery_routes_and_mechanism_depth() -> None:
+    assert_auth_recovery_routes(
+        (ROOT / "skills/ato/SKILL.md").read_text(),
+        (SKILL / "SKILL.md").read_text(),
+        (SKILL / "references/recipient-parsing.md").read_text(),
+    )
+    assert_advanced_route((SKILL / "SKILL.md").read_text(), SKILL)
+
+
+def test_missing_advanced_recipient_route_is_rejected() -> None:
+    reset = (SKILL / "SKILL.md").read_text()
+    route = "use `references/recipient-parsing.md` to derive distinct stage disagreements"
+    assert reset.count(route) == 1
+    missing = reset.replace(route, "use `missing-reference.md` to derive distinct stage disagreements")
+    assert missing != reset
+    with pytest.raises(AssertionError):
+        assert_advanced_route(missing, SKILL)

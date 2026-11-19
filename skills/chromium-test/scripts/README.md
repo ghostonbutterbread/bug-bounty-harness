@@ -105,12 +105,19 @@ not alternative browser launch commands.
 
 - **Purpose:** compare one fixed HTTPS endpoint's observed address through a
   provisioner-owned local task proxy, tied to exact task and service generation.
-- **Command shape (currently always blocked):**
+- **Inputs:** Action (`record` or `compare`), agent ID, run ID, expected lane,
+  incident ID, private state directory, and the selected provisioner state.
+  Command shape (currently always blocked):
   `bbh skills/chromium-test/scripts/task_proxy_incident.py record --agent-id AGENT --run-id RUN --expected-lane LANE --incident-id ID --state-dir PRIVATE_DIR`;
   use `compare` with the same arguments to compare against that incident.
-- **Mutates:** a new 0700 local directory and immutable 0600 incident record;
-  comparisons are read-only after directory validation. The record contains a
-  per-incident keyed address digest and generation metadata, not the raw address.
+- **Outputs:** A blocked JSON status in the current live-gated implementation;
+  isolated fixtures exercise recorded, changed, and unchanged statuses and a
+  private generation-bound incident record.
+- **Mutates:** In isolated fixtures, recording creates a new 0700 local
+  directory and immutable 0600 incident record; comparisons are read-only
+  after directory validation. The live gate prevents that publication. The
+  record contains a per-incident keyed address digest and generation metadata,
+  not the raw address.
   The key is stored with the digest: this is not encryption and a reader can
   enumerate low-entropy IPv4 candidates. The proxy's restricted raw capture
   can itself contain the IP response; do not assume the index/capture is redacted.
@@ -146,8 +153,10 @@ not alternative browser launch commands.
     python -m unittest tests.test_task_proxy_incident -v
   ```
   Local TLS proxy and systemd identity substitutions are synthetic; test actual
-  services only after review and explicit authorization. Owner: Chromium
-  task-proxy lane. Last verified: 2026-11-17.
+  services only after review and explicit authorization.
+- **Owner/scope:** Chromium task-proxy lane; experimental offline fixture only,
+  with live admission closed.
+- **Last verified:** 2026-11-17 (isolated fixture).
 
 ## `browser_manager_row_repair.py`
 

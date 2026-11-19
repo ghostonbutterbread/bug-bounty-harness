@@ -13,6 +13,26 @@ def test_scope_puller_imports_as_package() -> None:
     assert scope_puller.canonical_program_slug("https://bugcrowd.com/engagements/demo") == "demo"
 
 
+def test_manual_duplicate_intelligence_created_once_and_preserved(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    data = {"platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(), "out_of_scope": []}
+    scope_puller.save_scope("demo", data, legacy=False)
+    path = tmp_path / "Shared/scopes/demo/duplicate-intelligence.md"
+    assert path.exists()
+    assert "unknown" in path.read_text().lower()
+    manual = "# Manual observations\n\n*.example.test: 42 known issues\n"
+    path.write_text(manual)
+    scope_puller.save_scope("demo", data, legacy=False)
+    assert path.read_text() == manual
+
+
+def test_invalid_scope_does_not_initialize_duplicate_intelligence(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="Parsed 0"):
+        scope_puller.save_scope("demo", {"domains": set(), "urls": set()}, legacy=False)
+    assert not (tmp_path / "Shared/scopes/demo/duplicate-intelligence.md").exists()
+
+
 def test_bugcrowd_descriptive_web_apps_grant_is_written(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     raw = {"data": {"scope": [{"name": "in", "inScope": True, "targets": [

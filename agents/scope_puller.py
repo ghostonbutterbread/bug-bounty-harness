@@ -783,6 +783,22 @@ def render_program_policy(scope_data: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def initialize_duplicate_intelligence(base: Path) -> bool:
+    """Create a manual, non-authoritative record without replacing user data."""
+    path = base / "duplicate-intelligence.md"
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(
+                "# Duplicate intelligence\n\n"
+                "No observations recorded. Duplicate risk is unknown until evidence is supplied.\n\n"
+                "## Program-level observations\n\n"
+                "## Target and vulnerability-category observations\n"
+            )
+    except FileExistsError:
+        return False
+    return True
+
+
 def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     """Save scope data to the canonical Shared scopes folder."""
     slug = canonical_program_slug(program)
@@ -853,8 +869,15 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
         seed_counts = {"urls": 0, "wildcards": 0}
 
     changed = [write_if_changed(path, body) for path, body in files]
+    try:
+        intelligence_created = initialize_duplicate_intelligence(base)
+    except OSError as exc:
+        intelligence_created = False
+        print(f"[!] Scope saved, but manual duplicate intelligence could not be initialized: {exc}")
     print(f"[+] Saved scope to: {base}")
     print(f"    Changed: {'yes' if any(changed) else 'no'}")
+    if intelligence_created:
+        print("    Initialized manual duplicate-intelligence.md (risk unknown)")
     print(f"    Domains: {len(scope_data.get('domains', []))}")
     print(f"    URLs: {len(scope_data.get('urls', []))}")
     if legacy:

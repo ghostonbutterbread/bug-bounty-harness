@@ -14,6 +14,12 @@ def test_scope_puller_imports_as_package() -> None:
     assert scope_puller.canonical_program_slug("https://bugcrowd.com/engagements/demo") == "demo"
 
 
+def test_duplicate_chart_guidance_preserves_inferred_count_meanings() -> None:
+    skill = (Path(__file__).resolve().parents[1] / "skills/pullscope/SKILL.md").read_text()
+    for phrase in ("labels override layout", "larger count", "inferred", "not the duplicate count", "ambiguous"):
+        assert phrase in skill
+
+
 def test_scope_directory_for_owner_handle_uses_final_handle(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     scope_puller.save_scope("owner/demo", {"domains": {"example.test"}, "urls": set()}, legacy=False)

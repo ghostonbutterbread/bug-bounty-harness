@@ -33,6 +33,17 @@ def test_invalid_scope_does_not_initialize_duplicate_intelligence(monkeypatch, t
     assert not (tmp_path / "Shared/scopes/demo/duplicate-intelligence.md").exists()
 
 
+def test_duplicate_intelligence_failure_does_not_discard_saved_scope(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    def fail(_base):
+        raise PermissionError("fixture denied")
+    monkeypatch.setattr(scope_puller, "initialize_duplicate_intelligence", fail)
+    data = {"platform": "bugcrowd", "domains": {"*.example.test"}, "urls": set(), "out_of_scope": []}
+    scope_puller.save_scope("demo", data, legacy=False)
+    assert "*.example.test" in (tmp_path / "Shared/scopes/demo/in-scope.txt").read_text()
+    assert "manual duplicate intelligence could not be initialized" in capsys.readouterr().out
+
+
 def test_bugcrowd_descriptive_web_apps_grant_is_written(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     raw = {"data": {"scope": [{"name": "in", "inScope": True, "targets": [

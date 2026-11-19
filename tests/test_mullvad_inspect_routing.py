@@ -104,7 +104,7 @@ def test_remote_standalone_console_without_lan_preserves_independent_recovery():
         "rehearsed rollback that does not depend on the route being changed",
         "A standalone remote host using an independent console does not require LAN or SSH",
         "When SSH is an access path in use, test another client's SSH to the host",
-        "When LAN access is in use, independently test LAN control after selection",
+        "When LAN access is in use, independently test the LAN path in use after selection",
         "`ip -4 route get <LAN-peer-IP>` selects the LAN interface",
     ):
         assert requirement in remote, requirement

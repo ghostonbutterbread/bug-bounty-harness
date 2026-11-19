@@ -50,7 +50,7 @@ def verify(policy_root):
     require(handoff, "`captcha-policy`", "inspection-only", "do not interact with the target", "securely prefill", "interrupted challenge is ineligible")
     require(nebula, "Ryushe is at Nebula's screen", "not an unattended device capability", "Do not rotate", "Never drop Mullvad")
     require(nebula, "human-controlled physical-screen flow", "human performs the egress check and target interactions", "Before any agent-driven target interaction", "dedicated task-scoped local MITM", "actual browser proxy route and exact CA trust", "launch command below does not establish or verify")
-    require(mullvad, "`egress_inspect.py`", "read-only IPv4 local snapshot", "regardless of whether a host baseline can be captured", "non-secret incident context in the run record", "helper is unavailable or recording fails", "baseline is unknown", "refresh deduplicates only the host-direct path", "cannot establish whether a remote proxy path changed", "Do not force rotation", "Do not log raw IPs")
+    require(mullvad, "`egress_inspect.py`", "read-only IPv4 local snapshot", "regardless of whether a host baseline can be captured", "non-secret incident context in the run record", "helper is unavailable or recording fails", "baseline is unknown", "deduplicates only the host-direct path", "whether a remote proxy path changed", "Do not force rotation", "Do not log raw IPs")
     # Ensure the route check rejects a removed handoff edge.
     try:
         require(owner.replace("`chromium-handoff`", ""), "`chromium-handoff`")

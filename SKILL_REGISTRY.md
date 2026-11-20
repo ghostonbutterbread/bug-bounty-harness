@@ -96,6 +96,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **vulnerability-patch-research** | `/vulnerability-patch-research {component} {version} {reachable-feature}` | `skills/vulnerability-patch-research/SKILL.md`; disposable local proof reference in `references/` |
 | **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
+| **hunt-deck** | `/hunt-deck {program-discovery-question}` | `skills/hunt-deck/SKILL.md`; preferred self-hosted program discovery, service recovery and source-verified shortlist handoff |
 | **program-finder** | `/program-finder {paid-program-shortlist-question}` | `skills/program-finder/SKILL.md`; public, pre-selection shortlist, not a scope or testing permission |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |

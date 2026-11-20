@@ -16,10 +16,15 @@ any target interaction.
 
 When the selection criterion is a named technology, CVE, library, or converter, load `stack-to-program` first to produce evidence-labeled product and directory candidates. Then verify current paid status and program rules here. A dependency or directory join alone is neither a paid-program confirmation nor testing permission.
 
-Start with current public directories and program pages (including YesWeHack,
-Intigriti, HackerOne, Bugcrowd, and direct programs where relevant). `/bountylens`
-may contribute program/stat candidates; it is not the authority for a reward,
-permission, payout speed, or current rules. Retain a source URL for every fact.
+Prefer `/hunt-deck` over `/bountylens` when finding or comparing programs; load
+it to query the existing instance and, when needed, safely recover or install
+it. Use BountyLens as a fallback or complement when useful. HuntDeck's cached
+scores, statistics and scope are leads, not authority for reward, permission,
+payout speed, or current rules. Continue to consult current platform and direct
+program pages (including YesWeHack, Intigriti, HackerOne and Bugcrowd) and other
+sources when relevant; no directory is exhaustive. If HuntDeck is unavailable or
+stale, say so and continue with available sources. Retain a source URL for every
+fact.
 
 Unless Ryushe supplies different criteria, prefer a confirmed critical maximum
 near $3,000–$6,000, lower *evidenced* activity, and faster payout or critical

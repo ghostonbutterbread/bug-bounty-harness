@@ -5,6 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "security-reporting" / "SKILL.md"
 
 
+def check_curl_value_routes(entry, skill):
+    entry = " ".join(entry.split())
+    skill = " ".join(skill.split())
+    assert "Inline `curl` needing reviewer-specific values also loads `triager-first-poc-authoring` for its browser-to-shell value harvest" in entry
+    assert "A simple inline `curl` does not load the PoC authoring skill." not in entry
+    assert "inline curl or manual replay needing reviewer-specific values also loads `triager-first-poc-authoring`" in skill
+    assert "a simple inline curl does not need that authoring skill" not in skill
+
+
 class SecurityReportingSkillTests(unittest.TestCase):
     def test_direct_bunny_routes_and_deprecated_fallback(self):
         text = SKILL.read_text(encoding="utf-8")
@@ -58,8 +67,14 @@ class SecurityReportingSkillTests(unittest.TestCase):
 
     def test_entry_routes_poc_without_unnecessary_authoring(self):
         entry = (ROOT / "agents/index.md").read_text(encoding="utf-8")
+        skill = SKILL.read_text(encoding="utf-8")
         self.assertIn("`triager-first-poc-authoring` in the same package", entry)
-        self.assertIn("A simple inline `curl` does not load the PoC authoring skill.", entry)
+        check_curl_value_routes(entry, skill)
+        old_rule = "A simple inline `curl` does not load the PoC authoring skill."
+        with self.assertRaises(AssertionError):
+            check_curl_value_routes(entry + "\n" + old_rule, skill)
+        with self.assertRaises(AssertionError):
+            check_curl_value_routes(entry.replace("browser-to-shell value harvest", "lookup"), skill)
 
 
 if __name__ == "__main__":

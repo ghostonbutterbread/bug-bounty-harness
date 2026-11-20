@@ -95,7 +95,8 @@ is selected, the normal published scope and AI Policies gates below still apply.
    competing `SUBMISSION.md` for new findings. Preserve
    older packet files and every unrequested region in a targeted revision. When reproduction needs a standalone PoC, load `poc-tooling-policy` and
    `triager-first-poc-authoring` in the same package as the report and finish
-   them together. A simple inline `curl` does not load the PoC authoring skill.
+   them together. Inline `curl` needing reviewer-specific values also loads
+   `triager-first-poc-authoring` for its browser-to-shell value harvest.
    Live execution remains governed by the policy chain above.
    When security testing needs a browser, use `/chromium-test` and request it
    through `browser_provisioner.py` on the browser node. Its default `--proxy

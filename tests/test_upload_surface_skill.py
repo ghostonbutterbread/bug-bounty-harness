@@ -45,6 +45,19 @@ class UploadSurfaceSkillTests(unittest.TestCase):
         self.assertNotIn("skill_seeds", skill)
         self.assertNotIn("notes/appsec", skill)
 
+    def test_storage_response_override_routes_without_overclaiming(self) -> None:
+        skill = SKILL.read_text(encoding="utf-8")
+        route = skill.split("**Retrieval-time response metadata overrides:**", 1)[1].split("\n- **", 1)[0]
+        for phrase in (
+            "owned object", "upload-time validation", "S3/MinIO", "load `xss` then `xss-technology-research`",
+            "ResearchMap", "response-content-type", "Compare normal and permitted override responses",
+            "presigned", "signature and host binding", "CDN forwarding", "cache behavior",
+            "browser execution", "exact final origin", "victim delivery", "cleanup",
+            "HTML MIME response alone is not XSS", "subdomain is not automatically",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, route)
+
     def test_discoverable_registry_route(self) -> None:
         self.assertIn("| **upload-surface** | `/upload-surface", REGISTRY.read_text(encoding="utf-8"))
 

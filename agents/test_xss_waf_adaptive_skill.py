@@ -93,8 +93,11 @@ def test_live_harness_is_not_misdescribed_as_bounded_one_variable_probe() -> Non
     assert "Do not launch either" in waf
     assert "not a bounded one-variable" in playbook
     assert "Do not exhaust generic Tier 1/Tier 2" in playbook
-    assert "bbh agents/bypass_harness.py --target" not in waf
-    assert "bypass_harness.py --target" not in playbook
+    # Literal CLI invocations: compare against raw text. Normalised text strips
+    # underscores, so a normalised needle would never match and the guard would
+    # pass vacuously.
+    assert "bbh agents/bypass_harness.py --target" not in WAF.read_text(encoding="utf-8")
+    assert "bypass_harness.py --target" not in PLAYBOOK.read_text(encoding="utf-8")
     assert "A different origin response" in playbook
     assert "not by itself confirmed" in playbook
     assert "owning lane's attempt-recording-policy writer" in playbook

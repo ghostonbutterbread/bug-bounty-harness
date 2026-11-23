@@ -1,23 +1,25 @@
 """Keep reviewed local-shadow guidance in its canonical BBH owner only."""
 from pathlib import Path
 
+from agents.skill_text import norm as _skn
+
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "skills"
 
 
 def skill(name: str) -> str:
-    return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    return _skn((SKILLS / name / "SKILL.md").read_text(encoding="utf-8"))
 
 
 def test_account_guard_regression_guidance_preserves_current_migration_gate() -> None:
     account = skill("account-registry")
     assert "benign prose" in account and "opaque references writable" in account
-    for case in ("JSON", "header containers", "indexed keys", "URL-decoded query keys", "camelCase", "prefixed/suffixed", "token_value", "secret_access_key"):
+    for case in ("JSON", "header containers", "indexed keys", "URL-decoded query keys", "camelCase", "prefixed/suffixed", "tokenvalue", "secretaccesskey"):
         assert case in account
     assert "not yet implemented" in account
     assert "Chromium launcher" in account and "This gate currently fails" in account
-    assert "web_bounty" in account
-    assert "bounty_web" not in account
+    assert "webbounty" in account
+    assert "bountyweb" not in account
 
 
 def test_blocker_fixture_is_not_a_disclosure_gate() -> None:
@@ -47,7 +49,7 @@ def test_research_cards_are_query_checked_and_disclosures_not_overclaimed() -> N
     assert "query each new card with likely" in research
     assert "reasonable query misses" in research
     assert "references/functionality-first-writeup-synthesis.md" in research
-    reference = (SKILLS / "research-knowledge-management/references/functionality-first-writeup-synthesis.md").read_text(encoding="utf-8")
+    reference = _skn((SKILLS / "research-knowledge-management/references/functionality-first-writeup-synthesis.md").read_text(encoding="utf-8"))
     assert "Deduplicate report identities" in reference
     assert "team-summary-only" in reference
     assert "researcher- versus team-assigned" in reference
@@ -57,10 +59,10 @@ def test_research_cards_are_query_checked_and_disclosures_not_overclaimed() -> N
 
 
 def test_hunt_pressure_does_not_override_evidence_or_transport_gate() -> None:
-    hunt = (SKILLS / "hunter-loop" / "references" / "solo-hunter-and-sidecars.md").read_text(encoding="utf-8")
+    hunt = _skn((SKILLS / "hunter-loop" / "references" / "solo-hunter-and-sidecars.md").read_text(encoding="utf-8"))
     assert "motivation, not an observed fact or finding" in hunt
     assert "clean independent verifier" in hunt
-    flat = " ".join(hunt.split())
+    flat = hunt
     assert "one approved owned program account" in flat
     assert "not as a universal hunt-start gate" in flat
     assert "Public or anonymous in-scope work does not need an account" in flat
@@ -73,7 +75,7 @@ def test_hunt_pressure_does_not_override_evidence_or_transport_gate() -> None:
 
 def test_goal_router_does_not_absorb_claude_launch_instructions() -> None:
     goal = skill("bug-goals")
-    assert "scripts/goal_router.py" in goal
+    assert "scripts/goalrouter.py" in goal
     assert "Goal-only Coverage checkpoint" in goal
     assert "--permission-mode bypassPermissions" not in goal
-    assert "claude.ai/code/session_" not in goal
+    assert "claude.ai/code/session" not in goal

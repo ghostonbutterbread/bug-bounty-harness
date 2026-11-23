@@ -24,6 +24,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+# Underscore is stripped alongside asterisk and backtick. It is an identifier
+# character here (source_sites, vuln_class) rather than emphasis, so stripping
+# it looks wrong in a diff, but it is applied to BOTH the needle and the
+# haystack, so an identifier still matches and a negative guard still fires.
+# Converted needles depend on it; do not narrow this set without re-verifying
+# every converted test.
 _EMPHASIS = re.compile(r"[*`_]")
 
 

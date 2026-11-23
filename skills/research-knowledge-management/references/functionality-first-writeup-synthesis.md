@@ -31,8 +31,8 @@ create a program-specific MapStore fact.
 3. Admit claims only from bodies actually read. A title, search snippet, HTTP
    success with a JavaScript shell, or inaccessible page is a discovery lead.
    If rendering or an archive is needed, preserve both canonical and mirror
-   provenance and pass the external text through `/safe-fetch` before analysis;
-   follow `/blocked-page-recovery` for gated pages. If the body cannot be read,
+   provenance and pass the external text through `/safe-fetch` before analysis,
+   including a permitted archive for a gated page. If the body cannot be read,
    keep the narrow lead labeled `snippet-only` rather than filling its gaps.
 4. Make one evidence card per distinct case: product/feature, attacker role and
    prerequisites, controlled input, trust crossing, *observed* effect,

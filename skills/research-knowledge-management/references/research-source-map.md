@@ -121,9 +121,9 @@ provider, source list, or individual search result is a completeness boundary.
   scope and rules at the original program. Program selection is not permission
   to test an asset.
 - **A source is gone, blocked, or renders only a shell:** `safe-fetch` owns
-  quarantine for external text. `blocked-page-recovery` can locate public
-  archives and other permitted retrieval paths; label snapshot provenance and
-  date, and do not evade an access restriction. A title or snippet without the
+  quarantine for external text, including public archives and other permitted
+  retrieval paths; label snapshot provenance and date, and do not evade an
+  access restriction. A title or snippet without the
   body is a discovery lead, not evidence of the full mechanism.
 
 ## How to combine them

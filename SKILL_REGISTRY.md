@@ -100,7 +100,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **program-finder** | `/program-finder {paid-program-shortlist-question}` | `skills/program-finder/SKILL.md`; public, pre-selection shortlist, not a scope or testing permission |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |
-| **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
+| **csrf** | `/csrf {program}` | `skills/csrf/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |

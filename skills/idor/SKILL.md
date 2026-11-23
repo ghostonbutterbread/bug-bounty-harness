@@ -12,6 +12,13 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
+**Mechanism.** A request carries an object reference; the server authorizes one
+reference and loads another. A bug exists when those two diverge. Name where
+this endpoint authorizes and where it loads before choosing a mutation, and
+confirm the effect on the authoritative resource rather than on the status line.
+`skills/access-control/references/mutations/idor.md` indexes the mutation groups
+by which divergence each one bets on.
+
 **Depth.** Once any probe produces signal on an owned surface, load
 `hypothesis-live-testing` and stay in its mutate-compare-continue loop while
 responses still teach. State why each variation should behave differently

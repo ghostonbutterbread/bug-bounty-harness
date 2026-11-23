@@ -125,6 +125,10 @@ not sufficient evidence to close the DOM lane.
 
 ## DOM-Specific Payload Thinking
 
+Take the escape required for the final write context from the table in
+`reflected-xss`; what is specific here is that the context belongs to the sink
+the client writes into, not to the HTTP response, so classify at the sink.
+
 DOM payloads often succeed because two components disagree:
 
 - server encodes query, but fragment remains raw in `location.toString()`

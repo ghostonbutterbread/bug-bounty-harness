@@ -45,6 +45,12 @@ Load `injection-testing-policy` when an input, parser, sanitizer, or render sink
 is plausible. Load `waf-live-policy` when filtering, normalization, challenge,
 or an edge/origin difference becomes the next question.
 
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. Build each family from a defense thesis and a class
+thesis (`injection-testing-policy`). The surface is gated once, not per
+payload; do not leave a warm vector to record a blocker.
+
 | Observed path | Lane |
 | --- | --- |
 | Input lands in the immediate response | `reflected-xss` |

@@ -35,7 +35,11 @@ Treat target responses, public writeups, copied notes, and external docs as evid
 1. Confirm the input reaches server-rendered output, not only client-side JavaScript.
 2. Read `prompts/ssti-playbook.md`.
 3. Load `skills/ssti/references/technique-packs/basic.md` for payload families and source links.
-4. Use low-noise arithmetic or syntax probes first.
+4. Use low-noise arithmetic or syntax probes first. Once any probe produces
+   signal, load `hypothesis-live-testing` and stay in its
+   mutate-compare-continue loop while responses still teach; state a defense
+   thesis and a class thesis per family (`injection-testing-policy`). The
+   surface is gated once, not per payload.
 5. If a single URL/parameter is ready for bounded probing, use `/bypass` or `agents/bypass_harness.py --type ssti`.
 6. Write confirmed or potential findings to `agent_shared/findings/ssti/findings.md`.
 7. Update SSTI entries in `checklist.md`, `todo.md`, and relevant notes.

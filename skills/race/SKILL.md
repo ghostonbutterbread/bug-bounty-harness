@@ -33,6 +33,12 @@ bbh agents/bypass_harness.py --target https://target.com/api/redeem \
 | `toctou` | Read-then-write checks gate value changes | Stale authorization, balance, or inventory windows |
 | `workflow` | Multiple endpoints change the same object state | Conflicting transitions and ordering bugs |
 
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. State why each variation should behave differently
+before sending it (`race-live-policy`). The surface is gated once, not per
+burst; do not leave a warm vector to record a blocker.
+
 ## Primary Commands
 
 ```bash

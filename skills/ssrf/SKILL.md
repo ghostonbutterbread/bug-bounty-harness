@@ -44,6 +44,12 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    the concrete URL, parameter, fetch surface, or parser boundary the agent
    found. Use prior results to rebound from known boundaries and avoid
    duplicates, not to choose the first target.
+
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. Build each family from a defense thesis and a class
+thesis (`injection-testing-policy`). The surface is gated once, not per
+payload; do not leave a warm vector to record a blocker.
 5. Read `references/common-locations.md` to decide where to hunt.
 6. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
    parser, metadata, header, WAF, and segmentation ideas.

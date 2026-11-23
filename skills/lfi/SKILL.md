@@ -14,6 +14,12 @@ an immediate file read or response delta is not a stop reason by itself; use
 the policy to reason about path normalization, extension allowlists, wrappers,
 encoding, parser differences, and stack-specific proof ladders.
 
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. Build each family from a defense thesis and a class
+thesis (`injection-testing-policy`). The surface is gated once, not per
+payload; do not leave a warm vector to record a blocker.
+
 ## Invocation
 ```
 /lfi <target> [--param <param_name>] [--program <program>]

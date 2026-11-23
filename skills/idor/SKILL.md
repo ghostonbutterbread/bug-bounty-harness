@@ -12,6 +12,12 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. State why each variation should behave differently
+before sending it (`idor-live-policy`). The surface is gated once, not per
+reference; do not leave a warm vector to record a blocker.
+
 1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.

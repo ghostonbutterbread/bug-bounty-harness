@@ -27,7 +27,9 @@ complete ceiling.
 4. Load:
    - `general-security-testing-policy`
    - `live-testing-policy`
-   - `injection-testing-policy`
+   - `hypothesis-live-testing` once any probe produces signal; stay in its
+     mutate-compare-continue loop while responses still teach. The surface is
+     gated once, not per payload.
 5. Read `references/common-locations.md` to decide where to hunt.
 6. After finding a likely SQL-backed surface, read `references/portswigger-lab-seeds.md` for PortSwigger Academy SQLi lane prompts and source links.
 7. Use `prompts/sqli-payloads.md` only after choosing a lane.

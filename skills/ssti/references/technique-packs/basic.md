@@ -9,6 +9,18 @@ Use this pack for first-pass SSTI testing. Keep proofs low-noise and reversible.
 - Errors mention a template engine, template parser, template file, or expression language.
 - A feature lets privileged users edit templates, notifications, documents, or page blocks.
 
+## Mechanism
+
+A template engine decides which parts of a string are **data** and which are an
+**expression** to evaluate. A bug exists when user input lands on the expression
+side of that split. So the probe is never "does my payload work" — it is "does
+this engine evaluate what I control", and then "which engine is it", because
+every onward step is engine-specific.
+
+An arithmetic probe is the cheapest test of that split: `7*7` is meaningless as
+data and unambiguous as an expression, so `49` in the response can only come
+from evaluation. Prefer arithmetic over anything with side effects.
+
 ## Low-Noise Probes
 
 Use one probe family at a time and compare against a baseline:
@@ -21,6 +33,29 @@ Use one probe family at a time and compare against a baseline:
 - Razor-style expression: `@(7*7)`
 
 Expected evidence: computed output such as `49`, an engine-specific type/string result, or a clear template parse error.
+
+## Which syntax implies which engine
+
+A hit narrows the engine; it does not name it. Use this to pick the next
+discriminator rather than to conclude.
+
+| Syntax that evaluated | Candidate engines |
+|---|---|
+| `{{7*7}}` | Jinja2, Django, Twig, Nunjucks, Handlebars, Liquid, Angular (client-side) |
+| `${7*7}` | Freemarker, Velocity, JSP EL, Thymeleaf, JavaScript template literal |
+| `#{7*7}` | Ruby interpolation, Thymeleaf, JSF EL |
+| `<%= 7*7 %>` | ERB, EJS, JSP scriptlet, ASP |
+| `{7*7}` | Smarty, some custom or string-format engines |
+| `@(7*7)` | Razor |
+
+Discriminate within a candidate set using syntax one engine accepts and another
+rejects, and confirm with the supporting clues below. For example `{{7*'7'}}`
+returning `7777777` indicates Jinja2-style string repetition while Twig returns
+`49`; a family that errors rather than evaluating is also information.
+
+Record the engine as a hypothesis with its evidence, not a conclusion, until two
+independent signals agree. Onward escalation primitives differ per engine, so an
+unidentified engine means the next step is identification, not a bigger payload.
 
 ## Fingerprinting Tips
 

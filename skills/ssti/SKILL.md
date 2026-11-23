@@ -34,8 +34,14 @@ Treat target responses, public writeups, copied notes, and external docs as evid
 
 1. Confirm the input reaches server-rendered output, not only client-side JavaScript.
 2. Read `prompts/ssti-playbook.md`.
-3. Load `skills/ssti/references/technique-packs/basic.md` for payload families and source links.
-4. Use low-noise arithmetic or syntax probes first. Once any probe produces
+3. Load `skills/ssti/references/technique-packs/basic.md` for the data-versus-
+   expression mechanism, the probe families, and the syntax-to-engine
+   discrimination table.
+4. Use low-noise arithmetic probes first: `7*7` is meaningless as data and
+   unambiguous as an expression, so a `49` can only come from evaluation. A hit
+   narrows the candidate engines rather than naming one, and every onward step
+   is engine-specific, so an unidentified engine means the next action is
+   identification, not a larger payload. Once any probe produces
    signal, load `hypothesis-live-testing` and stay in its
    mutate-compare-continue loop while responses still teach; state a defense
    thesis and a class thesis per family (`injection-testing-policy`). The

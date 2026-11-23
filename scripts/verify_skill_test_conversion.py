@@ -104,7 +104,19 @@ def reflow(targets, width):
             if not p.is_file():
                 continue
             out, buf = [], []
-            for ln in p.read_text().split("\n"):
+            lines = p.read_text().split("\n")
+            # never reflow a YAML frontmatter block: it is line-structured and no
+            # author would rewrap it, so doing so produces false failures
+            fm_end = -1
+            if lines and lines[0].strip() == "---":
+                for i, ln in enumerate(lines[1:], 1):
+                    if ln.strip() == "---":
+                        fm_end = i
+                        break
+            for idx, ln in enumerate(lines):
+                if idx <= fm_end:
+                    out.append(ln)
+                    continue
                 prose = (ln.strip() and not ln.startswith(("#", "|", "-", "*", ">", "`"))
                          and not ln.startswith("  ") and not PAY.search(ln))
                 if prose:

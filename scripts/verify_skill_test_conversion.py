@@ -23,7 +23,18 @@ import pathlib, re, shutil, subprocess, sys, tempfile, textwrap
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from agents.skill_test_needles import extract as _ast_needles
 
-VP = "/home/ryushe/projects/bug_bounty_harness-runtime-beta/.venv/bin/python"
+def _interpreter() -> str:
+    """The interpreter to run the test suite with.
+
+    Prefer this repository's venv when it exists, so the script works from a
+    bare `python3` invocation, but never hardcode a machine-specific path: this
+    repository is checked out on more than one machine.
+    """
+    venv = pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
+VP = _interpreter()
 SRC = pathlib.Path(".").resolve()
 PAY = re.compile(r"<script|onerror|<img|<svg|WEBHOOK_URL|fetch\(|document\.|https?://|--[a-z]")
 

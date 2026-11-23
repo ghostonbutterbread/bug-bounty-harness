@@ -5,10 +5,14 @@ description: Use when a security hunt needs new in-scope surfaces. Compare adjac
 
 # Find New Surface
 
-Use this as a **menu of directions**, not a startup sequence, tool quota, or
-condition for testing a promising current path. Pick the next direction from
-the missing link: source, writer, route, consumer, or different app context.
-The selected vulnerability skill still owns proof and closure.
+Use this as a **menu of directions**, not a startup sequence or tool quota.
+Pick the next direction from the missing link: source, writer, route,
+consumer, or different app context. The selected vulnerability skill still
+owns proof and closure.
+
+Reached from a closure gate at pressure `cold` or `exhausted`, this menu is
+not optional: return either one direction now under test, or a specific
+reason each of the directions below is unavailable on this program.
 
 - **Another consumer:** Follow a controlled value into preview, notification,
   email, export, admin, search, mobile, or an asynchronous worker. A different
@@ -41,7 +45,9 @@ At a pivot, compare candidates with already reviewed paths and their evidence;
 select a distinct source→transform→consumer question rather than a larger
 string list. Keep source-declared, historical, and freshly observed evidence
 separate. Preserve the remaining gap and its reopening condition. A thin map
-is a discovery lead, not proof of safety or a reason to stop a warm path.
+is a discovery lead, not proof of safety, and not a reason to stop: at
+`cold`/`exhausted` a thin map means mapping is incomplete, which is itself a
+direction. It is still never a reason to leave a warm path.
 
 ## Related skills
 

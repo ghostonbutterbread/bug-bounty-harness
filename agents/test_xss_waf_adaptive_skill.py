@@ -17,14 +17,21 @@ BYPASS = ROOT / "skills/bypass/SKILL.md"
 BYPASS_PLAYBOOK = ROOT / "prompts/bypass-playbook.md"
 
 
+
+def _norm(text: str) -> str:
+    """Collapse whitespace and strip markdown emphasis so a reflow or a
+    bolding change does not break a claim that is still true."""
+    return " ".join(re.sub(r"[*`_]", "", text).split())
+
+
 def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> None:
-    text = WAF.read_text(encoding="utf-8")
+    text = _norm(WAF.read_text(encoding="utf-8"))
     stages = (
-        "**Baseline:**",
-        "**Locate the control:**",
-        "**Retrieve narrowly:**",
-        "**Sufficiency gate:**",
-        "**Test and learn:**",
+        "Baseline:",
+        "Locate the control:",
+        "Retrieve narrowly:",
+        "Sufficiency gate:",
+        "Test and learn:",
     )
     positions = [text.index(stage) for stage in stages]
     assert positions == sorted(positions)
@@ -36,9 +43,9 @@ def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> 
     assert "no local card or" in text
     assert "class-specific consumer" in text
     assert "200/challenge change alone is not a bypass proof" in text
-    assert "Its `bypass_success` counter" in text
+    assert "Its bypasssuccess counter" in text
     assert "neither an Attempts replacement nor" in text
-    assert "Load `references/waf-evasion.md`" not in text  # conditional, not universal WAF load
+    assert "Load references/waf-evasion.md" not in text  # conditional, not universal WAF load
 
 
 def test_xss_routes_to_loadable_filter_consumer_overlay() -> None:
@@ -56,18 +63,18 @@ def test_xss_routes_to_loadable_filter_consumer_overlay() -> None:
     assert "reject-on-match filter" in text
     assert "browser/consumer" in text
 
-    assert "`references/waf-evasion.md`" in XSS.read_text(encoding="utf-8")
-    assert "`references/waf-evasion.md`" in PAYLOAD.read_text(encoding="utf-8")
-    assert "`references/waf-evasion.md`" in WAF.read_text(encoding="utf-8")
+    assert "references/waf-evasion.md" in _norm(XSS.read_text(encoding="utf-8"))
+    assert "references/waf-evasion.md" in _norm(PAYLOAD.read_text(encoding="utf-8"))
+    assert "references/waf-evasion.md" in _norm(WAF.read_text(encoding="utf-8"))
 
 
 def test_references_are_packaged_conditional_and_source_linked() -> None:
-    text = OVERLAY.read_text(encoding="utf-8")
+    text = _norm(OVERLAY.read_text(encoding="utf-8"))
     for reference in (TECHNIQUES, SOURCES):
         assert reference.is_file()
         assert reference.name in text
-    technique = TECHNIQUES.read_text(encoding="utf-8")
-    sources = SOURCES.read_text(encoding="utf-8")
+    technique = _norm(TECHNIQUES.read_text(encoding="utf-8"))
+    sources = _norm(SOURCES.read_text(encoding="utf-8"))
     assert "negative control" in technique
     assert "victim" in technique
     assert "HTML entity in plain text" in technique
@@ -80,23 +87,23 @@ def test_references_are_packaged_conditional_and_source_linked() -> None:
 
 
 def test_live_harness_is_not_misdescribed_as_bounded_one_variable_probe() -> None:
-    waf = WAF.read_text(encoding="utf-8")
-    playbook = PLAYBOOK.read_text(encoding="utf-8")
-    assert "--rps` setting does **not** govern every inner retry" in waf
-    assert "Do **not** launch either" in waf
-    assert "**not** a bounded one-variable" in playbook
+    waf = _norm(WAF.read_text(encoding="utf-8"))
+    playbook = _norm(PLAYBOOK.read_text(encoding="utf-8"))
+    assert "--rps setting does not govern every inner retry" in waf
+    assert "Do not launch either" in waf
+    assert "not a bounded one-variable" in playbook
     assert "Do not exhaust generic Tier 1/Tier 2" in playbook
     assert "bbh agents/bypass_harness.py --target" not in waf
     assert "bypass_harness.py --target" not in playbook
     assert "A different origin response" in playbook
     assert "not by itself confirmed" in playbook
-    assert "owning lane's `attempt-recording-policy` writer" in playbook
+    assert "owning lane's attempt-recording-policy writer" in playbook
     assert "not a parallel canonical Attempts or Findings ledger" in playbook
 
 
 def test_unknown_vendor_uses_generic_mechanism_and_parser_reference_resolves() -> None:
-    waf = WAF.read_text(encoding="utf-8")
-    overlay = OVERLAY.read_text(encoding="utf-8")
+    waf = _norm(WAF.read_text(encoding="utf-8"))
+    overlay = _norm(OVERLAY.read_text(encoding="utf-8"))
     assert "an unknown vendor does not exclude a generic" in waf
     assert "Match a vendor only when" in waf
     assert PARSER_REFERENCE.is_file()
@@ -104,9 +111,9 @@ def test_unknown_vendor_uses_generic_mechanism_and_parser_reference_resolves() -
 
 
 def test_shared_waf_reference_is_conditional_and_loaded_from_general_loop() -> None:
-    waf = WAF.read_text(encoding="utf-8")
+    waf = _norm(WAF.read_text(encoding="utf-8"))
     assert SHARED_MECHANISMS.is_file()
-    shared = SHARED_MECHANISMS.read_text(encoding="utf-8")
+    shared = _norm(SHARED_MECHANISMS.read_text(encoding="utf-8"))
     assert "references/core-mechanisms.md" in waf
     for question in (
         "inspection surface", "decoding and normalization", "routing and body representation",
@@ -121,31 +128,31 @@ def test_shared_waf_reference_is_conditional_and_loaded_from_general_loop() -> N
 
 
 def test_xss_overlay_delegates_research_loop_and_keeps_xss_proof() -> None:
-    overlay = OVERLAY.read_text(encoding="utf-8")
-    sources = SOURCES.read_text(encoding="utf-8")
-    assert "`waf` owns" in overlay
-    assert "`waf`'s sufficiency gate" in overlay
+    overlay = _norm(OVERLAY.read_text(encoding="utf-8"))
+    sources = _norm(SOURCES.read_text(encoding="utf-8"))
+    assert "waf owns" in overlay
+    assert "waf's sufficiency gate" in overlay
     assert "HTML/attribute/URL/script/JSON/DOM grammar" in overlay
     assert "sanitizer" in overlay and "reparse" in overlay
     assert "four gates" in overlay and "victim's actual request" in overlay
     assert "prompts/waf-playbook.md" not in overlay
     assert "Cloudflare:" not in sources and "Fastly:" not in sources
     assert "WHATWG HTML parsing" in sources and "DOMPurify" in sources
-    assert "`waf`" in BYPASS.read_text(encoding="utf-8")
-    assert "`waf`" in BYPASS_PLAYBOOK.read_text(encoding="utf-8")
+    assert "waf" in _norm(BYPASS.read_text(encoding="utf-8"))
+    assert "waf" in _norm(BYPASS_PLAYBOOK.read_text(encoding="utf-8"))
 
 
 def test_coverage_negative_control_uses_known_blocked_value() -> None:
-    shared = SHARED_MECHANISMS.read_text(encoding="utf-8")
+    shared = _norm(SHARED_MECHANISMS.read_text(encoding="utf-8"))
     section = shared.split("### Inspection surface and component coverage", 1)[1].split("### Decoding and normalization order", 1)[0]
     assert "inert markers" in section  # trace what the origin consumes
-    negative = section.split("**Negative control:**", 1)[1].split("**Counter-explanation:**", 1)[0]
+    negative = section.split("Negative control:", 1)[1].split("Counter-explanation:", 1)[0]
     assert "known-blocked value" in negative
     assert "marker" not in negative
 
 
 def test_bypass_playbook_excludes_waf_from_generic_batch_step() -> None:
-    playbook = BYPASS_PLAYBOOK.read_text(encoding="utf-8")
+    playbook = _norm(BYPASS_PLAYBOOK.read_text(encoding="utf-8"))
     step = playbook.split("4. ", 1)[1].split("5. Compare against baseline", 1)[0]
     assert "observed WAF/filter" in step
     assert "controlled comparison" in step

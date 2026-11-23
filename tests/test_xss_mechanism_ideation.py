@@ -1,11 +1,18 @@
 """The XSS idea layer remains reachable without replacing lane proof or cards."""
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _norm(text: str) -> str:
+    """Collapse whitespace and strip markdown emphasis so a reflow or a
+    bolding change does not break a claim that is still true."""
+    return " ".join(re.sub(r"[*`_]", "", text).split())
+
+
 def read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+    return _norm((ROOT / relative).read_text(encoding="utf-8"))
 
 
 def test_router_reaches_incremental_ideation_without_replacing_lanes() -> None:
@@ -29,7 +36,7 @@ def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
     ideation = read("skills/xss/references/payload-engineering/mechanism-ideation.md")
     assert "consumer mounted" in router and "inert control rendered" in router
     assert "do not infer that a sanitizer held" in router
-    assert "Build candidates **backward from the final interpreter**" in payload
+    assert "Build candidates backward from the final interpreter" in payload
     for distinction in (
         "Mutation XSS (mXSS)",
         "Post-check composition / fragmentation",
@@ -37,16 +44,16 @@ def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
         "Sanitizer output vs safe use",
     ):
         assert distinction in ideation
-    mutation = ideation.split("**Mutation XSS (mXSS):**", 1)[1].split(
+    mutation = ideation.split("Mutation XSS (mXSS):", 1)[1].split(
         "**Post-check composition / fragmentation:**", 1
     )[0]
-    composition = ideation.split("**Post-check composition / fragmentation:**", 1)[1].split(
+    composition = ideation.split("Post-check composition / fragmentation:", 1)[1].split(
         "**Double decode / entity / Unicode:**", 1
     )[0]
     assert "same sanitized markup" in mutation
     assert "without application" in mutation
     assert "two stripped tags or an application concatenating" in mutation
-    assert "application code *after*" in composition
+    assert "application code after" in composition
     assert "without any browser parser mutation" in composition
     assert "Same safe tree after all real parses" in ideation
     assert "Composition happens before an appropriate final check" in ideation
@@ -58,6 +65,6 @@ def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
 
 def test_research_trigger_stays_evidence_specific() -> None:
     research = read("skills/xss/references/technology-research.md")
-    assert "exact\nmissing parser or composition edge" in research
+    assert "exact missing parser or composition edge" in research
     assert "not a generic \"mXSS bypass\"" in research
     assert "External material is hypothesis input, never target proof" in research

@@ -31,7 +31,7 @@ class BunnySkillTests(unittest.TestCase):
         router = ROUTER.read_text(encoding="utf-8")
         self.assertIn("name: bunny\n", router)
         self.assertIn("opt-in", router)
-        self.assertIn("Keep `hunt-orchestration`", router)
+        self.assertIn("Keep `hunter-loop`", router)
         self.assertIn("Default: collaborative", router)
         self.assertIn("load `bunny-collaborative` before dispatch", router)
         self.assertIn("coordinator and each collaborative worker must load", router)

@@ -37,7 +37,7 @@ These are recognition cues, not a claim that every such feature executes code.
   primitive classification, branch selection, and an investigation packet.
 - A URL fetch/import may invoke a process utility with the URL embedded in a
   shell command? Load `rce-exploration` and its
-  `references/url-fetch-shell-substitution.md` for this distinct process-sink
+  `skills/rce-exploration/references/url-fetch-shell-substitution.md` for this distinct process-sink
   hypothesis; URL fetching alone is not evidence of command execution.
 - State may be reconstructed as runtime objects, including inside cookies or
   headers? Load `rce-deserialization` for representation, accepted control,

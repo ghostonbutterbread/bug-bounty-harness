@@ -133,8 +133,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **adaptive-rate-control** | `/adaptive-rate-control` when implementing a target-bucket controller (design guidance, not a live runner) | `skills/adaptive-rate-control/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
-| **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
-| **hunt-orchestration** | `/hunt-orchestration {program}` for solo hunter and bounded sidecars | `skills/hunt-orchestration/SKILL.md`; `hunt-orchestration-policy` owns sidecar admission |
+| **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md`; solo primary-hunter loop, transport-failure gate, event-driven sidecars, handoff queue and long-goal cadence in `skills/hunter-loop/references/solo-hunter-and-sidecars.md` (absorbed the former `hunt-orchestration` skill); `hunt-orchestration-policy` still owns sidecar admission |
 | **research-knowledge-management** | `/research-knowledge-management {research-question}` | `skills/research-knowledge-management/SKILL.md`; ResearchMap corpus, source selection map, and source admission |
 | **research-source-intake** | Evaluate a new research source or its role in hunting | `skills/research-source-intake/SKILL.md`; comparison, access and evidence review |
 | **bunny** | `/bunny {program} --goal {objective}` or explicit Bunny `multi` parameter (collaborative default; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
@@ -174,7 +173,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **program-severity-scoring** | `/program-severity-scoring {program}` | `skills/program-severity-scoring/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
 | **bunny-report-and-triage** | Load the installed standalone fork directly after a populated FID `EVIDENCE.md` (one FID-named final, report-only by default) | External skill; not copied into BBH `skills/` |
-| **security-reporting** | Deprecated compatibility redirect, not a report writer; load `bunny-report-and-triage` instead | `skills/security-reporting/SKILL.md` |
+| **security-reporting** | Archived. Load `bunny-report-and-triage` instead | `skills/_archive/security-reporting/SKILL.md` |
 
 ---
 

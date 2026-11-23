@@ -21,6 +21,13 @@ parent performs the same check directly. A worker's `coverage_exhausted` closes
 only its supported chain, not the goal or vulnerability class. Do not impose
 this checkpoint on ordinary interactive hunts.
 
+Hunter Loop absorbed the former `hunt-orchestration` skill. For the solo
+primary-hunter loop, the transport and intermediary failure gate, event-driven
+sidecar admission, off-goal discovery preservation, the operator handoff queue,
+and long-goal cadence, load
+`references/solo-hunter-and-sidecars.md`. Bunny remains the multi-agent
+campaign coordinator; this skill is the single-agent cadence it delegates to.
+
 For a long-running multi-agent hunt, Hunter Loop may use Hermes Kanban as the
 local orchestrator's durable work queue. External CLI agents keep their own
 native session/run logs and publish only durable hunt outcomes into the

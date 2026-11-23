@@ -12,7 +12,7 @@ metadata:
 
 # Bunny — Mode Router
 
-Bunny is an **opt-in** BBH campaign mode. A coordinator owns the program map, work allocation, resource conflicts, and next decision. Use it when Ryushe asks for Bunny or explicitly chooses campaign orchestration; do not silently switch an ordinary hunt into Bunny. Keep `hunt-orchestration` for a solo primary hunter with event-driven sidecars.
+Bunny is an **opt-in** BBH campaign mode. A coordinator owns the program map, work allocation, resource conflicts, and next decision. Use it when Ryushe asks for Bunny or explicitly chooses campaign orchestration; do not silently switch an ordinary hunt into Bunny. Keep `hunter-loop` for a solo primary hunter with event-driven sidecars.
 
 ## Select one mode
 

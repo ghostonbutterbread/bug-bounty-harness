@@ -57,7 +57,7 @@ def test_research_cards_are_query_checked_and_disclosures_not_overclaimed() -> N
 
 
 def test_hunt_pressure_does_not_override_evidence_or_transport_gate() -> None:
-    hunt = skill("hunt-orchestration")
+    hunt = (SKILLS / "hunter-loop" / "references" / "solo-hunter-and-sidecars.md").read_text(encoding="utf-8")
     assert "motivation, not an observed fact or finding" in hunt
     assert "clean independent verifier" in hunt
     flat = " ".join(hunt.split())

@@ -64,9 +64,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    only for bounded dedupe, coverage, or safety after selecting a current
    surface; retest/extension requires an explicit user request. For a selected
    file/class pair, use `/ledger`'s compact `prior-work` check. A positive
-   answer stops that line of investigation in an ordinary hunt; select fresh
-   work from current app observations, not a variation or chain of the known
-   finding.
+   answer closes that exact issue in an ordinary hunt: do not re-report it. A
+   materially distinct issue on the same file or class is still new work; name
+   what makes it distinct and test it on current evidence.
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.

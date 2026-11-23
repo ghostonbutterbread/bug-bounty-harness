@@ -59,4 +59,10 @@ Do not promote plain reflection, frontend template behavior, generic errors, WAF
 
 ## Stop Conditions
 
-Stop and ask Ryushe before trying command execution, reading files, accessing secrets, dumping template config, targeting non-owned private data, or testing privileged template editors without explicit authorization.
+Template evaluation is proven by arithmetic or engine-specific behavior; it does
+not require an impact action. Command execution, file reads, secret access,
+template-config dumps, non-owned private data, and privileged template editors
+are approval-gated: ask Ryushe first. That gate is an authorization boundary, not
+a dead end — when evaluation is proven and the question becomes how far the
+primitive reaches, load `rce`, which owns the execution-chain question while this
+skill keeps the mechanism.

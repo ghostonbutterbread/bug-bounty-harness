@@ -61,13 +61,17 @@ bbh agents/me_ledger.py prior-work --program {program} \
 
 The reply is a yes/no for recorded prior work plus confirmed/submitted/duplicate
 flags—no FID, report, proof, or vulnerability narrative. In an ordinary new-
-finding hunt, a positive answer is a **stop sign for that file/class line of
-investigation**: do not repeat or deepen the known vulnerability, and choose
-fresh work from current app observations instead. Do not use the result as a
-springboard for chaining or adjacent variants of that finding. It does not
-establish that unrelated vulnerability classes or independently observed
-surfaces are closed. A miss means only that this exact file/class pair has no
-recorded prior proof, not that the idea is globally novel. Review a full FID
+finding hunt, a positive answer closes **that exact issue**: do not re-report
+it, re-prove it, or submit a restatement of it.
+
+It does not close the surface. A materially distinct issue on the same file or
+class — a different consumer, parameter, role, transform, or mechanism — is new
+work, tested on its own current evidence. State what makes it distinct before
+continuing. Route a chain whose impact depends on the known issue through
+`impact-escalation` rather than reopening the prior report. A positive answer
+also does not establish that unrelated vulnerability classes or independently
+observed surfaces are closed. A miss means only that this exact file/class
+pair has no recorded prior proof, not that the idea is globally novel. Review a full FID
 only for an explicitly requested retest, extension, status, or report task.
 
 The default `list` response excludes confirmed, submitted, and dropped findings

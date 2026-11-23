@@ -24,7 +24,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    directly. Browse checkout, observe what the backend trusts. Avoid broad
    prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh price fields, coupon flows,
-   entitlement boundaries, or processor behaviors from direct observation.
+   entitlement boundaries, or processor behaviors from direct observation. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read
    `prompts/payment-testing-context-pack.md` and prior state.
 5. Read only the focused technique pack matching observed behavior:

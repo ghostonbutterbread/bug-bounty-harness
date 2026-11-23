@@ -38,7 +38,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    fetch/URL-handling surfaces directly. Observe what the app does with URLs.
    Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fetch surfaces, URL parameters, webhook
-   endpoints, or import flows from direct observation.
+   endpoints, or import flows from direct observation. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read `injection-testing-policy` once a URL/fetch
    sink exists or is strongly suspected. Query prior MapStore/hunt entries for
    the concrete URL, parameter, fetch surface, or parser boundary the agent

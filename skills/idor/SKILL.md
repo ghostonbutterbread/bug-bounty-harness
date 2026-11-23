@@ -26,7 +26,8 @@ reference; do not leave a warm vector to record a blocker.
    Avoid querying MapStore or prior attempts until this concrete location/context exists.
 3. **Fresh Observations** — Aim to identify 3-5 fresh object references, ID patterns, role
    differences, or auth boundaries from direct observation before pulling
-   prior state.
+   prior state. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read shared state in this order:
    - `/account-management` registry at
      `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`

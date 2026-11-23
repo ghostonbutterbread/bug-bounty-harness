@@ -20,13 +20,25 @@ nothing. Injecting the phrase must make the test fail.
 """
 import pathlib, re, shutil, subprocess, sys, tempfile, textwrap
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from agents.skill_test_needles import extract as _ast_needles
+
 VP = "/home/ryushe/projects/bug_bounty_harness-runtime-beta/.venv/bin/python"
 SRC = pathlib.Path(".").resolve()
 PAY = re.compile(r"<script|onerror|<img|<svg|WEBHOOK_URL|fetch\(|document\.|https?://|--[a-z]")
 
 
 def md_targets(test_rel: str) -> list[str]:
-    """Every markdown file the test reads, however the path is spelled."""
+    """Every markdown file the test reads, resolved from the AST where possible."""
+    ast_paths = {p for _, p in _ast_needles(str(SRC / test_rel))
+                 if (SRC / p).is_file()}
+    if ast_paths:
+        return sorted(ast_paths)
+    return _md_targets_regex(test_rel)
+
+
+def _md_targets_regex(test_rel: str) -> list[str]:
+    """Fallback for files the AST pass cannot resolve."""
     txt = (SRC / test_rel).read_text()
     found = set(re.findall(r'"(skills/[^"]+\.md)"', txt))
     # path-join forms: (SKILLS / "a" / "references" / "b.md"), (ROOT / "skills" / ...)

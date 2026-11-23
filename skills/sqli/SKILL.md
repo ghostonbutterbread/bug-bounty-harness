@@ -31,7 +31,12 @@ complete ceiling.
      mutate-compare-continue loop while responses still teach. The surface is
      gated once, not per payload.
 5. Read `references/common-locations.md` to decide where to hunt.
-6. After finding a likely SQL-backed surface, read `references/portswigger-lab-seeds.md` for PortSwigger Academy SQLi lane prompts and source links.
+6. After finding a likely SQL-backed surface, read
+   `references/portswigger-lab-seeds.md` for paired detection probes, the
+   query-context lanes, and the per-dialect primitive matrix. Dialect is a
+   discriminator: a primitive that works on one engine and not another is the
+   fingerprint, and a missing delay primitive describes the engine rather than
+   the vector.
 7. Use `prompts/sqli-payloads.md` only after choosing a lane.
 8. Read `prompts/sqli-playbook.md` only for deep review, stuck
    analysis, or report writing.
@@ -40,9 +45,16 @@ complete ceiling.
    - auth, tenant, or object-boundary impact -> `/access-control` or `/idor`
    - one live proxy request capture/replay -> `/single-request-grabber`
 
+**Mechanism.** The query is assembled as a string and handed to a parser. A bug
+exists when the quoting, comment, or escape handling the defense models differs
+from what the database parses. Find which clause the input lands in, then which
+dialect is parsing it; the payload follows from that pair.
+
 No visible error or response delta from the first SQLi probe is not a stop
 reason by itself. Classify the likely query context and control first, then run
 paired error, boolean, timing, result-shaping, or OAST probes as allowed.
+Prefer a value-restoring form (`''`, a closing comment) over a breaking one:
+it proves parsing without leaving a broken query in the application's logs.
 
 ## Workflow
 

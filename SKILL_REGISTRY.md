@@ -173,7 +173,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **program-severity-scoring** | `/program-severity-scoring {program}` | `skills/program-severity-scoring/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
 | **bunny-report-and-triage** | Load the installed standalone fork directly after a populated FID `EVIDENCE.md` (one FID-named final, report-only by default) | External skill; not copied into BBH `skills/` |
-| **security-reporting** | Archived. Load `bunny-report-and-triage` instead | `skills/_archive/security-reporting/SKILL.md` |
+| **security-reporting** | Archived. Load `bunny-report-and-triage` instead | `_archive/security-reporting/SKILL.md` |
 
 ---
 

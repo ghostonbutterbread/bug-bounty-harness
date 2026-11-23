@@ -70,7 +70,7 @@ payload; do not leave a warm vector to record a blocker.
 10. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
    - URL fetcher may build a shell command with the supplied URL -> `/rce`
-     and `skills/rce-exploration/references/url-fetch-shell-substitution.md`;
+     and `rce-exploration`'s `references/url-fetch-shell-substitution.md`;
      a fetch or callback alone is not evidence of command execution
    - header-required metadata or proxy trust behavior -> `/headers`
    - WAF/rate-limit blocks -> `/waf`

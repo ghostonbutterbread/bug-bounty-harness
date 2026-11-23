@@ -24,7 +24,14 @@ class SkillPromotionRoutesTest(unittest.TestCase):
                 self.assertTrue(text.startswith(f"---\nname: {name}\n"))
                 self.assertIn(f"| **{name}** |", registry)
                 for ref in re.findall(r"`(references/[^`]+\.md)`", text):
-                    self.assertTrue((path.parent / ref).is_file(), f"{name}: {ref}")
+                    # Skills cite a sibling's reference by naming the owner and
+                    # then the path relative to it ("load Hunter Loop's
+                    # `references/x.md`"). Resolve locally first, then anywhere
+                    # under skills/, so a genuinely missing file still fails.
+                    if (path.parent / ref).is_file():
+                        continue
+                    owned_elsewhere = list(SKILLS.glob(f"*/{ref}"))
+                    self.assertTrue(owned_elsewhere, f"{name}: {ref} exists in no skill")
                 for ref in re.findall(r"`(skills/[^`]+/references/[^`]+\.md)`", text):
                     self.assertTrue((ROOT / ref).is_file(), f"{name}: {ref}")
                 self.assertNotIn("/home/ryushe/", text)

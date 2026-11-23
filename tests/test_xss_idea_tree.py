@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REF = ROOT / "skills/xss-payload-engineering/references"
+REF = ROOT / "skills/xss/references/payload-engineering"
 LEAVES = (
     "mechanism-ideation.md",
     "parser-stage-character-variants.md",
@@ -18,10 +18,10 @@ def text(relative: str) -> str:
 
 def test_conditional_root_to_leaf_route_is_resolvable() -> None:
     router = text("skills/xss/SKILL.md")
-    payload = text("skills/xss-payload-engineering/SKILL.md")
-    tree = text("skills/xss-payload-engineering/references/idea-tree.md")
-    assert "references/idea-tree.md" in router
-    assert "references/idea-tree.md" in payload
+    payload = text("skills/xss/references/payload-engineering.md")
+    tree = text("skills/xss/references/payload-engineering/idea-tree.md")
+    assert "references/payload-engineering/idea-tree.md" in router
+    assert "references/payload-engineering/idea-tree.md" in payload
     assert "Keep multiple\nhypotheses alive" in payload
     assert "not a second payload corpus or a required per-run checklist" in " ".join(payload.split())
     for leaf in LEAVES:
@@ -33,11 +33,11 @@ def test_conditional_root_to_leaf_route_is_resolvable() -> None:
 
 def test_tree_invites_uncapped_ideation_but_preserves_per_claim_proof() -> None:
     router = text("skills/xss/SKILL.md")
-    payload = text("skills/xss-payload-engineering/SKILL.md")
-    tree = text("skills/xss-payload-engineering/references/idea-tree.md")
-    mechanism = text("skills/xss-payload-engineering/references/mechanism-ideation.md")
-    client = text("skills/xss-payload-engineering/references/client-interpreters.md")
-    derived = text("skills/xss-payload-engineering/references/derived-consumers.md")
+    payload = text("skills/xss/references/payload-engineering.md")
+    tree = text("skills/xss/references/payload-engineering/idea-tree.md")
+    mechanism = text("skills/xss/references/payload-engineering/mechanism-ideation.md")
+    client = text("skills/xss/references/payload-engineering/client-interpreters.md")
+    derived = text("skills/xss/references/payload-engineering/derived-consumers.md")
     doc = text("docs/xss-idea-tree.md")
     assert "not a ceiling on ideas" in router
     assert "including ones outside the tree" in payload
@@ -54,9 +54,9 @@ def test_tree_invites_uncapped_ideation_but_preserves_per_claim_proof() -> None:
 
 
 def test_new_leaves_require_observed_consumers_and_falsifiers() -> None:
-    client = text("skills/xss-payload-engineering/references/client-interpreters.md")
-    derived = text("skills/xss-payload-engineering/references/derived-consumers.md")
-    defense = text("skills/xss-payload-engineering/references/defense-edges.md")
+    client = text("skills/xss/references/payload-engineering/client-interpreters.md")
+    derived = text("skills/xss/references/payload-engineering/derived-consumers.md")
+    defense = text("skills/xss/references/payload-engineering/defense-edges.md")
     for content in (client, derived, defense):
         assert "control" in content.lower()
         assert "sink" in content.lower()
@@ -87,9 +87,9 @@ def test_human_tree_accounts_for_pinned_technique_headings_without_claiming_bypa
 
 
 def test_leaves_preserve_existing_research_and_evidence_ownership() -> None:
-    tree = text("skills/xss-payload-engineering/references/idea-tree.md")
-    assert "xss-technology-research" in tree
+    tree = text("skills/xss/references/payload-engineering/idea-tree.md")
+    assert "references/technology-research.md" in tree
     assert "`attempt-recording-policy` owns the exact" in tree
     assert "ResearchMap" in tree and "MapStore" in tree and "Attempts" in tree
     assert "not a validated bypass" in tree
-    assert "use `skill_view(name='xss-payload-engineering'" in tree
+    assert "use `skill_view(name='xss', file_path='references/payload-engineering/" in tree

@@ -411,7 +411,7 @@ def _lane_title(lane: str) -> str:
 
 def _lane_skills(lane: str) -> list[str]:
     return {
-        "xss": ["hunter-loop", "xss", "xss-lifecycle", "coverage", "leads"],
+        "xss": ["hunter-loop", "xss", "coverage", "leads"],
         "ssrf": ["hunter-loop", "ssrf", "error-mapper"],
         "api": ["hunter-loop", "headers", "error-mapper"],
         "auth": ["hunter-loop", "access-control", "jwt-auth", "error-triage"],

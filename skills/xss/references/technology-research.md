@@ -1,9 +1,8 @@
----
-name: xss-technology-research
-description: Use when a concrete XSS framework, renderer, sanitizer, parser, browser, consumer, or defense fingerprint could change the next hypothesis or payload family.
----
-
 # XSS Technology Research
+
+Turn a concrete framework, renderer, sanitizer, parser, browser or defense
+fingerprint into the next hypothesis. Load from the `xss` router when this is
+the next question; formerly the `xss-technology-research` skill.
 
 Load after `xss` once current evidence supplies a concrete technology or defense
 fingerprint. Research is a hypothesis accelerator: it supplements source-to-sink
@@ -30,7 +29,7 @@ When selecting external sources for that question, load
 Read `skills/xss/references/research-card-integration.md` for evidence ownership,
 retrieval, and card-admission detail.
 For a sanitizer or parser differential, first use
-`skills/xss-payload-engineering/references/mechanism-ideation.md` to state the exact
+`skills/xss/references/payload-engineering/mechanism-ideation.md` to state the exact
 missing parser or composition edge. Query cards for that edge (for example
 sanitizer output → later HTML parse), not a generic "mXSS bypass" string.
 

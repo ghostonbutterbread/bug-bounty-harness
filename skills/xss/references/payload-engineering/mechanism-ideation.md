@@ -1,11 +1,11 @@
 # XSS Mechanism Ideation at Parser and Sanitizer Boundaries
 
-Load on demand from `xss-payload-engineering` after a concrete source, render
+Load on demand from `references/payload-engineering.md` after a concrete source, render
 context, transform, or plausible sink is observed. This is a **reasoning aid**,
 not a payload menu or a new proof standard. `xss` and its selected lane retain
 scope, browser proof, ownership, and closure. Read
 `parser-stage-character-variants.md` for representation specifics; use
-`xss-technology-research` / ResearchMap for an observed library/configuration.
+`references/technology-research.md` / ResearchMap for an observed library/configuration.
 
 ## Mechanism exploration worksheet
 
@@ -53,7 +53,7 @@ retain materially distinct mechanisms and use a comparison when it clarifies
 the active causal claim; this is not a control prerequisite or idea quota. After
 an inert matrix, consider a new stage, writer, consumer, or a genuinely different
 mechanism rather than only syntax permutations of the same failed stage.
-Consult `xss-lifecycle` when the value changes consumers and `waf-live-policy`
+Consult `references/lifecycle.md` when the value changes consumers and `waf-live-policy`
 when the first blocker is at the edge. Do not probe non-owned staff/public
 consumers merely to complete a chain.
 

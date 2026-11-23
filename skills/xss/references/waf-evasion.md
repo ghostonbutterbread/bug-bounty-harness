@@ -1,12 +1,11 @@
----
-name: xss-waf-evasion
-description: Use when XSS input is blocked by WAF or app filtering.
----
-
 # XSS WAF Evasion
 
+Work a filter or edge boundary that blocks an otherwise plausible XSS path.
+Load from the `xss` router when this is the next question; formerly the `xss-
+waf-evasion` skill.
+
 Load after `xss`, its observed reflected/stored/DOM/blind lane, and
-`xss-payload-engineering` when a plausible executable consumer meets a
+`references/payload-engineering.md` when a plausible executable consumer meets a
 reproducible WAF or application-filter boundary. `waf` owns the general adaptive
 blocker loop; `waf-live-policy` owns live rates, challenge and stop decisions;
 the XSS lane owns browser proof and impact. This skill connects **a candidate
@@ -44,16 +43,16 @@ is still unclear, return to `waf` rather than assigning a vendor trick.
    control sees, what the origin/browser interprets differently, and why the
    actual victim flow could carry it. The shared reference
    `skills/waf/references/core-mechanisms.md` answers general inspection and
-   policy questions; `references/technique-questions.md` asks XSS parser and
+   policy questions; `references/waf-evasion/technique-questions.md` asks XSS parser and
    delivery questions. Neither is a payload bank.
 2. **If no:** Name the missing XSS-specific consumer, sanitizer/reparse,
-   framework, or browser/CSP prerequisite. Use `xss-technology-research` and
-   `references/vendor-and-mechanism-sources.md` for focused XSS research;
+   framework, or browser/CSP prerequisite. Use `references/technology-research.md` and
+   `references/waf-evasion/vendor-and-mechanism-sources.md` for focused XSS research;
    return any missing *general WAF* mechanism to `waf`'s focused-research
    branch. Distinguish source-reported possibilities from this target's facts.
-3. **If yes:** Use `xss-payload-engineering` to compose a context-matched
+3. **If yes:** Use `references/payload-engineering.md` to compose a context-matched
    candidate from surviving grammar and an evidenced stage difference. Its
-   `skills/xss-payload-engineering/references/parser-stage-character-variants.md`
+   `skills/xss/references/payload-engineering/parser-stage-character-variants.md`
    explains character/encoding prerequisites (load with `skill_view`). Return
    the candidate and one negative control to `waf` for a controlled comparison;
    do not turn tool-generated strings into a live sweep.
@@ -68,7 +67,7 @@ is still unclear, return to `waf` rather than assigning a vendor trick.
 5. **Return evidence:** Name the first failed gate and remaining uncertainty.
    Exact probes belong in the XSS lane's Attempts writer; stable target facts
    and sanitized evidence pointers in MapStore; reviewed portable mechanisms
-   in ResearchMap under `xss-technology-research`'s admission rule. Keep
+   in ResearchMap under `references/technology-research.md`'s admission rule. Keep
    untested ideas as hypotheses; never auto-promote a search hit or a
    site-specific payload to a portable card.
 

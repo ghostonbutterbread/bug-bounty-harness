@@ -16,8 +16,8 @@ def test_xss_defense_signals_continue_the_same_consumer_path():
     assert "references/defense-chain.md" in defense_route
     assert "selected XSS lane still owns browser proof" in defense_route
     assert (
-        "Sanitizer behavior: load `xss-technology-research` and "
-        "`xss-payload-engineering`"
+        "Sanitizer behavior: load `references/technology-research.md` and "
+        "`references/payload-engineering.md`"
     ) in defense_route
     assert "WAF/filter behavior: load `waf-live-policy`" in defense_route
     assert "non-equivalent, context-matched families" in defense_route

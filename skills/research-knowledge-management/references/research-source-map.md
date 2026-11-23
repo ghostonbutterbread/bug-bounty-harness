@@ -109,8 +109,9 @@ provider, source list, or individual search result is a completeness boundary.
   examples or run checks without matching the context, applicable scope, and
   live/class policies. Use a relevant specialist reference rather than assuming
   a technique applies because a category name matches. For specific browser,
-  parser, sanitizer or WAF questions, `xss-waf-evasion`'s
-  `references/vendor-and-mechanism-sources.md` points to WHATWG specifications,
+  parser, sanitizer or WAF questions, `xss`'s `references/waf-evasion.md`'s
+  `skills/xss/references/waf-evasion/vendor-and-mechanism-sources.md` points to
+  WHATWG specifications,
   OWASP/PortSwigger resources, vendor rule documentation and sanitizer research;
   `cloudflare-xss` covers conditional Cloudflare feature leads. Respect the
   PortSwigger cheat-sheet data's link-only license in the owning reference.

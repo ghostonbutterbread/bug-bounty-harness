@@ -68,7 +68,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **rce-validation** | Bounded precursor or proof | `skills/rce-validation/SKILL.md` |
 | **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |
 | **csp-bypass** | Load when CSP appears to block a plausible XSS path | `skills/csp-bypass/SKILL.md`; researched policy-analysis and trusted-script bypass mechanisms; route to the active XSS lane for source-to-sink proof |
-| **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
+| **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, `dom-xss` and `blind-xss`. Cross-lane overlays are its own references, loaded by path rather than selected as skills: `references/payload-engineering.md`, `references/waf-evasion.md`, `references/lifecycle.md`, `references/technology-research.md` (formerly the `xss-payload-engineering`, `xss-waf-evasion`, `xss-lifecycle` and `xss-technology-research` skills) |
 | **cloudflare-xss** | Cloudflare observed during XSS work, with or without a WAF block | `skills/cloudflare-xss/SKILL.md`; single source-cited knowledge shelf, reached from XSS and WAF skills |
 | **xss-gtm** | Load with `/xss` when a controlled path selects a GTM ID or loads its script | `skills/xss-gtm/SKILL.md`; preconfigured XSS fixture, not GTM account management |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |

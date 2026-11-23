@@ -1,9 +1,8 @@
----
-name: xss-lifecycle
-description: Use when an XSS canary or controlled value may persist, transform, or reach later consumers beyond its initial response or render point.
----
-
 # XSS Lifecycle Expansion
+
+Trace a controlled value through persistence, transforms and later consumers.
+Owns the input-to-consumer graph. Load from the `xss` router when this is the
+next question; formerly the `xss-lifecycle` skill.
 
 Load after `xss` when a controlled value has signal, when persistence or a
 later consumer is plausible, or when a later view exposes the same marker in a

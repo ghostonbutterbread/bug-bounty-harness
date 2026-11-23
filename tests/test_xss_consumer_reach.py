@@ -23,7 +23,7 @@ def test_classifier_preserves_owners_and_distinct_ingress_paths() -> None:
     for phrase in (
         "Defense", "Reachability", "Policy", "Distinct ingress question",
         "assumption-testing", "account-testing-policy", "captcha-policy",
-        "blockers", "source-acquisition.md", "xss-lifecycle",
+        "blockers", "source-acquisition.md", "references/lifecycle.md",
         "server-side write or denial", "response code or client flag alone",
         "writer, validation, filter, storage, and decode stages",
         "external", "remediation evidence", "wake condition",

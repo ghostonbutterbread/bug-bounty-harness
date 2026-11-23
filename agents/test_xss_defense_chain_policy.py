@@ -20,8 +20,9 @@ def test_chain_keeps_all_layers_and_proof_separate():
     text = " ".join(CHAIN.read_text(encoding="utf-8").split())
     for phrase in (
         "client-side path", "delivered enforcing policy", "Report-Only",
-        "Trusted Types", "xss-technology-research", "xss-payload-engineering",
-        "waf-live-policy", "xss-waf-evasion", "xss-lifecycle",
+        "Trusted Types", "references/technology-research.md",
+        "references/payload-engineering.md", "waf-live-policy",
+        "references/waf-evasion.md", "references/lifecycle.md",
         "More than one blocker", "negative control", "first failed",
         "no defense fingerprint or", "scope, rate, ownership", "confirmed only",
     ):

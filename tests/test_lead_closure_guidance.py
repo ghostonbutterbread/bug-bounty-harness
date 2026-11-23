@@ -27,7 +27,7 @@ def test_coverage_review_does_not_require_browser_for_server_claims():
 
 
 def test_stored_value_watch_is_selective_and_reopenable():
-    text = skill("xss-lifecycle")
+    text = " ".join((ROOT / "skills/xss/references/lifecycle.md").read_text().split())
     assert "does not establish the behavior of other consumers" in text
     assert "not a reason to keep a run alive or create a lead for every stored value" in text
     assert "reopen or branch the concrete XSS hypothesis" in text

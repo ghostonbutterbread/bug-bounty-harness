@@ -138,13 +138,13 @@ can guide source-first or sink-first exploration without making a full JS
 inventory a prerequisite.
 
 Keep target observations in MapStore, exact probes in canonical Attempts, and
-reviewed portable mechanisms in ResearchMap through `xss-technology-research`.
+reviewed portable mechanisms in ResearchMap through `xss`'s `references/technology-research.md`.
 The links here are source leads, not a second target-notes store.
 
 ## Related skills
 
 - If selecting or proving a source-to-consumer path, load `xss` and its matching lane.
-- If filtering is the actual obstacle, load `waf` and `xss-waf-evasion`.
+- If filtering is the actual obstacle, load `waf` and `xss`'s `references/waf-evasion.md`.
 - If a delivered CSP is the obstacle, load `csp-bypass`.
-- If version/configuration or source details change the next idea, load `xss-technology-research`.
+- If version/configuration or source details change the next idea, load `xss`'s `references/technology-research.md`.
 - If confirmed XSS exposes a further trust boundary, load `impact-escalation`.

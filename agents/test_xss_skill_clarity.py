@@ -33,7 +33,7 @@ def test_xss_route_preserves_pressure_without_automatic_pivot_on_one_inert_probe
 def test_xss_record_and_proof_contract_has_one_owner() -> None:
     text = XSS.read_text(encoding="utf-8")
     assert "attempt-recording-policy" in text
-    assert "xss-payload-engineering" in text
+    assert "references/payload-engineering.md" in text
     assert "browser or equivalent execution evidence" in text
     assert "bare collector hit" in text
     assert "planted executable payload" in text

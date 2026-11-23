@@ -10,13 +10,13 @@ def read(relative: str) -> str:
 
 def test_router_reaches_incremental_ideation_without_replacing_lanes() -> None:
     router = read("skills/xss/SKILL.md")
-    payload = read("skills/xss-payload-engineering/SKILL.md")
-    research = read("skills/xss-technology-research/SKILL.md")
-    reference = ROOT / "skills/xss-payload-engineering/references/mechanism-ideation.md"
+    payload = read("skills/xss/references/payload-engineering.md")
+    research = read("skills/xss/references/technology-research.md")
+    reference = ROOT / "skills/xss/references/payload-engineering/mechanism-ideation.md"
     assert reference.is_file()
     for lane in ("reflected-xss", "stored-xss", "dom-xss", "blind-xss"):
         assert lane in router
-    assert "xss-payload-engineering" in router
+    assert "references/payload-engineering.md" in router
     assert "mechanism-ideation.md" in router
     assert "mechanism-ideation.md" in payload
     assert "mechanism-ideation.md" in research
@@ -25,8 +25,8 @@ def test_router_reaches_incremental_ideation_without_replacing_lanes() -> None:
 
 def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
     router = read("skills/xss/SKILL.md")
-    payload = read("skills/xss-payload-engineering/SKILL.md")
-    ideation = read("skills/xss-payload-engineering/references/mechanism-ideation.md")
+    payload = read("skills/xss/references/payload-engineering.md")
+    ideation = read("skills/xss/references/payload-engineering/mechanism-ideation.md")
     assert "consumer mounted" in router and "inert control rendered" in router
     assert "do not infer that a sanitizer held" in router
     assert "Build candidates **backward from the final interpreter**" in payload
@@ -57,7 +57,7 @@ def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
 
 
 def test_research_trigger_stays_evidence_specific() -> None:
-    research = read("skills/xss-technology-research/SKILL.md")
+    research = read("skills/xss/references/technology-research.md")
     assert "exact\nmissing parser or composition edge" in research
     assert "not a generic \"mXSS bypass\"" in research
     assert "External material is hypothesis input, never target proof" in research

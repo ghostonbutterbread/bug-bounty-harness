@@ -203,7 +203,7 @@ A blind payload does not resolve inside the run:
   and tokens. A run that planted six canaries and reported "no XSS found"
   has misreported its own state.
 
-`xss-lifecycle` remains the owner of later-consumer expansion; link to it
+`xss`'s `references/lifecycle.md` remains the owner of later-consumer expansion; link to it
 rather than restating consumer discovery.
 
 ## Evidence Standard

@@ -6,12 +6,12 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 WAF = ROOT / "skills/waf/SKILL.md"
 XSS = ROOT / "skills/xss/SKILL.md"
-PAYLOAD = ROOT / "skills/xss-payload-engineering/SKILL.md"
-OVERLAY = ROOT / "skills/xss-waf-evasion/SKILL.md"
-TECHNIQUES = ROOT / "skills/xss-waf-evasion/references/technique-questions.md"
-SOURCES = ROOT / "skills/xss-waf-evasion/references/vendor-and-mechanism-sources.md"
+PAYLOAD = ROOT / "skills/xss/references/payload-engineering.md"
+OVERLAY = ROOT / "skills/xss/references/waf-evasion.md"
+TECHNIQUES = ROOT / "skills/xss/references/waf-evasion/technique-questions.md"
+SOURCES = ROOT / "skills/xss/references/waf-evasion/vendor-and-mechanism-sources.md"
 PLAYBOOK = ROOT / "prompts/waf-playbook.md"
-PARSER_REFERENCE = ROOT / "skills/xss-payload-engineering/references/parser-stage-character-variants.md"
+PARSER_REFERENCE = ROOT / "skills/xss/references/payload-engineering/parser-stage-character-variants.md"
 SHARED_MECHANISMS = ROOT / "skills/waf/references/core-mechanisms.md"
 BYPASS = ROOT / "skills/bypass/SKILL.md"
 BYPASS_PLAYBOOK = ROOT / "prompts/bypass-playbook.md"
@@ -38,15 +38,15 @@ def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> 
     assert "200/challenge change alone is not a bypass proof" in text
     assert "Its `bypass_success` counter" in text
     assert "neither an Attempts replacement nor" in text
-    assert "Load `xss-waf-evasion`" not in text  # conditional, not universal WAF load
+    assert "Load `references/waf-evasion.md`" not in text  # conditional, not universal WAF load
 
 
 def test_xss_routes_to_loadable_filter_consumer_overlay() -> None:
     assert OVERLAY.is_file()
     text = OVERLAY.read_text(encoding="utf-8")
-    assert text.startswith("---\nname: xss-waf-evasion\n")
+    assert text.startswith("# XSS WAF Evasion")
     assert "waf-live-policy" in text
-    assert "xss-payload-engineering" in text
+    assert "references/payload-engineering.md" in text
     assert "plausible bypass" in text
     assert "If no:" in text and "If yes:" in text
     assert "victim's actual request" in text
@@ -56,9 +56,9 @@ def test_xss_routes_to_loadable_filter_consumer_overlay() -> None:
     assert "reject-on-match filter" in text
     assert "browser/consumer" in text
 
-    assert "`xss-waf-evasion`" in XSS.read_text(encoding="utf-8")
-    assert "`xss-waf-evasion`" in PAYLOAD.read_text(encoding="utf-8")
-    assert "`xss-waf-evasion`" in WAF.read_text(encoding="utf-8")
+    assert "`references/waf-evasion.md`" in XSS.read_text(encoding="utf-8")
+    assert "`references/waf-evasion.md`" in PAYLOAD.read_text(encoding="utf-8")
+    assert "`references/waf-evasion.md`" in WAF.read_text(encoding="utf-8")
 
 
 def test_references_are_packaged_conditional_and_source_linked() -> None:
@@ -100,7 +100,7 @@ def test_unknown_vendor_uses_generic_mechanism_and_parser_reference_resolves() -
     assert "an unknown vendor does not exclude a generic" in waf
     assert "Match a vendor only when" in waf
     assert PARSER_REFERENCE.is_file()
-    assert "skills/xss-payload-engineering/references/parser-stage-character-variants.md" in overlay
+    assert "skills/xss/references/payload-engineering/parser-stage-character-variants.md" in overlay
 
 
 def test_shared_waf_reference_is_conditional_and_loaded_from_general_loop() -> None:

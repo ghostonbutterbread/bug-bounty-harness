@@ -49,7 +49,7 @@ class UploadSurfaceSkillTests(unittest.TestCase):
         skill = SKILL.read_text(encoding="utf-8")
         route = skill.split("**Retrieval-time response metadata overrides:**", 1)[1].split("\n- **", 1)[0]
         for phrase in (
-            "owned object", "upload-time validation", "S3/MinIO", "load `xss` then `xss-technology-research`",
+            "owned object", "upload-time validation", "S3/MinIO", "load `xss` then `xss`'s `references/technology-research.md`",
             "ResearchMap", "response-content-type", "Compare normal and permitted override responses",
             "presigned", "signature and host binding", "CDN forwarding", "cache behavior",
             "browser execution", "exact final origin", "victim delivery", "cleanup",

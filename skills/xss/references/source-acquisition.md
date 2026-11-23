@@ -90,7 +90,7 @@ Use the observed stack to look **beyond** the signature list: inspect the
 actual framework raw-HTML/template/trust APIs, server-rendered templates,
 custom render wrappers, URL/script loaders, and the stack's query/route/form/
 API request builders. `dom-xss` owns browser source/sink tracing and its
-framework map; `xss-technology-research` helps when a concrete renderer or
+framework map; `references/technology-research.md` helps when a concrete renderer or
 sanitizer fingerprint changes the next question. A static match in an unloaded
 bundle is a seed; a browser breakpoint, populated field, or emitted request
 adds reachability evidence, but neither alone proves a controllable
@@ -155,8 +155,8 @@ may not retain recognizable names. If sanitizer behavior is observed, examine
 its configuration and actual output—allowed tags/attributes/schemes,
 namespace handling, trust wrappers, decode and reparse stages—rather than
 ranking solely by whether a library name appears. Route a concrete fingerprint
-to `xss-technology-research`; route context-matched mutation to
-`xss-payload-engineering`. Neither a sanitizer hit nor one rejected payload
+to `references/technology-research.md`; route context-matched mutation to
+`references/payload-engineering.md`. Neither a sanitizer hit nor one rejected payload
 closes a plausible source-to-consumer path.
 
 ## Impact amplifiers

@@ -66,13 +66,13 @@ and a reflected value may become dangerous only after client-side parsing.
 | Evidence or decision | Load |
 | --- | --- |
 | Cloudflare is observed while investigating XSS, with or without a WAF block | `cloudflare-xss` for Cloudflare-specific knowledge and ideas |
-| Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
+| Controlled value persists, transforms, or reaches a later consumer | `references/lifecycle.md` |
 | Need to discover named inputs and render sites on a live route or the observed stack | `references/source-acquisition.md`; if JS evidence is the chosen lens, use `js` for paired source/sink review. Use `browser-session-policy` for browser-mediated flows. A known strong path need not wait for a census. |
 | A plausible sink/renderer is known but its claimed consumer does not mount, or a vector is about to be parked as gated | `references/consumer-reach.md` to distinguish reachability from defense and policy stops; load `assumption-testing` for a UI/client prerequisite claim |
-| Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
-| Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `xss-payload-engineering` → `references/mechanism-ideation.md` inside that skill; select a causal branch rather than a larger payload list |
-| A mapped source, sink, surprising transform, or research clue suggests another mechanism | `xss-payload-engineering` → `references/idea-tree.md` inside that skill; start with relevant leaves and keep other distinct ideas open, including mechanisms not listed in the tree |
-| Observed renderer, parser, sanitizer, framework, or defense may change the next hypothesis | `xss-technology-research` |
+| Plausible warm/hot vector needs payload selection, mutation, or reduction | `references/payload-engineering.md` |
+| Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `references/payload-engineering/mechanism-ideation.md`; select a causal branch rather than a larger payload list |
+| A mapped source, sink, surprising transform, or research clue suggests another mechanism | `references/payload-engineering/idea-tree.md`; start with relevant leaves and keep other distinct ideas open, including mechanisms not listed in the tree |
+| Observed renderer, parser, sanitizer, framework, or defense may change the next hypothesis | `references/technology-research.md` |
 | Filtering, challenge, or edge/origin difference needs characterization | `waf-live-policy` |
 | A controlled source can select a GTM container ID or load a GTM script | `xss-gtm` for the preconfigured XSS fixture; selected lane still owns proof |
 
@@ -93,14 +93,14 @@ the selected XSS lane still owns browser proof. An easy unprotected sink is not
 the ceiling of XSS coverage, and a blocked string without a plausible consumer
 is not automatically a bypass lead.
 
-- Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
-- CSP behavior: when a delivered enforcing policy appears to block a plausible controlled execution path, load `csp-bypass` to resolve the effective policy/browser trust mechanism and derive a mechanism-matched candidate. Then return to the selected XSS lane for end-to-end source-to-consumer tracing and browser proof; use `xss-technology-research` or `xss-payload-engineering` for separate stack- or payload-specific questions.
-- WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue. Once a plausible consumer and reproducible filter differential exist, load `waf` plus `xss-waf-evasion` for the adaptive card → research → candidate → proof loop; a vendor label alone is not a bypass plan.
-- Changed or later consumer: load `xss-lifecycle` and branch the original producer into the new render path rather than calling the first inert view a negative for all views.
+- Sanitizer behavior: load `references/technology-research.md` and `references/payload-engineering.md` to map the observed transform and choose sanitizer-/parser-matched candidates.
+- CSP behavior: when a delivered enforcing policy appears to block a plausible controlled execution path, load `csp-bypass` to resolve the effective policy/browser trust mechanism and derive a mechanism-matched candidate. Then return to the selected XSS lane for end-to-end source-to-consumer tracing and browser proof; use `references/technology-research.md` or `references/payload-engineering.md` for separate stack- or payload-specific questions.
+- WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue. Once a plausible consumer and reproducible filter differential exist, load `waf` plus `references/waf-evasion.md` for the adaptive card → research → candidate → proof loop; a vendor label alone is not a bypass plan.
+- Changed or later consumer: load `references/lifecycle.md` and branch the original producer into the new render path rather than calling the first inert view a negative for all views.
 
 When distinct probes meet similar resistance, ask whether the observed stack,
 response differences, or relevant prior notes could explain the control and
-change the next discriminator. If so, use `xss-technology-research` for that
+change the next discriminator. If so, use `references/technology-research.md` for that
 specific question and test the resulting source, command, consumer, or payload
 hypothesis; if not, keep probing non-equivalent, context-matched families. Do
 not require a vendor fingerprint before probing, or mistake passing a filter
@@ -126,15 +126,15 @@ sinks as chain leads with their missing link and reopening condition.
    DOM flow, a later consumer, and a defense transform. Query prior state for
    that concrete path; do not let an old lead choose the target by default.
 3. Choose the next distinct context-matched discriminator. Use
-   `xss-payload-engineering` for the payload family and
-   `xss-technology-research` when a fingerprint could change that choice.
+   `references/payload-engineering.md` for the payload family and
+   `references/technology-research.md` when a fingerprint could change that choice.
    Before interpreting a non-firing family, distinguish input rejected, value
    stored, consumer mounted, inert control rendered, candidate rendered, and
    execution blocked. If the consumer never mounted, use
    `references/consumer-reach.md` before recording a gated or exhausted path;
    a hidden UI or client flag is a reachability question; do not infer that a sanitizer held.
    For a mounted consumer, identify the first changed representation and use
-   `skills/xss-payload-engineering/references/mechanism-ideation.md` to derive a
+   `skills/xss/references/payload-engineering/mechanism-ideation.md` to derive a
    different mechanism or a falsifying control.
 4. Load `attempt-recording-policy` for each deliberate target-directed probe,
    comparison, and retest. It owns the exact canonical writer, fields, redaction,

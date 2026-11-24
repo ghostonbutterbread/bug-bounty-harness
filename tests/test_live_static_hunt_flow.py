@@ -65,7 +65,7 @@ def test_js_hunt_defaults_to_live_validation_and_keeps_review_workers_offline():
            "bbh agents/leads.py create", "hypothesis-ledger",
            "drive the feature", "analyze-endpoint",
            "finding linked", "enforcement established", "not reachable",
-           "out of scope", "needs_recheck",
+           "out of scope", "needs_recheck", "set the card to `archived`",
            "next discriminator and wake condition", "count for each disposition", "not yet live-validated")
     fanout = read_norm(ROOT / "skills/js/references/offline-fanout.md")
     claims_ci(fanout, "workers never send target requests",

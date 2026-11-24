@@ -8,8 +8,8 @@ description: Use when collecting, deduplicating, and packetizing scoped JavaScri
 This skill owns the **existing** JavaScript acquisition path, not the security
 interpretation. Run it for an explicit collection request or permitted broader
 collection when useful, not as a prerequisite to tracing a strong lead or local
-artifact. Collection follows scope and policy, not the hunt's mode; an
-explicitly offline analysis has no network collection at all. Inspect existing
+artifact. Collection follows scope and policy, except that an explicitly
+offline analysis has no network collection at all. Inspect existing
 material and report missing artifacts instead. The canonical detail is in
 `prompts/js-playbook.md` (inventory, source maps, provenance, scope, and artifact
 contracts); do not create a second downloader or copy bundles into prompts.

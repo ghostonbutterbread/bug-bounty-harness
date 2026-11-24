@@ -2,10 +2,11 @@
 
 `/js-hunt` uses this stage in its default mode, right after offline synthesis.
 Its job is to turn each selected lead into an answer rather than a backlog:
-validated, enforced for the tested control, blocked on a named prerequisite, or
-paused with a wake condition. Offline mode skips this stage.
+validated, enforced for the tested control, not reachable, out of scope,
+blocked on a named prerequisite, or paused with a wake condition. Offline mode
+skips this stage.
 
-## Gate once per surface
+## Gate the surface
 
 Before the first live action, read program scope and load
 `general-security-testing-policy` and `live-testing-policy`; transport follows
@@ -64,18 +65,22 @@ Before the hunt ends, give every selected lead a disposition and update its
 `/leads` card:
 
 - **finding linked**: proof met the specialist's standard and went through
-  `/findings`;
+  `/findings`; set the card to `archived` and point it at the finding;
 - **enforcement established** for the tested control only: record what was
-  shown, and leave untested siblings open;
-- **not reachable**: the code path is dead, unroutable, or the lead was refuted
-  for the tested representation; name what was shown, and leave untested
-  representations open;
+  shown and set the card to `archived` for that control, leaving untested
+  siblings open as their own leads;
+- **not reachable**: the code path is dead or unroutable, or the lead was
+  refuted for the tested representation; set the card to `archived` and name
+  what was shown. Leave untested representations open as their own leads rather
+  than keeping this card `active`;
 - **out of scope**: the host, account, or effect is outside what the program
-  allows; record the reason and do not test it;
-- **needs_recheck**: name the exact account, role, fixture, browser, or scope
-  prerequisite (operator-only items surface through `/leads --needs-you`);
-- **active**: a safe next action remains but time or budget ran out; record the
-  next discriminator and wake condition. That is a pause, not a negative.
+  allows; set the card to `archived`, record the reason, and do not test it;
+- **needs_recheck**: set the card to `needs_recheck` and name the exact
+  account, role, fixture, browser, or scope prerequisite (operator-only items
+  surface through `/leads --needs-you`);
+- **active**: a safe next action remains but time or budget ran out; leave the
+  card `active` and record the next discriminator and wake condition. That is a
+  pause, not a negative.
 
 Report the count for each disposition. A lead left `active` or `needs_recheck`
 needs its specific reason. Unselected leads stay in the coverage section as not

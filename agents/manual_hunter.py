@@ -35,7 +35,10 @@ from agents.ledger_tombstones import (
     EXIT_OK,
     EXIT_PARTIAL,
     EXIT_REFUSED,
+    TOMBSTONE_FILENAME,
     LedgerDeleteError,
+    _live_fids,
+    active_tombstones,
     delete_finding_by_fid,
 )
 from agents.report_checker import (
@@ -897,7 +900,13 @@ class DuplicateCommentStore:
         source_path: Path | None,
         raw_text: str,
         parsed_finding: dict[str, Any],
-    ) -> None:
+    ) -> str | None:
+        """Append one duplicate note; return None, or why it was skipped.
+
+        Runs under the lane ledger lock and re-checks that the FID is still live
+        and not tombstoned, so a note cannot be re-attached to a finding that
+        --delete-finding removed between the dedupe check and this append.
+        """
         payload = {
             "fid": fid,
             "recorded_at": _timestamp_iso(),
@@ -915,10 +924,17 @@ class DuplicateCommentStore:
         with lock_path.open("a+", encoding="utf-8") as lock_handle:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             try:
+                target = str(fid).strip().upper()
+                live = _live_fids(self.path.parent / "ledger.json")
+                if live is None or target not in live:
+                    return f"{fid} is no longer in the ledger"
+                if target in active_tombstones(self.path.parent / TOMBSTONE_FILENAME):
+                    return f"{fid} was permanently deleted from this lane"
                 with self.path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(payload, sort_keys=True) + "\n")
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        return None
 
 
 def parse_finding_text(
@@ -1237,14 +1253,17 @@ class ManualHunter:
             if link_duplicate_comment or (
                 sys.stdin.isatty() and not link_duplicate_comment and _bool_prompt(f"Link note to {existing_fid} as a comment")
             ):
-                self.comment_store.append(
+                skipped = self.comment_store.append(
                     fid=str(existing_fid),
                     source_label=parsed.source_label,
                     source_path=parsed.source_path,
                     raw_text=parsed.raw_text,
                     parsed_finding=finding,
                 )
-                print(f"Linked duplicate note to {existing_fid}")
+                if skipped:
+                    print(f"Not linked: {skipped}; the note was not stored")
+                else:
+                    print(f"Linked duplicate note to {existing_fid}")
             else:
                 print("Use --link-duplicate-comment to attach the note to the existing finding.")
             return 1

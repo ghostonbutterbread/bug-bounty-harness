@@ -671,6 +671,24 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertNotIn("ZQXTEXT", stream.read_text(encoding="utf-8"))
         self.assertIn(identity[:-1] + "2", stream.read_text(encoding="utf-8"))
 
+    def test_comment_append_is_skipped_for_deleted_or_missing_fid(self) -> None:
+        from agents.manual_hunter import DuplicateCommentStore
+        self._delete_d01()
+        store = DuplicateCommentStore(PROGRAM, family=FAMILY, lane=LANE, root_override=self.root)
+        comments = self.layout.ledgers_root / "manual_comments.jsonl"
+        args = dict(source_label="t", source_path=None, raw_text="late note", parsed_finding={})
+        self.assertEqual(store.append(fid="D01", **args), "D01 is no longer in the ledger")
+        self.assertEqual(store.append(fid="D77", **args), "D77 is no longer in the ledger")
+        self.assertFalse(comments.exists())
+        # A tombstone for a FID that is somehow live still blocks the note.
+        from agents.ledger_tombstones import identity_key
+        row = self._findings()["D02"]
+        with self.tombstone.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"event": "deleted", "fid": "D02", "identity_key": identity_key(row)}) + "\n")
+        self.assertEqual(store.append(fid="D02", **args), "D02 was permanently deleted from this lane")
+        self.assertIsNone(store.append(fid="D03", **args))
+        self.assertEqual([json.loads(line)["fid"] for line in comments.read_text().splitlines()], ["D03"])
+
     def test_complete_tombstone_tail_without_newline_is_committed_and_terminated(self) -> None:
         self._delete_d01()
         data = self.tombstone.read_bytes()

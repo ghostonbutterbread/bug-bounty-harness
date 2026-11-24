@@ -6,6 +6,7 @@ import io
 import json
 import os
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -185,6 +186,32 @@ class ManifestCacheTests(unittest.TestCase):
         os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
         self.assert_recomputed()
 
+    def test_same_size_rewrite_with_restored_mtime_invalidates(self) -> None:
+        self.cached()
+        target = self.tree / "a" / "one.txt"
+        stat = target.stat()
+        time.sleep(0.02)  # ctime granularity
+        target.write_text("ONE", encoding="utf-8")
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        self.assertEqual(target.stat().st_mtime_ns, stat.st_mtime_ns)
+        self.assert_recomputed()
+
+    def test_cache_prunes_old_and_excess_entries(self) -> None:
+        self.cache.mkdir(parents=True)
+        old = self.cache / ("0" * 64 + ".json")
+        old.write_text("{}", encoding="utf-8")
+        past = time.time() - snap.MANIFEST_CACHE_MAX_AGE_SECONDS - 60
+        os.utime(old, (past, past))
+        with patch.object(snap, "MANIFEST_CACHE_MAX_ENTRIES", 3):
+            for index in range(5):
+                (self.cache / f"{index:064d}.json").write_text("{}", encoding="utf-8")
+                os.utime(self.cache / f"{index:064d}.json", (time.time() - 100 + index, time.time() - 100 + index))
+            self.cached()
+        remaining = sorted(path.name for path in self.cache.glob("*.json"))
+        self.assertNotIn(old.name, remaining)
+        self.assertEqual(len(remaining), 3)
+        self.assertIn(snap._cache_file(self.cache, self.tree.resolve()).name, remaining)
+
     def test_rename_and_new_file_invalidate(self) -> None:
         self.cached()
         (self.tree / "two.bin").rename(self.tree / "three.bin")
@@ -311,6 +338,20 @@ class RelativeReportDirTests(_LaneCase):
             rc = main([PROGRAM, "--family", "binaries", "--lane", "exe", "--root", str(self.root),
                        "--repair-report-dirs"])
         self.assertEqual(rc, 1)
+
+    def test_file_pointer_into_another_findings_packet_is_left_for_review(self) -> None:
+        other = Path(self.canonical[self.d2])
+        def mutate(findings):
+            for item in findings:
+                if item["fid"] == self.d1:
+                    item["evidence_path"] = (other / "EVIDENCE.md").relative_to(self.lane_root).as_posix()
+        self.rewrite_ledger(mutate)
+        stored = (other / "EVIDENCE.md").relative_to(self.lane_root).as_posix()
+        rc, out, _ = self.run_main("--repair-report-dirs", "--apply")
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"Manual review: {self.d1} evidence_path: {stored}", out)
+        self.assertNotIn("Repaired", out)
+        self.assertEqual({item["fid"]: item for item in self.findings()}[self.d1]["evidence_path"], stored)
 
     def test_apply_and_dry_run_require_repair_mode(self) -> None:
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

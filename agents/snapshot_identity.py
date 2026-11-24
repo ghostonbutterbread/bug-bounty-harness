@@ -9,6 +9,7 @@ import platform as platform_lib
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -107,7 +108,9 @@ def _manifest_hash(target_root: Path, entries: list[tuple[Path, str, os.stat_res
     return digest.hexdigest()
 
 
-MANIFEST_CACHE_SCHEMA = "bbh-snapshot-manifest-cache/1"
+MANIFEST_CACHE_SCHEMA = "bbh-snapshot-manifest-cache/2"
+MANIFEST_CACHE_MAX_AGE_SECONDS = 30 * 24 * 3600
+MANIFEST_CACHE_MAX_ENTRIES = 512
 
 
 def default_manifest_cache_dir() -> Path:
@@ -117,12 +120,18 @@ def default_manifest_cache_dir() -> Path:
 
 
 def _tree_fingerprint(entries: list[tuple[Path, str, os.stat_result]]) -> dict[str, Any]:
-    """Cheap stat-only fingerprint: every relpath, size and mtime_ns, plus summary counts."""
+    """Cheap stat-only fingerprint: every relpath, size, mtime_ns, ctime_ns and inode.
+
+    ctime and inode are included because tools that restore mtimes (unzip of
+    fixed-timestamp archives, rsync -t, Syncthing) still change them on a
+    rewrite, so a same-size, same-mtime content change cannot reuse a stale hash.
+    """
     digest = hashlib.sha256()
     total_size = 0
     max_mtime_ns = 0
     for _path, relpath, stat in entries:
-        digest.update(f"{relpath}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+        digest.update(f"{relpath}\0{stat.st_size}\0{stat.st_mtime_ns}\0{stat.st_ctime_ns}\0{stat.st_ino}\n"
+                      .encode("utf-8", "surrogateescape"))
         total_size += stat.st_size
         max_mtime_ns = max(max_mtime_ns, stat.st_mtime_ns)
     return {
@@ -172,16 +181,37 @@ def _write_cached_manifest(cache_path: Path, target_root: Path, fingerprint: dic
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+    _prune_manifest_cache(cache_path.parent, keep=cache_path)
+
+
+def _prune_manifest_cache(cache_dir: Path, *, keep: Path | None = None) -> None:
+    """Bound the cache: drop entries unused for 30 days, then all but the newest 512."""
+    try:
+        now = time.time()
+        aged: list[tuple[float, Path]] = []
+        for entry in cache_dir.glob("*.json"):
+            if entry == keep or entry.is_symlink() or not entry.is_file():
+                continue
+            mtime = entry.stat().st_mtime
+            if now - mtime > MANIFEST_CACHE_MAX_AGE_SECONDS:
+                entry.unlink(missing_ok=True)
+            else:
+                aged.append((mtime, entry))
+        aged.sort(reverse=True)
+        for _mtime, entry in aged[MANIFEST_CACHE_MAX_ENTRIES - 1:]:
+            entry.unlink(missing_ok=True)
+    except OSError:
+        pass  # pruning is best effort
 
 
 def cached_manifest_hash(target_root: Path, cache_dir: Path) -> str:
     """Return ``_manifest_hash(target_root)``, reusing a cached value while the tree is unchanged.
 
-    One stat-only walk builds a fingerprint of every (relpath, size, mtime_ns);
-    file contents are read and hashed only when that fingerprint differs from
-    the cached one. The returned value is identical to an uncached
-    ``_manifest_hash``. A content edit that keeps the same size and mtime is not
-    detected (the same trade-off ``make`` and ``rsync`` defaults make).
+    One stat-only walk builds a fingerprint of every (relpath, size, mtime_ns,
+    ctime_ns, inode); file contents are read and hashed only when that
+    fingerprint differs from the cached one. The returned value is identical to
+    an uncached ``_manifest_hash``. Restoring mtime after a same-size edit does
+    not hide the change, because the rewrite still moves ctime (or the inode).
     """
     resolved_root = Path(target_root).expanduser().resolve(strict=False)
     entries = _manifest_entries(resolved_root)
@@ -189,6 +219,10 @@ def cached_manifest_hash(target_root: Path, cache_dir: Path) -> str:
     cache_path = _cache_file(Path(cache_dir), resolved_root)
     cached = _read_cached_manifest(cache_path, resolved_root, fingerprint)
     if cached is not None:
+        try:
+            os.utime(cache_path)  # mark as recently used for pruning
+        except OSError:
+            pass
         return cached
     manifest_hash = _manifest_hash(resolved_root, entries)
     _write_cached_manifest(cache_path, resolved_root, fingerprint, manifest_hash)

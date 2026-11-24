@@ -31,8 +31,14 @@ from typing import Any, Iterable
 # agents/ledger_tombstones.py for the same pinned-private-import rationale).
 from bounty_core.ledger import _locked_payload, _timestamp_iso, _write_json_atomic  # noqa: E402
 from bounty_core.ledger import ledger_path as core_ledger_path  # noqa: E402
-from bounty_core.reports import _packet_dir  # noqa: E402
+from bounty_core.reports import _is_legacy_report_for_fid, _packet_dir, is_finding_packet_path  # noqa: E402
 from bounty_core.storage import StorageLayout, resolve_storage
+
+try:  # Bounty Core >= 5f5a66ac refuses malformed ledgers with LedgerReadError.
+    from bounty_core.ledger import LedgerReadError as _LedgerReadError  # noqa: E402
+    _LEDGER_READ_ERRORS: tuple[type[BaseException], ...] = (_LedgerReadError,)
+except ImportError:  # older pins read a malformed ledger as empty
+    _LEDGER_READ_ERRORS = ()
 
 POINTER_KEYS = ("report_dir", "report_path", "evidence_path")
 
@@ -103,8 +109,22 @@ def _canonical_report_dir(layout: StorageLayout, finding: dict[str, Any], stored
     return None, "relative path does not resolve to an exact-FID packet inside reports_root; review manually"
 
 
-def _canonical_packet_file(layout: StorageLayout, stored: str) -> tuple[str | None, str]:
-    """A relative report_path/evidence_path that stays inside reports_root (not raw/)."""
+def _owned_by(layout: StorageLayout, finding: dict[str, Any], candidate: Path) -> bool:
+    """True only for a file in this finding's own packet or its legacy report file."""
+    try:
+        return (is_finding_packet_path(layout.reports_root, finding, candidate)
+                or _is_legacy_report_for_fid(layout.reports_root, finding, candidate))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _canonical_packet_file(layout: StorageLayout, finding: dict[str, Any], stored: str) -> tuple[str | None, str]:
+    """A relative report_path/evidence_path that points into this finding's own packet.
+
+    ``finding`` must carry the canonical ``report_dir`` (if any) so Bounty Core's
+    ownership check can resolve the packet. A pointer into another finding's
+    packet, ``raw/`` or anywhere else is left for manual review.
+    """
     parts = _relative_parts(stored)
     if parts is None:
         return None, "relative path is unsafe; review manually"
@@ -116,9 +136,9 @@ def _canonical_packet_file(layout: StorageLayout, stored: str) -> tuple[str | No
             inside = candidate.is_relative_to(reports_root) and candidate.resolve(strict=False).is_relative_to(resolved_root)
         except (OSError, RuntimeError):
             inside = False
-        if inside and candidate != reports_root and not candidate.is_relative_to(reports_root / "raw"):
+        if inside and candidate != reports_root and _owned_by(layout, finding, candidate):
             return str(candidate), f"relative to {'lane root' if base == layout.lane_root else 'reports root'}"
-    return None, "relative path does not resolve inside reports_root; review manually"
+    return None, "relative path is not a file in this finding's own packet; review manually"
 
 
 def find_pointer_issues(layout: StorageLayout, findings: Iterable[Any]) -> list[PointerIssue]:
@@ -127,6 +147,9 @@ def find_pointer_issues(layout: StorageLayout, findings: Iterable[Any]) -> list[
     for finding in findings:
         if not isinstance(finding, dict):
             continue
+        # report_dir is checked first (POINTER_KEYS order) so file pointers are
+        # judged against the packet the finding will own after the rewrite.
+        effective = dict(finding)
         for key in POINTER_KEYS:
             value = finding.get(key)
             if not value or not isinstance(value, str):
@@ -135,10 +158,12 @@ def find_pointer_issues(layout: StorageLayout, findings: Iterable[Any]) -> list[
                 if os.path.isabs(value) and _accepted_report_dir(layout, finding, Path(value)):
                     continue
                 canonical, reason = _canonical_report_dir(layout, finding, value)
+                if canonical is not None:
+                    effective["report_dir"] = canonical
             else:
                 if os.path.isabs(value):
                     continue  # absolute file pointers are Bounty Core's to validate
-                canonical, reason = _canonical_packet_file(layout, value)
+                canonical, reason = _canonical_packet_file(layout, effective, value)
             issues.append(PointerIssue(_fid(finding), key, value, canonical, reason))
     return issues
 
@@ -172,10 +197,11 @@ def normalize_lane_packet_pointers(
 ) -> int:
     """Persist safe canonical forms of legacy pointers before a refreshing write.
 
-    Returns the number of rewritten pointers. A ledger that is missing or
-    unreadable is left alone (Bounty Core reads it as empty, so nothing would
-    be found to change and nothing is written). Unsafe values are untouched so
-    the subsequent Bounty Core call still refuses them.
+    Returns the number of rewritten pointers. A missing ledger is left alone.
+    An unreadable one is never rewritten: older Bounty Core pins read it as
+    empty (nothing to change), newer pins raise ``LedgerReadError``, which the
+    caller's own write would raise anyway. Unsafe values are untouched so the
+    subsequent Bounty Core call still refuses them.
     """
     root = root_override if root_override is not None else storage_root
     layout = _layout(program, family=family, lane=lane, root_override=root)
@@ -218,14 +244,19 @@ def repair_report_dirs(
     result = RepairResult(ledger_path=ledger_file)
     if not ledger_file.is_file():
         raise ValueError(f"lane has no ledger: {ledger_file}")
-    with _locked_payload(layout.program, exclusive=True, lane=layout.lane, family=layout.family,
-                         root_override=root_override, auto_write=False) as payload:
-        _assert_ledger_well_formed(ledger_file)
-        findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
-        result.issues = find_pointer_issues(layout, findings)
-        if apply and result.repairable:
-            apply_pointer_issues(findings, result.issues)
-            payload["updated_at"] = _timestamp_iso()
-            _write_json_atomic(ledger_file, payload)
-            result.applied = True
+    try:
+        with _locked_payload(layout.program, exclusive=True, lane=layout.lane, family=layout.family,
+                             root_override=root_override, auto_write=False) as payload:
+            _assert_ledger_well_formed(ledger_file)
+            findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+            result.issues = find_pointer_issues(layout, findings)
+            if apply and result.repairable:
+                apply_pointer_issues(findings, result.issues)
+                payload["updated_at"] = _timestamp_iso()
+                _write_json_atomic(ledger_file, payload)
+                result.applied = True
+    except _LEDGER_READ_ERRORS as exc:
+        # Newer Bounty Core pins refuse a malformed ledger inside _locked_payload
+        # before our own check runs; report both the same way.
+        raise ValueError(f"ledger is malformed; nothing written: {exc}") from None
     return result

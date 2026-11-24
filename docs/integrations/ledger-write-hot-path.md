@@ -58,14 +58,16 @@
 
 - `get_snapshot_identity(root, version_label, *, manifest_cache_dir=None)`. With
   a cache dir, `cached_manifest_hash` does one stat-only walk and builds a
-  fingerprint: sha256 over every `(relpath, size, mtime_ns)`, plus file count,
+  fingerprint: sha256 over every `(relpath, size, mtime_ns, ctime_ns, inode)`, plus file count,
   total size and max mtime. It reads and hashes file contents only when the
   fingerprint differs from the cached one. The result is byte-identical to the
   uncached `_manifest_hash`; tests and the benchmark check this.
 - `ManualHunter` (ingest, `--hunt`, hunt context) uses
   `default_manifest_cache_dir()` = `${XDG_CACHE_HOME:-~/.cache}/bbh/snapshot-manifest/<sha256(root)>.json`.
-  The cache is written atomically. A corrupt cache, a foreign root or schema, or
-  an unwritable directory falls back to a recompute.
+  The cache is written atomically (schema `bbh-snapshot-manifest-cache/2`). A
+  corrupt cache, a foreign root or schema, or an unwritable directory falls
+  back to a recompute. A hit refreshes the entry's mtime; each write prunes
+  entries unused for 30 days and keeps at most the newest 512.
 
 ### Legacy packet pointers
 
@@ -76,9 +78,15 @@
     `_packet_dir` accepts the absolute result unchanged. An absolute path that
     is not in normal form (`//`, `/./`, trailing `/`, no `..`) is accepted on
     the same condition.
-  - **Relative `report_path`/`evidence_path`.** These are accepted when the
-    result stays lexically and resolved inside `reports_root` and outside
-    `reports/raw`.
+  - **Relative `report_path`/`evidence_path`.** These are accepted only when
+    the result stays lexically and resolved inside `reports_root` and Bounty
+    Core's ownership check passes for this finding (`is_finding_packet_path`
+    against its canonical packet, or `_is_legacy_report_for_fid`). A pointer
+    into another finding's packet or `reports/raw` is manual review.
+  - **Malformed ledger.** `--repair-report-dirs` refuses it (exit 1, nothing
+    written) on both Bounty Core pins: the old pin through BBH's well-formed
+    check, newer pins (>= `5f5a66ac`) through `LedgerReadError`, reported as
+    the same `ValueError`.
   - **Everything else** is reported as *manual review* and never rewritten.
 - **Hot path.** BBH's `agents.ledger.patch_finding_by_fid` (used by
   `--edit-finding` and, through `update_team_finding`, `--set-submission`) and
@@ -124,10 +132,12 @@
   cache write changes the tree it fingerprints, so the cache would never hit and
   the snapshot would drift. A lane-local cache would also churn through
   Syncthing for host-specific data.
-- **Fingerprint uses per-file mtime_ns.** This catches edits, renames and
-  additions that a (count, total size, max mtime) key misses, at the same
-  stat-walk cost. Known limit: an edit that keeps both size and mtime is not
-  detected (the same trade-off as make/rsync defaults).
+- **Fingerprint uses per-file mtime_ns, ctime_ns and inode.** This catches
+  edits, renames and additions that a (count, total size, max mtime) key
+  misses, at the same stat-walk cost. ctime and inode also catch a same-size
+  rewrite whose mtime was restored (fixed-timestamp archives, `rsync -t`,
+  Syncthing), because a rewrite cannot preserve ctime. The cost is an
+  occasional extra recompute after a metadata-only change (chmod, touch).
 - **The identity resolves outside the lock.** The deferred identity is forced
   before Bounty Core's locked section, so a cache-miss hash never blocks other
   ledger writers. As a result a duplicate ingest also resolves it; that path
@@ -160,7 +170,10 @@ cold and warm cache, and the uncached `_manifest_hash` after a change. On Hoster
 the base hash took more than 120 s for a similar tree. The branch's metadata
 paths do no hashing, so they no longer scale with tree size.
 
-Tests: `agents/test_ledger_write_hot_path.py` (18 tests). Two mutants were
+Tests: `agents/test_ledger_write_hot_path.py` (21 tests; review round 1 added
+restored-mtime invalidation, cache pruning and the cross-packet pointer case,
+each failing on `f5ab66d9` and passing after; the suite passes on Bounty Core
+`9db8b23d` and `5f5a66ac`). Two mutants were
 killed: disabling the hot-path normalization fails the relative-edit test, and
 disabling the delete normalization fails the delete test.
 

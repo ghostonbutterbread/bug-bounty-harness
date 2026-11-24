@@ -232,7 +232,12 @@ The separate two-hour request-triggered cleanup still retains profile state.
 
 The optional `--owner-pid <local-task-supervisor-pid>` also supplies an explicit
 terminal task signal. It must cover the task lifetime on the browser node,
-not this request command, a remote process, or a shared daemon. Legacy,
+not this request command, a remote process, or a shared daemon. Without it, a
+newly started browser is bound to the requesting agent process on the browser
+node (nearest `claude`/`codex`/`hermes`/`pi`/`omp`/… ancestor): if that agent
+exits without `release`, the provisioner stops the browser through its normal
+verified path. A bounded `awaiting-input` hold still protects it until expiry.
+Remote one-shot requests with no agent ancestor stay ownerless. Legacy,
 untracked and manual-mode records remain conservative; missing telemetry is
 not evidence of idleness.
 
@@ -687,9 +692,11 @@ path is not yet known; do not use a different path to bypass a named lease.
      --task-owned --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url about:blank
    ```
-   On `queued`/`queued-timeout`, preserve the exact task and account. Only for
-   `reason: no-capacity`, compare the nested `admission` receipt's available and
-   required RAM/free swap and check current memory pressure
+   On `queued`/`queued-timeout`, preserve the exact task and account. The
+   provisioner already admits a swap-exhausted node when available RAM covers
+   the RAM minimum plus the swap shortfall and memory PSI is healthy (receipt
+   `swap_gate: covered-by-available-ram`). Only for `reason: no-capacity`,
+   read the nested `admission.reason` and check current memory pressure
    (`/proc/pressure/memory`). If **only** the minimum-free-swap gate fails, RAM
    is sufficient for the bounded browser, and memory pressure is healthy, retry
    the same provisioner request with `--min-swap-free-mib 0`.
@@ -748,6 +755,11 @@ path is not yet known; do not use a different path to bypass a named lease.
    Use `handoff` only for a terminal transfer to another owner, not a same-task
    operator pause; use `cancelled` when that is the actual outcome. Choose health
    from the observed profile state, not by default.
+   At run end (or when lease IDs were lost), release every browser recorded for
+   this exact agent/run: run `release-run --agent-id <agent-id> --run-id
+   <run-id> --disposition completed --profile-health healthy`, review the
+   dry-run, then repeat with `--apply`. It never selects by unit name. Never
+   hand-roll `systemctl list-units` keep/stop comparisons on the browser node.
    Verify the recorded root and CDP endpoint close; persistent account profiles remain.
    Dispose of a task-only profile only after its root is stopped and it is no
    longer in use. Never infer cleanup from directory deletion alone.

@@ -1,0 +1,148 @@
+# Browser run-end leak, swap admission and exact-run release integration dossier
+
+- **Status:** review-ready
+- **Owner:** Hermes (default profile) subagent, delegated by the parent integrator
+- **Branch:** `fix/browser-leak-swap-admission`
+- **Worktree:** `/home/ryushe/worktrees/bbh-fix-browser-leak-swap`
+- **Base commit:** `3f72ed81247d0eacb9b7d1e859c57a5ce20a4a2d` (fetched `origin/beta`, 2026-11-24)
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-11-24
+- **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
+- **Latest immutable recovery checkpoint:** see "Interruption / resume handoff"
+- **Feature implementation commit(s):** see "Interruption / resume handoff"
+- **Inspiration / canonical references:** papercuts PC-20260901-181544-9b2b73ff,
+  PC-20260918-222033-c990c35b, PC-20261020-021756-adc41ee2; Kanban t_297ebf3e and
+  children (t_a465b37a, t_f9938cf9, t_414d3d60, t_b3dda7dc, t_3ca526e0); prior beta
+  work fd095a5 (exact-owner stop fence), 727961e6 (manual swap-threshold retry
+  guidance), b21630dd/af4ee9cc (orphan startup recovery, lifecycle merge),
+  59a525e0 (keep Chrome inside its unit by masking the session bus).
+
+## Intent
+
+Stop *new* browser leaks at their root, make swap exhaustion with healthy RAM
+admit without an agent-side workaround, and give run owners a supported,
+exact-identity way to release a run's browsers so nobody hand-rolls unit-name
+selectors. Unchanged boundary from t_297ebf3e: historical **ownerless** rows are
+never adopted, backfilled or retired by age/idle heuristics.
+
+## Root cause (new leaks)
+
+`--owner-pid` was optional and the canonical agent examples omit it. Without
+it, `metadata.owner` is `None`, `owner_state(None) == "unknown"`, and
+`maintain`/`watch` either renews the lease every 5 s (activity-tracked browsers
+classify as `active`/`idle`) or does nothing (`unknown`). An agent that exited,
+crashed or lost context without calling `release` therefore left its browser
+unit, Chrome processes and lease alive indefinitely; TTL never lapsed because the
+watcher kept renewing. The exact-owner terminal path (verified unit/root/CDP stop
+plus fenced canonical release) already existed but had no owner to observe.
+
+Historical context: before 59a525e0 (2026-09-23) Chrome could also move itself
+into an `app-org.chromium.*.scope`, so stopping `browser-<id>.service` left
+children running (PC-20260919-012520-526cc7b2). PC-20260901 (14-day-old
+processes) predates that fix; the 2026-11-23 recurrences are consistent with the
+ownerless-lifecycle gap above. Hoster was unreachable during this work, so the
+mix on the live node is not verified.
+
+## Implemented contract
+
+1. **Agent-ancestor lifecycle owner** (`browser_lifecycle.agent_supervisor_identity`).
+   When `start` runs without `--owner-pid`, a browser it launches or takes over
+   records the exact `process_identity` (pid, start tick, boot id, node) of the
+   nearest ancestor whose comm/argv0 (or interpreter script) is a known agent
+   runtime (`claude`, `codex`, `hermes`, `pi`, `omp`, `opencode`, `gemini`,
+   `grok`, `aider`, `goose`, `crush`, `qwen`, `droid`, `cursor-agent`), with
+   `owner_source: agent-ancestor`. When that process exits, the existing
+   watcher/`maintain` terminal branch stops and releases the browser through
+   `fenced_stop_release`. Holds (`awaiting-input`), in-flight commands and
+   activity-tracked team grants still protect it.
+   - No ancestor match (e.g. a one-shot SSH request from Ghost) or unreadable
+     `/proc` → owner stays `None`, i.e. exactly the previous behavior.
+   - Explicit `--owner-pid` is unchanged and wins; the derived owner is **not**
+     used for the owner-process-mismatch lock, the task-MITM listener owner, or
+     adoption of an already-running ownerless row.
+2. **Swap-aware admission** (`admission`, `memory_pressure`). RAM below its
+   minimum always rejects. If only free swap is below its minimum, admit when
+   `MemAvailable >= min_ram + (min_swap - SwapFree)` and memory PSI is healthy
+   (`some avg10 <= 10`, `full avg10 <= 1`); receipt `swap_gate:
+   covered-by-available-ram`. Unreadable PSI never admits. Rejections carry a
+   `reason`. Admission stays read-only and before lease acquisition. This is
+   the automatic form of the operator-approved manual retry rule (727961e6),
+   but stricter: it also requires RAM to cover the swap shortfall.
+3. **`release-run`** — `release-run --agent-id A --run-id R --disposition D
+   --profile-health H [--apply]`. Dry-run by default. Selects running manager
+   rows by exact recorded `(agent_id, run_id)`, never by unit name; every stop
+   re-proves the canonical lease, unit invocation, terminal root and closed CDP
+   via `fenced_stop_release`. Receipt: per-browser result, unit as
+   `<name>.service`, `kept_running` count, task-proxy metadata and a
+   `task-proxy-finish` pointer. Exit 2 with `cleanup-incomplete` if any exact
+   stop is unverified; siblings are still attempted.
+4. Guidance updated in `skills/chromium-test/SKILL.md`, `scripts/README.md` and
+   `prompts/chromium-test-playbook.md` (automatic owner, `release-run`, swap
+   gate, never hand-roll `systemctl list-units` keep/stop comparisons).
+
+Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
+`cleanup`/`reap-idle` thresholds, unit launch flags, or Hoster runtime.
+
+## Papercut disposition
+
+- **PC-20260901-181544-9b2b73ff** (leaked Chrome exhausts swap): fixed-on-branch
+  for new leaks (agent-ancestor owner + existing verified terminal stop;
+  `release-run` as the run-ID-keyed reaper). Existing leaked/ownerless processes
+  on Hoster are not touched and still need exact operator proof per t_297ebf3e.
+- **PC-20260918-222033-c990c35b** (swap exhausted, RAM plentiful): fixed-on-branch
+  (automatic RAM-covered swap gate under healthy PSI). Not previously fixed:
+  727961e6 is documentation-only and depends on agents reading and acting on it.
+- **PC-20261020-021756-adc41ee2** (keep-list `.service` mismatch): the faulty
+  selector was an ad-hoc audit command; no BBH code compares unit lists (bounded
+  `rg` for `list-units`/`.service`/keep selectors under `skills/` and `agents/`
+  found none for browser units). Mitigated on branch: `release-run` selects by
+  exact recorded identity, normalizes receipt unit names, reports `kept_running`,
+  and guidance forbids hand-rolled unit-name comparisons. Partially fixed: the
+  repo cannot prevent an operator from running another ad-hoc command.
+
+## Evidence and review
+
+- Tests and commands: see the handoff section (filled at commit time with exact
+  receipts). New module `agents/test_browser_run_lifecycle.py` (33 tests).
+- Independent review: not yet performed — the parent owns review/integration.
+- Replay/cohort/fixture evidence: temporary SQLite registries, fake `/proc`
+  trees, a real short-lived child process for terminal identity, mocked systemd.
+  No live target traffic, no Hoster mutation.
+- Merge/ancestry evidence: branch created from fetched `origin/beta` 3f72ed81.
+
+## Blockers and deferred work
+
+- **Missing evidence:** live Hoster observation of the current leaked process mix
+  (ownerless rows vs. pre-59a525e0 scope escapes vs. non-provisioner launchers).
+  **Command:** read-only `ps`/`/proc/<pid>/cgroup`/`systemctl --user list-units
+  'browser-*'` joined against the provisioner DB on Hoster. **Trigger:** Hoster
+  reachable (SSH timed out on 2026-11-24). **Why:** confirms the root-cause mix;
+  does not block integration of the new-leak fix.
+- **Deferred:** task-MITM listeners still need explicit `task-proxy-finish` (or
+  explicit `--owner-pid`) — the derived owner was deliberately not applied to the
+  proxy because proxy reuse requires owner equality across same-run requests.
+- **Deferred:** Hermes gateway (long-lived shared daemon) as the ancestor makes
+  the derived owner long-lived; behavior equals the previous ownerless contract.
+- **Activation:** Hoster activation/projection is a separate step after beta
+  integration; verify the selected runtime checkout, not just beta.
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
+- **Latest immutable recovery checkpoint:** recorded in the follow-up dossier commit
+- **Feature implementation commit(s):** recorded in the follow-up dossier commit
+- **Exact resume point:** independent review of `3f72ed81..fix/browser-leak-swap-admission`
+- **Working-tree state at handoff:** clean
+
+## Decision gates
+
+- **Integration gate:** independent review of the diff and receipts; focused
+  before/after suites show no new failures relative to base 3f72ed81.
+- **Activation / cohort gate:** Hoster runtime update + read-only verification
+  that new browsers record `owner_source: agent-ancestor` for local agents.
+- **Promotion gate:** none requested.
+
+## Decision record
+
+- 2026-11-24 — created; implementation, tests and guidance committed on the
+  feature branch; review-ready for the parent.

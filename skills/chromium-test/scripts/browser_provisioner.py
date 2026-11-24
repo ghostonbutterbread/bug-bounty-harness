@@ -14,7 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from browser_lifecycle import StartupDiagnostics, node_lock, owner_state, private_json, process_identity
+from browser_lifecycle import (StartupDiagnostics, agent_supervisor_identity, node_lock, owner_state,
+                               private_json, process_identity)
 from chromium_test import resolve_mitm_ca_cert
 from mitm_chromium_profile import DEFAULT_CA_CERT, remove_matching_ca
 from proxy_store import (
@@ -1369,15 +1370,55 @@ def meminfo():
     return d.get("MemAvailable", 0), d.get("SwapFree", 0)
 
 
+# Healthy-pressure bounds (percent of the last 10s with stalled tasks) for
+# admitting on RAM when free swap alone is below its minimum.
+PSI_SOME_AVG10_MAX, PSI_FULL_AVG10_MAX = 10.0, 1.0
+MEMORY_PRESSURE = Path("/proc/pressure/memory")
+
+
+def memory_pressure():
+    """Current memory PSI averages, or None when the kernel interface is unreadable."""
+    try:
+        fields = {}
+        for line in MEMORY_PRESSURE.read_text().splitlines():
+            kind, *pairs = line.split()
+            fields[kind] = float(dict(pair.split("=", 1) for pair in pairs)["avg10"])
+        return {"some_avg10": fields["some"], "full_avg10": fields["full"]}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def admission(ram, swap):
+    """Read-only capacity gate.
+
+    Depleted swap is often cold pages left from an earlier peak, not current
+    pressure. When only the free-swap minimum fails, admit if available RAM
+    also covers the swap shortfall and memory PSI is healthy. That keeps the
+    same total RAM+swap headroom and is the automatic form of the operator's
+    swap-threshold retry rule. Unknown pressure never admits.
+    """
     a, b = meminfo()
-    return {
+    result = {
         "status": "admitted" if a >= ram and b >= swap else "rejected",
         "ram_available_mib": a,
         "swap_free_mib": b,
         "required_ram_available_mib": ram,
         "required_swap_free_mib": swap,
     }
+    if a < ram:
+        result["reason"] = "ram-below-minimum"
+    elif b < swap:
+        pressure = memory_pressure()
+        result["memory_pressure"] = pressure
+        if pressure is None:
+            result["reason"] = "swap-below-minimum-pressure-unknown"
+        elif pressure["some_avg10"] > PSI_SOME_AVG10_MAX or pressure["full_avg10"] > PSI_FULL_AVG10_MAX:
+            result["reason"] = "swap-below-minimum-memory-pressure"
+        elif a < ram + (swap - b):
+            result["reason"] = "swap-below-minimum-ram-cannot-cover-shortfall"
+        else:
+            result.update(status="admitted", swap_gate="covered-by-available-ram")
+    return result
 
 
 def lease(args, *parts):
@@ -3506,6 +3547,12 @@ def start(args):
         if not owner:
             emit({"status": "owner-unavailable"}, 2)
         args._owner_identity = owner
+    # Explicit --owner-pid keeps its stricter reuse and task-proxy semantics.
+    # Without it, bind only the lifecycle of a browser this request starts (or
+    # takes over) to the requesting agent process, so an agent that exits
+    # without `release` leaves an exactly terminal owner for maintain/watch.
+    derived = None if owner else agent_supervisor_identity()
+    lifecycle_owner = {"owner": owner or derived, **({"owner_source": "agent-ancestor"} if derived else {})}
     if getattr(args, "task_owned", False):
         if not owner and getattr(args, "driving_mode", None) == "manual":
             emit({"status": "owner-required", "reason": "native-input-untracked",
@@ -3726,7 +3773,7 @@ def start(args):
             "agent_id": args.agent_id,
             "run_id": args.run_id,
             "metadata": {
-                "owner": owner,
+                **lifecycle_owner,
                 "ttl": args.ttl_seconds,
                 "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
                 "proxy_ownership": args.proxy_ownership,
@@ -3828,7 +3875,7 @@ def start(args):
             c,
             lid,
             {
-                "owner": owner,
+                **lifecycle_owner,
                 "ttl": args.ttl_seconds,
                 "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
                 "proxy_ownership": args.proxy_ownership,
@@ -4137,7 +4184,7 @@ def start(args):
         c,
         lid,
         {
-            "owner": owner,
+            **lifecycle_owner,
             "ttl": args.ttl_seconds,
             "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
             "proxy_ownership": getattr(args, "proxy_ownership", "task"),
@@ -4420,6 +4467,50 @@ def release(args):
             ),
         }
     )
+
+
+def service_unit_name(unit):
+    """Canonical systemd name for receipts; manager rows store the bare name."""
+    return unit if unit.endswith(".service") else unit + ".service"
+
+
+@serialized
+def release_run(args):
+    """Release every running browser recorded for one exact agent and run.
+
+    Selection is by the manager's recorded agent/run identity, never by
+    comparing systemd unit names, so a browser of any other run is kept by
+    construction. Each stop then re-proves the exact canonical lease, unit
+    invocation, terminal root and closed CDP before releasing. Dry-run unless
+    --apply.
+    """
+    c = db()
+    rows = c.execute("SELECT * FROM browsers WHERE state='running' ORDER BY created").fetchall()
+    selected = [r for r in rows if r["agent_id"] == args.agent_id and r["run_id"] == args.run_id]
+    entries = []
+    for row in selected:
+        entry = {"browser_id": row["browser_id"], "lease_id": row["lease_id"],
+                 "unit": service_unit_name(row["unit"])}
+        if not args.apply:
+            entry["result"] = "selected"
+        elif fenced_stop_release(c, row["lease_id"], args.agent_id,
+                                 disposition=args.disposition, health=args.profile_health):
+            entry["result"] = "released"
+        else:
+            entry["result"] = "cleanup-incomplete"
+        entries.append(entry)
+    incomplete = any(entry["result"] == "cleanup-incomplete" for entry in entries)
+    task = proxy_row(c, args)
+    emit({
+        "status": "cleanup-incomplete" if incomplete else "ok",
+        "mode": "apply" if args.apply else "dry-run",
+        "browsers": entries,
+        "released": [e["browser_id"] for e in entries if e["result"] == "released"],
+        "kept_running": len(rows) - len(selected),
+        "task_proxy": proxy_metadata(task),
+        **({"next": "after browser release, run task-proxy-finish with the same agent/run and "
+                    "--expected-lane from task_proxy.lane"} if task else {}),
+    }, 2 if incomplete else 0)
 
 
 PENDING_RECOVERY_DETAIL = (
@@ -5042,6 +5133,13 @@ def main():
         choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"),
         required=True,
     )
+    rr = sub.add_parser("release-run", help="Release every running browser recorded for one exact agent/run; dry-run unless --apply")
+    rr.add_argument("--agent-id", required=True)
+    rr.add_argument("--run-id", required=True)
+    rr.add_argument("--disposition", choices=("completed", "handoff", "cancelled"), required=True)
+    rr.add_argument("--profile-health", choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"),
+                    required=True)
+    rr.add_argument("--apply", action="store_true")
     for name in ("task-proxy-status", "task-proxy-finish", "task-proxy-recover"):
         parser = sub.add_parser(name)
         parser.add_argument("--agent-id", required=True)
@@ -5128,6 +5226,8 @@ def main():
         sweep(args)
     if args.cmd == "release":
         release(args)
+    if args.cmd == "release-run":
+        release_run(args)
     if args.cmd == "task-proxy-status":
         task_proxy_status(args)
     if args.cmd == "task-proxy-finish":

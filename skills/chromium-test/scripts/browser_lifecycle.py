@@ -39,6 +39,64 @@ def owner_state(identity):
     return "active" if current == identity else "terminal"
 
 
+# Interactive agent runtimes whose process lifetime bounds the task that issued
+# a browser request. Matching is by executable/script basename only.
+AGENT_RUNTIMES = frozenset({
+    "aider", "claude", "codex", "crush", "cursor-agent", "droid", "gemini",
+    "goose", "grok", "hermes", "omp", "opencode", "pi", "qwen",
+})
+_INTERPRETERS = frozenset({"bun", "deno", "node", "nodejs", "python", "python3"})
+_PROC = Path("/proc")
+
+
+def _process_names(pid):
+    comm = (_PROC / str(pid) / "comm").read_text().strip()
+    argv = [a.decode(errors="replace") for a in (_PROC / str(pid) / "cmdline").read_bytes().split(b"\0") if a]
+    names = {comm}
+    if argv:
+        first = os.path.basename(argv[0])
+        names.add(first)
+        # `node /path/to/claude` or `python3 /path/to/hermes`: the script names the runtime.
+        if (first in _INTERPRETERS or first.startswith("python3.")) and len(argv) > 1 \
+                and not argv[1].startswith("-"):
+            script, extension = os.path.splitext(os.path.basename(argv[1]))
+            names.add(script if extension in (".js", ".mjs", ".py") else script + extension)
+    return names
+
+
+def _parent_pid(pid):
+    text = (_PROC / str(pid) / "stat").read_text()
+    return int(text[text.rindex(")") + 2 :].split()[1])
+
+
+def agent_supervisor_identity(start_pid=None, max_depth=32):
+    """Exact identity of the nearest ancestor that is a known agent runtime.
+
+    This is the default lifecycle owner when a request omits ``--owner-pid``:
+    an agent that exits without releasing its browser leaves a terminal owner,
+    which the existing exact-owner maintain/retire path already reclaims.
+    A request with no such ancestor (for example a one-shot SSH command from
+    another host) stays ownerless, exactly as before. Unreadable /proc state
+    yields no owner rather than a guessed one.
+    """
+    pid = os.getppid() if start_pid is None else int(start_pid)
+    for _ in range(max_depth):
+        if pid <= 1:
+            return None
+        try:
+            names = _process_names(pid)
+            parent = _parent_pid(pid)
+        except (OSError, ValueError, IndexError):
+            return None
+        if names & AGENT_RUNTIMES:
+            try:
+                return process_identity(pid)
+            except (OSError, ValueError):
+                return None
+        pid = parent
+    return None
+
+
 @contextlib.contextmanager
 def node_lock(state):
     state.parent.mkdir(parents=True, exist_ok=True)

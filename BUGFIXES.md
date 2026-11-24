@@ -194,3 +194,24 @@ not evidence that the new generic path disposed an active browser.
 red, and a genuine regression in browser transfer would be masked by it. First
 task is to run this cluster **with** a provisioned CDP browser and record whether
 the failures persist; only then decide whether it is a code defect.
+
+## Further pre-existing browser/task-proxy suite failures on beta `3f72ed81`
+
+**Location:** `agents/test_browser_selection.py` (15),
+`agents/test_browser_resources.py` (10), `agents/test_cdp_handoff_receipt.py` (1),
+`agents/test_task_proxy_mount_selection.py` (1), `tests/test_task_proxy_incident.py`
+(9), `tests/test_task_proxy_incident_fence.py` (3),
+`tests/test_task_proxy_incident_process.py` (12).
+
+**Evidence:** an unchanged detached `origin/beta` 3f72ed81 worktree, run per
+module with the BBH `.venv` and a short scratch `--basetemp` (longer basetemps
+add `AF_UNIX path too long` failures), produced exactly these failures; the
+`fix/browser-leak-swap-admission` branch produced the identical failing test
+IDs. Several selection/resources cases receive `status: profile-unavailable`
+from `require_safe_running_profile` where the test expects selection or
+`driving-mode-mismatch`; others fail with `PipeBrowser` lacking
+`meaningful_count`. Cause not separated (fixture drift vs. environment).
+
+**Impact:** these modules cannot currently gate browser changes by an
+unfiltered green run; compare failing IDs against the base instead. Repair in a
+separate task on the owning branch.

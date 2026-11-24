@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from agents.shared_brain import RepoIndex, save_index
 from agents.storage_resolver import resolve_storage
+from bounty_core.ledger import VersionedFindingsLedger
 from agents.report_paths import discover_report_files, select_report_source
 from agents.manual_hunter import ManualHunter, ReviewTierDecisionRequired
 from agents.sync_reports import _candidates_for_file, _flexible_findings_for_file, _resolve_source_root, sync_reports_main
@@ -531,7 +532,7 @@ class TestSyncReports(unittest.TestCase):
         hunter = ManualHunter(
             program, lane="apk", source_root=source_root, storage_root=storage_root
         )
-        self.assertEqual(hunter.ledger.__class__.__name__, "VersionedFindingsLedger")
+        self.assertIsInstance(hunter.ledger, VersionedFindingsLedger)  # real ledger, not a mock
         existing = {
             "fid": "D06", "type": "Existing DOM XSS", "class_name": "dom-xss",
             "file": "src/existing.js", "line": 1,

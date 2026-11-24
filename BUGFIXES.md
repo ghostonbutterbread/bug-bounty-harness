@@ -236,3 +236,34 @@ from `require_safe_running_profile` where the test expects selection or
 **Impact:** these modules cannot currently gate browser changes by an
 unfiltered green run; compare failing IDs against the base instead. Repair in a
 separate task on the owning branch.
+
+## Malformed `ledger.json` is silently replaced by an empty ledger on write
+
+**Location:** Bounty Core `bounty_core/ledger.py` `_read_payload` /
+`_locked_payload` (pinned revision `9db8b23d`), reached from every exclusive
+writer: `patch_finding_by_fid` (`manual_hunter.py --edit-finding`,
+`--set-submission`), `import_finding`, `ledger_add`, team reservations.
+**Evidence:** on synthetic storage, a truncated `ledger.json` followed by one
+`patch_finding_by_fid` call returned `None` and rewrote the file as
+`{"version": 2, ..., "findings": []}`. `_read_payload` maps a JSON decode error
+to the default payload and `_locked_payload` writes it back atomically.
+**Impact:** one Board edit on a partially synced or corrupted ledger erases every
+finding in that lane. `manual_hunter.py --delete-finding` checks the raw file
+under the lock and fails closed (`agents/ledger_tombstones.py`), but the other
+writers do not. Fix in Bounty Core (raise on an unparseable existing ledger),
+then bump the BBH pin; tracked separately from the ledger-delete feature.
+
+## Bounty Core appends `findings.jsonl` rows outside the ledger lock
+
+**Location:** Bounty Core `bounty_core/ledger.py` `add_finding`, EVIDENCE_ONLY
+branch (`ledger.py:1831-1832` at pin `9db8b23d`): `_append_jsonl_event` runs
+after `_locked_payload` has been released.
+**Evidence:** reviewer repro `e.py` (section B), on synthetic storage. A row
+appended during `manual_hunter --delete-finding` was dropped by the sidecar
+rewrite before the rewrite started re-reading the file just ahead of
+`os.replace`.
+**Impact:** BBH now re-plans from the file's current bytes immediately before
+the replace (`agents/ledger_tombstones.py` `_apply_sidecar_scrub`), which leaves
+only a sub-millisecond read-to-rename window. A row appended in that window
+can still be lost. Fix upstream by appending under the ledger lock; there are
+no BBH callers of this path today.

@@ -20,6 +20,7 @@ from agents.coverage_store import CoverageStore, is_reviewed_coverage_entry
 from agents.coverage import register_commands
 from agents.finding_visibility import is_confirmed_finding, normalize_submission, visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
+from agents.ledger_tombstones import skip_message, tombstone_guard
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
 from agents.web_finding_identity import finding_web_route, is_legacy_web_label, web_route
@@ -389,6 +390,11 @@ def cmd_add(args: argparse.Namespace) -> int:
         extra_value = str(getattr(args, extra_attr, "") or "").strip()
         if extra_value:
             finding[extra_key] = extra_value
+    guard = tombstone_guard(args.program, family=args.family, lane=args.lane, root_override=root_override)
+    tombstoned = guard.match(finding) if guard else None
+    if tombstoned:
+        print(f"[me_ledger] {skip_message(tombstoned, 'me_ledger add')}", file=sys.stderr)
+        return 1
     is_new_fid, fid = ledger_add(
         args.program,
         finding,

@@ -7,6 +7,7 @@ read/write the shared version-aware ledger while preserving the existing
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,66 @@ from bounty_core.ledger import (  # noqa: E402
     update_coverage_state as core_update_coverage_state,
 )
 from bounty_core.reports import EVIDENCE_ONLY
+
+from agents.ledger_tombstones import (
+    delete_finding_by_fid,
+    skip_message,
+    tombstone_guard,
+    tombstone_guard_for_layout,
+)
+
+
+def _log_tombstone_skip(fid: str, source: str) -> None:
+    print(f"[ledger] {skip_message(fid, source)}", file=sys.stderr)
+
+
+class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
+    """Ledger wrapper that will not re-add a deleted (tombstoned) finding.
+
+    Every BBH team, manual, and sync path gets its ledger object from
+    ``create_team_ledger``; checking ``ledgers/deleted-findings.jsonl`` here
+    covers sighting merges and report re-imports without touching Bounty Core.
+    A tombstoned candidate is reported as a duplicate of its deleted FID with
+    ``tombstoned=True`` so callers skip it instead of inserting it.
+    """
+
+    def _tombstone_match(self, candidate: dict[str, Any], *, loose: bool) -> str | None:
+        # ``loose`` only where Bounty Core's own lookup falls back to (file, class):
+        # ledger_check (check), import_finding, and reserve_batch.
+        guard = tombstone_guard_for_layout(self.storage)
+        return guard.match(candidate, loose=loose) if guard else None
+
+    def _skipped(self, candidate: dict[str, Any], fid: str, source: str) -> tuple[bool, str, dict[str, Any]]:
+        _log_tombstone_skip(fid, source)
+        return True, fid, {**dict(candidate), "fid": fid, "tombstoned": True}
+
+    def check(self, finding_dict: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any]]:
+        fid = self._tombstone_match(finding_dict, loose=True)
+        if fid:
+            return self._skipped(finding_dict, fid, f"{self.agent} check")
+        return super().check(finding_dict)
+
+    def import_finding(self, candidate: dict[str, Any], *, packet_mode: str = EVIDENCE_ONLY) -> tuple[bool, str, dict[str, Any]]:
+        fid = self._tombstone_match(candidate, loose=True)
+        if fid:
+            return self._skipped(candidate, fid, f"{self.agent} import")
+        return super().import_finding(candidate, packet_mode=packet_mode)
+
+    def reserve_batch(self, candidates: list[dict[str, Any]]) -> list[tuple[bool, str | None, dict[str, Any]]]:
+        if not isinstance(candidates, list):
+            return super().reserve_batch(candidates)
+        guard = tombstone_guard_for_layout(self.storage)
+        matches = [guard.match(c, loose=True) if guard and isinstance(c, dict) else None for c in candidates]
+        allowed = [c for c, m in zip(candidates, matches) if not m]
+        reserved = iter(super().reserve_batch(allowed) if allowed else [])
+        return [self._skipped(c, m, f"{self.agent} batch") if m else next(reserved)
+                for c, m in zip(candidates, matches)]
+
+    def update(self, finding_with_fid: dict[str, Any]) -> dict[str, Any]:
+        fid = self._tombstone_match(finding_with_fid, loose=False)  # ledger_add: full key only
+        if fid:
+            return self._skipped(finding_with_fid, fid, f"{self.agent} update")[2]
+        return super().update(finding_with_fid)
 
 
 def _explicit_root_from_storage(storage: StorageLayout) -> Path | None:
@@ -51,7 +112,7 @@ def create_team_ledger(
     VersionedFindingsLedger directly so future shared ledger logic stays
     centralized.
     """
-    return VersionedFindingsLedger(
+    return TombstoneAwareFindingsLedger(
         program,
         target_root=target_root,
         version_label=version_label,
@@ -165,6 +226,14 @@ def update_team_finding(
     if patched is not None:
         return patched
 
+    guard = tombstone_guard(program, family=family, lane=resolved_lane, root_override=root_override or storage_root)
+    tombstoned = guard.match(finding) if guard else None
+    if tombstoned:
+        # The FID was deleted (patch found nothing); never let the ledger_add
+        # fallback re-create it or its identity under a new FID.
+        _log_tombstone_skip(tombstoned, f"{agent} update")
+        return {**dict(finding), "fid": tombstoned, "tombstoned": True, "is_new": False}
+
     is_new, reserved_fid = ledger_add(
         program,
         dict(finding),
@@ -243,7 +312,10 @@ def team_ledger_path(*, storage: StorageLayout, program: str | None = None) -> P
 
 
 __all__ = [
+    "TombstoneAwareFindingsLedger",
     "VersionedFindingsLedger",
+    "delete_finding_by_fid",
+    "tombstone_guard",
     "create_team_ledger",
     "create_team_ledger_from_storage",
     "read_team_findings",

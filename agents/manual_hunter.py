@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +30,16 @@ from agents.ledger import (
     ledger_get,
     patch_finding_by_fid,
     update_team_finding,
+)
+from agents.ledger_tombstones import (
+    EXIT_OK,
+    EXIT_PARTIAL,
+    EXIT_REFUSED,
+    TOMBSTONE_FILENAME,
+    LedgerDeleteError,
+    _live_fids,
+    active_tombstones,
+    delete_finding_by_fid,
 )
 from agents.report_checker import (
     FindingRecord,
@@ -889,7 +900,13 @@ class DuplicateCommentStore:
         source_path: Path | None,
         raw_text: str,
         parsed_finding: dict[str, Any],
-    ) -> None:
+    ) -> str | None:
+        """Append one duplicate note; return None, or why it was skipped.
+
+        Runs under the lane ledger lock and re-checks that the FID is still live
+        and not tombstoned, so a note cannot be re-attached to a finding that
+        --delete-finding removed between the dedupe check and this append.
+        """
         payload = {
             "fid": fid,
             "recorded_at": _timestamp_iso(),
@@ -901,8 +918,23 @@ class DuplicateCommentStore:
             "class_name": _normalize_text(parsed_finding.get("class_name")),
             "sink": _normalize_text(parsed_finding.get("sink")),
         }
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        # Hold the lane ledger lock so --delete-finding's atomic rewrite of this
+        # file (done under the same lock) cannot drop a concurrent append.
+        lock_path = self.path.parent / "ledger.lock"
+        with lock_path.open("a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                target = str(fid).strip().upper()
+                live = _live_fids(self.path.parent / "ledger.json")
+                if live is None or target not in live:
+                    return f"{fid} is no longer in the ledger"
+                if target in active_tombstones(self.path.parent / TOMBSTONE_FILENAME):
+                    return f"{fid} was permanently deleted from this lane"
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        return None
 
 
 def parse_finding_text(
@@ -1211,19 +1243,27 @@ class ManualHunter:
         finding["fid"] = existing_fid or finding.get("fid", "")
         title = _normalize_text(finding.get("title") or finding.get("type"))
 
+        if finding.get("tombstoned"):
+            # The ledger wrapper already logged the skip; never link notes to a deleted FID.
+            print(f"Skipped: {existing_fid} was permanently deleted from this lane")
+            return 1
+
         if is_duplicate:
             print(f"Duplicate: {existing_fid} overlaps with {title}")
             if link_duplicate_comment or (
                 sys.stdin.isatty() and not link_duplicate_comment and _bool_prompt(f"Link note to {existing_fid} as a comment")
             ):
-                self.comment_store.append(
+                skipped = self.comment_store.append(
                     fid=str(existing_fid),
                     source_label=parsed.source_label,
                     source_path=parsed.source_path,
                     raw_text=parsed.raw_text,
                     parsed_finding=finding,
                 )
-                print(f"Linked duplicate note to {existing_fid}")
+                if skipped:
+                    print(f"Not linked: {skipped}; the note was not stored")
+                else:
+                    print(f"Linked duplicate note to {existing_fid}")
             else:
                 print("Use --link-duplicate-comment to attach the note to the existing finding.")
             return 1
@@ -1532,6 +1572,13 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--set-submission", metavar="FID", help="Record whether one finding was submitted or dropped by FID.")
     mode.add_argument("--edit-finding", metavar="FID", help="Correct an existing finding by FID using --patch-file JSON.")
     mode.add_argument(
+        "--delete-finding", metavar="FID",
+        help="Permanently delete one finding whose status is 'archive' (archive is the recoverable state; "
+        "delete is final). Records a minimal tombstone (FID, identity, time, actor) in "
+        "ledgers/deleted-findings.jsonl so the finding is not re-imported, deletes unedited BBH-generated "
+        "report/evidence files, and lists every file it leaves. Exit 0 ok, 1 refused, 3 deleted with warnings.",
+    )
+    mode.add_argument(
         "--hunt",
         action="store_true",
         help="Hunt with Codex using current Ghost state as coordination context. Loads coverage/unexplored "
@@ -1568,14 +1615,54 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "dropped"), default="submitted")
     parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
     parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
+    parser.add_argument("--actor", help="Agent/user label recorded as deleted_by (default: manual_hunter).")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
 
 
+def delete_finding_cli(args: argparse.Namespace) -> int:
+    """``--delete-finding`` without ManualHunter's storage/context side effects.
+
+    A lane that does not exist is refused before anything is created. Every
+    failure before the ledger commit is a ``[manual_hunter]`` refusal (exit 1);
+    after the commit, problems are ``Warning:`` lines with exit 3.
+    """
+    try:
+        family, lane = resolve_family_lane(
+            family=_normalize_text(args.family) or None,
+            lane=_normalize_text(args.lane) or None,
+            hunt_type=args.hunt_type or args.lane,
+        )
+        storage_root = Path(args.storage_root).expanduser().resolve(strict=False) if args.storage_root else None
+        result = delete_finding_by_fid(
+            _sanitize_program_name(args.program), args.delete_finding, family=family, lane=lane,
+            root_override=storage_root, deleted_by=args.actor,
+        )
+    except Exception as exc:  # nothing was committed
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    print(f"Finding deleted: {result.fid}")
+    print(f"Tombstone: {result.tombstone_path}")
+    for path in result.deleted_files:
+        print(f"Deleted file: {path}")
+    for path, count in result.scrubbed:
+        print(f"Removed {count} row(s) for {result.fid}: {path}")
+    for path, reason in result.kept:
+        print(f"Kept ({reason}): {path}")
+    for warning in result.warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
+    return EXIT_PARTIAL if result.warnings else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.actor is not None and not args.delete_finding:
+        parser.error("--actor is only valid with --delete-finding")
     if bool(args.edit_finding) != bool(args.patch_file):
         raise ValueError("--edit-finding and --patch-file must be used together")
+    if args.delete_finding:
+        return delete_finding_cli(args)
     verbosity = clamp_verbosity(args.verbose)
     note = None
     if args.from_file:
@@ -1622,7 +1709,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.edit_finding:
         return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
-    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission, args.edit_finding)):
+    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission,
+                             args.edit_finding, args.delete_finding)):
         if verbosity.verbose:
             print(f"[/ledger] verbosity={verbosity.level}")
             print(f"[/ledger] storage_root={hunter.storage.lane_root}")
@@ -1640,5 +1728,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ClassConflictError as exc:
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except LedgerDeleteError as exc:  # e.g. a corrupt tombstone log blocks ingest fail-closed
         print(f"[manual_hunter] {exc}", file=sys.stderr)
         raise SystemExit(1)

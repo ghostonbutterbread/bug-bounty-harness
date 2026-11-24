@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -908,8 +909,16 @@ class DuplicateCommentStore:
             "class_name": _normalize_text(parsed_finding.get("class_name")),
             "sink": _normalize_text(parsed_finding.get("sink")),
         }
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        # Hold the lane ledger lock so --delete-finding's atomic rewrite of this
+        # file (done under the same lock) cannot drop a concurrent append.
+        lock_path = self.path.parent / "ledger.lock"
+        with lock_path.open("a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def parse_finding_text(
@@ -1326,26 +1335,6 @@ class ManualHunter:
             print(f"Existing report (review separately): {updated['report_path']}")
         return 0
 
-    def delete_finding(self, fid: str, *, actor: str | None = None) -> int:
-        """Permanently delete one archived finding; see agents/ledger_tombstones.py."""
-        try:
-            result = delete_finding_by_fid(
-                self.program, fid, family=self.family, lane=self.lane,
-                root_override=self.storage_root, deleted_by=actor,
-            )
-        except LedgerDeleteError as exc:
-            print(f"[manual_hunter] {exc}", file=sys.stderr)
-            return EXIT_REFUSED
-        print(f"Finding deleted: {result.fid}")
-        print(f"Tombstone: {result.tombstone_path}")
-        for path in result.deleted_files:
-            print(f"Deleted file: {path}")
-        for path, reason in result.kept:
-            print(f"Kept ({reason}): {path}")
-        for warning in result.warnings:
-            print(f"Warning: {warning}", file=sys.stderr)
-        return EXIT_PARTIAL if result.warnings else EXIT_OK
-
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
         canonical_reports = [
             path
@@ -1612,10 +1601,49 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def delete_finding_cli(args: argparse.Namespace) -> int:
+    """``--delete-finding`` without ManualHunter's storage/context side effects.
+
+    A lane that does not exist is refused before anything is created. Every
+    failure before the ledger commit is a ``[manual_hunter]`` refusal (exit 1);
+    after the commit, problems are ``Warning:`` lines with exit 3.
+    """
+    try:
+        family, lane = resolve_family_lane(
+            family=_normalize_text(args.family) or None,
+            lane=_normalize_text(args.lane) or None,
+            hunt_type=args.hunt_type or args.lane,
+        )
+        storage_root = Path(args.storage_root).expanduser().resolve(strict=False) if args.storage_root else None
+        result = delete_finding_by_fid(
+            _sanitize_program_name(args.program), args.delete_finding, family=family, lane=lane,
+            root_override=storage_root, deleted_by=args.actor,
+        )
+    except Exception as exc:  # nothing was committed
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    print(f"Finding deleted: {result.fid}")
+    print(f"Tombstone: {result.tombstone_path}")
+    for path in result.deleted_files:
+        print(f"Deleted file: {path}")
+    for path, count in result.scrubbed:
+        print(f"Removed {count} row(s) for {result.fid}: {path}")
+    for path, reason in result.kept:
+        print(f"Kept ({reason}): {path}")
+    for warning in result.warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
+    return EXIT_PARTIAL if result.warnings else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.actor is not None and not args.delete_finding:
+        parser.error("--actor is only valid with --delete-finding")
     if bool(args.edit_finding) != bool(args.patch_file):
         raise ValueError("--edit-finding and --patch-file must be used together")
+    if args.delete_finding:
+        return delete_finding_cli(args)
     verbosity = clamp_verbosity(args.verbose)
     note = None
     if args.from_file:
@@ -1662,8 +1690,6 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.edit_finding:
         return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
-    if args.delete_finding:
-        return hunter.delete_finding(args.delete_finding, actor=args.actor)
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission,
                              args.edit_finding, args.delete_finding)):
         if verbosity.verbose:

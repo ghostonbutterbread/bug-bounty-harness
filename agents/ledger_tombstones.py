@@ -78,6 +78,7 @@ class DeleteResult:
     ledger_path: Path
     tombstone_path: Path
     deleted_files: list[Path] = field(default_factory=list)
+    scrubbed: list[tuple[Path, int]] = field(default_factory=list)
     kept: list[tuple[Path, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -126,12 +127,27 @@ class CorruptTombstoneLogError(LedgerDeleteError):
     """The tombstone log is unreadable; refuse rather than let deleted findings back in."""
 
 
-def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
-    """Return events in file order; fail closed on a symlinked or corrupt log.
+def _split_committed(data: bytes) -> tuple[bytes, bytes]:
+    """Split log bytes into newline-terminated (committed) lines and an unterminated tail.
 
-    A truncated or partially synced log must not silently disable the
-    resurrection guard, so any non-empty line that is not a JSON object with a
-    FID raises :class:`CorruptTombstoneLogError`.
+    Each event is written by one ``os.write`` that ends in a newline, and the
+    ledger write happens only after that append returns, so a tail without a
+    newline is a crash mid-append that never committed anything.
+    """
+    cut = data.rfind(b"\n") + 1
+    return data[:cut], data[cut:]
+
+
+_EVENT_CACHE: dict[str, tuple[tuple[int, int, int], list[dict[str, Any]]]] = {}
+
+
+def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
+    """Return committed events in file order; fail closed on a symlinked or corrupt log.
+
+    An unterminated final line is ignored (see :func:`_split_committed`). Any
+    other non-empty line that is not a JSON object with a FID raises
+    :class:`CorruptTombstoneLogError`, so a damaged log never silently disables
+    the resurrection guard. Parsed events are cached per (inode, size, mtime).
     """
     if path.is_symlink():
         raise CorruptTombstoneLogError(f"tombstone log is a symlink; refusing to use it: {path}")
@@ -139,8 +155,14 @@ def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
         return []
     if not path.is_file():
         raise CorruptTombstoneLogError(f"tombstone log is not a regular file: {path}")
+    info = path.stat()
+    stamp = (info.st_ino, info.st_size, info.st_mtime_ns)
+    cached = _EVENT_CACHE.get(str(path))
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    committed, _tail = _split_committed(path.read_bytes())
     events: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+    for number, line in enumerate(committed.decode("utf-8", errors="replace").splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
@@ -152,7 +174,23 @@ def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
             raise CorruptTombstoneLogError(
                 f"tombstone log line {number} is unreadable; repair {path} before ledger writes in this lane")
         events.append(event)
+    _EVENT_CACHE[str(path)] = (stamp, events)
     return events
+
+
+def _trim_uncommitted_tail(path: Path) -> None:
+    """Drop an unterminated final line before appending (caller holds the ledger lock)."""
+    if not path.is_file() or path.is_symlink():
+        return
+    data = path.read_bytes()
+    committed, tail = _split_committed(data)
+    if tail:
+        fd = os.open(path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.ftruncate(fd, len(committed))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def active_tombstones(path: Path) -> dict[str, dict[str, Any]]:
@@ -163,10 +201,19 @@ def active_tombstones(path: Path) -> dict[str, dict[str, Any]]:
     return {fid: event for fid, event in latest.items() if event.get("event") == "deleted"}
 
 
+def _fsync_dir(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _append_event(path: Path, event: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise CorruptTombstoneLogError(f"refusing to append to symlinked tombstone log: {path}")
+    created = not path.exists()
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags, 0o600)
     try:
@@ -174,6 +221,8 @@ def _append_event(path: Path, event: dict[str, Any]) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+    if created:
+        _fsync_dir(path.parent)
 
 
 def _file_class(finding: dict[str, Any]) -> tuple[Any, Any]:
@@ -186,23 +235,47 @@ def _is_detailed(finding: dict[str, Any]) -> bool:
     return finding.get("line") is not None or (finding.get("type") or finding.get("title")) is not None
 
 
+def _live_fids(ledger: Path) -> set[str] | None:
+    """FIDs in the committed ledger (atomic replace gives a consistent snapshot); None if unreadable."""
+    try:
+        payload = json.loads(ledger.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    rows = payload.get("findings") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None
+    return {str(row.get("fid") or "").strip().upper() for row in rows if isinstance(row, dict)}
+
+
 @dataclass
 class TombstoneGuard:
     """Membership checks used by ledger-insert paths before adding a finding."""
 
     fids: set[str]
     path: Path
+    ledger_path: Path | None = None
     keys: dict[tuple[Any, ...], str] = field(default_factory=dict)
     file_class: dict[tuple[Any, Any], str] = field(default_factory=dict)
 
-    def match(self, finding: dict[str, Any]) -> str | None:
-        """Return the tombstoned FID this candidate would resurrect, if any."""
+    def match(self, finding: dict[str, Any], *, loose: bool = False) -> str | None:
+        """Return the tombstoned FID this candidate would resurrect, if any.
+
+        ``loose`` mirrors Bounty Core's (file, class)-only match for candidates
+        with no line and no type/title; pass it only on paths whose Bounty Core
+        lookup does the same (``ledger_check``/``check``, ``import_finding``,
+        ``reserve_batch``). A tombstone whose FID is live in the ledger again
+        (a crash between tombstone append and ledger write) never matches.
+        """
         fid = str(finding.get("fid") or finding.get("harness_fid") or "").strip().upper()
-        if fid and fid in self.fids:
-            return fid
-        hit = self.keys.get(tuple(_finding_key_for(finding)))
-        if hit is None and not _is_detailed(finding):
+        hit = fid if fid and fid in self.fids else None
+        if hit is None:
+            hit = self.keys.get(tuple(_finding_key_for(finding)))
+        if hit is None and loose and not _is_detailed(finding):
             hit = self.file_class.get(_file_class(finding))
+        if hit is not None and self.ledger_path is not None:
+            live = _live_fids(self.ledger_path)
+            if live is not None and hit.upper() in live:
+                return None
         return hit
 
     def __bool__(self) -> bool:
@@ -212,7 +285,7 @@ class TombstoneGuard:
 def tombstone_guard_for_layout(layout: StorageLayout) -> TombstoneGuard:
     path = tombstone_path_for(layout)
     events = active_tombstones(path)
-    guard = TombstoneGuard(fids=set(events), path=path)
+    guard = TombstoneGuard(fids=set(events), path=path, ledger_path=layout.ledgers_root / "ledger.json")
     for fid, event in events.items():
         key = event.get("identity_key")
         if isinstance(key, list) and len(key) == 4:
@@ -345,17 +418,21 @@ def classify_artifacts(layout: StorageLayout, finding: dict[str, Any]) -> tuple[
         if not path.is_file():
             keep.append((path, "not a regular file"))
             return
-        if path.name == EVIDENCE_FILENAME:
-            if evidence_template is not None and path.read_bytes() == evidence_template:
+        try:
+            if path.name == EVIDENCE_FILENAME:
+                if evidence_template is not None and path.read_bytes() == evidence_template:
+                    delete.append(path)
+                else:
+                    keep.append((path, "evidence edited after creation"))
+                return
+            if _is_generated_report(path):
                 delete.append(path)
-            else:
-                keep.append((path, "evidence edited after creation"))
+                return
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                first = handle.readline().strip()
+        except OSError as exc:
+            keep.append((path, f"unreadable ({exc.__class__.__name__}); left in place"))
             return
-        if _is_generated_report(path):
-            delete.append(path)
-            return
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            first = handle.readline().strip()
         keep.append((path, "generated report edited (checksum mismatch)" if first == FINDING_REPORT_GENERATED_MARKER
                      else "not BBH-generated"))
 
@@ -450,7 +527,107 @@ def _refresh_and_persist(layout: StorageLayout, path: Path, payload: dict[str, A
     findings = payload["findings"]
     refresh_indexes(layout, findings)
     refresh_report_indexes(layout, findings, packet_mode=EVIDENCE_ONLY)
+    _write_ledger_durably(path, payload)
+
+
+def _write_ledger_durably(path: Path, payload: dict[str, Any]) -> None:
+    """Bounty Core's atomic replace, then fsync the file and its directory."""
     _write_json_atomic(path, payload)
+    _fsync_ledger(path)
+
+
+def _fsync_ledger(path: Path) -> None:
+    """``_write_json_atomic`` does not fsync; syncing afterwards adds durability
+    (matching the fsynced tombstone append) without changing its semantics."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _fsync_dir(path.parent)
+
+
+# Lane-local sidecars that copy per-FID finding text outside ledger.json.
+# Both are JSONL; a row belongs to a FID through ``fid``/``harness_fid`` or a
+# nested ``finding`` object (Bounty Core's ``finding_seen``/``finding_updated``).
+FINDING_TEXT_SIDECARS = ("manual_comments.jsonl", "findings.jsonl")
+
+
+def _row_fid(row: dict[str, Any]) -> set[str]:
+    fids = {str(row.get(key) or "").strip().upper() for key in ("fid", "harness_fid")}
+    nested = row.get("finding")
+    if isinstance(nested, dict):
+        fids |= {str(nested.get(key) or "").strip().upper() for key in ("fid", "harness_fid")}
+    return fids - {""}
+
+
+@dataclass
+class _SidecarPlan:
+    path: Path
+    text: str
+    removed: int
+
+
+def _plan_sidecar_scrub(layout: StorageLayout, fid: str) -> list[_SidecarPlan]:
+    """Parse each sidecar and plan a rewrite without the FID's rows; fail closed on damage.
+
+    Called before the ledger commit, so an unreadable sidecar refuses the whole
+    delete (nothing written) instead of leaving the finding's text behind or
+    rewriting rows it cannot parse.
+    """
+    plans: list[_SidecarPlan] = []
+    target = fid.strip().upper()
+    for name in FINDING_TEXT_SIDECARS:
+        path = layout.ledgers_root / name
+        if path.is_symlink():
+            raise LedgerDeleteError(f"refusing to delete: {path} is a symlink; replace it with a regular file first")
+        if not path.exists():
+            continue
+        if not path.is_file():
+            raise LedgerDeleteError(f"refusing to delete: {path} is not a regular file")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise LedgerDeleteError(f"refusing to delete: cannot read {path} ({exc.__class__.__name__})") from exc
+        kept_lines: list[str] = []
+        removed = 0
+        for number, line in enumerate(raw.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                row = None
+            if not isinstance(row, dict):
+                raise LedgerDeleteError(
+                    f"refusing to delete: {path} line {number} is unreadable; repair it so {fid}'s rows can be removed")
+            if target in _row_fid(row):
+                removed += 1
+            else:
+                kept_lines.append(line)
+        if removed:
+            plans.append(_SidecarPlan(path, "".join(f"{line}\n" for line in kept_lines), removed))
+    return plans
+
+
+def _apply_sidecar_scrub(plan: _SidecarPlan, lane_root: Path) -> None:
+    """Atomically replace one sidecar (same dir temp file, original mode, fsync, no symlinks)."""
+    path = plan.path
+    if path.is_symlink() or not path.is_file() or not _no_symlink_between(path, lane_root):
+        raise LedgerDeleteError(f"{path} changed to a non-regular file during delete")
+    mode = path.stat().st_mode & 0o777
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(plan.text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
+    _fsync_dir(path.parent)
 
 
 def delete_finding_by_fid(
@@ -462,7 +639,12 @@ def delete_finding_by_fid(
     root_override: str | Path | None = None,
     deleted_by: str | None = None,
 ) -> DeleteResult:
-    """Permanently remove one archived finding; raise LedgerDeleteError on refusal."""
+    """Permanently remove one archived finding.
+
+    Raises :class:`LedgerDeleteError` for every failure before the ledger commit
+    (nothing has been changed except, at most, a cleared tombstone). After the
+    commit nothing raises: problems are returned in ``DeleteResult.warnings``.
+    """
     target = str(fid or "").strip()
     if not target:
         raise LedgerDeleteError("finding fid is required")
@@ -475,72 +657,108 @@ def delete_finding_by_fid(
 
     with _locked_payload(layout.program, exclusive=True, lane=layout.lane, family=layout.family,
                          root_override=root_override, auto_write=False) as payload:
-        _assert_ledger_well_formed(path)
-        read_tombstone_events(tombstone)  # fail closed before appending to a corrupt log
-        findings = [item for item in payload.get("findings", []) if isinstance(item, dict)]
-        index = next((i for i, item in enumerate(findings)
-                      if str(item.get("fid") or "").strip().upper() == target.upper()), None)
-        if index is None:
-            raise LedgerDeleteError(f"no finding found for fid {target}")
-        record = findings[index]
-        target = str(record.get("fid")).strip()
-        result.fid = target
-        status = finding_status(record)
-        if status != ARCHIVE_STATUS:
-            raise LedgerDeleteError(
-                f"refusing to delete {target}: status is {status or '(unset)'!r}, not 'archive'; "
-                "archive it first (e.g. --edit-finding with {\"status\":\"archive\"})")
-        if "_atomic_import_pending" in record:
-            raise LedgerDeleteError(f"refusing to delete {target}: an import is pending on this finding")
-        if _would_free_next_fid(target, findings):
-            raise LedgerDeleteError(
-                f"refusing to delete {target}: it is the highest FID of its prefix, so the next new finding "
-                "would reuse it; delete it after a newer finding exists in this lane")
-
-        delete_paths, keep, packet = classify_artifacts(layout, record)
-        evidence_template = (_pristine_evidence_template(layout, record)
-                             if any(p.name == EVIDENCE_FILENAME for p in delete_paths) else None)
-        remaining = findings[:index] + findings[index + 1:]
-        # Tombstone first: if the ledger write then fails, a delete_aborted event
-        # clears it. Files are unlinked only after the ledger commit, because an
-        # unlink cannot be undone.
-        _append_event(tombstone, {
-            "schema": TOMBSTONE_SCHEMA,
-            "event": "deleted",
-            "fid": target,
-            "identity_key": identity_key(record),
-            "deleted_at": _utc_iso(),
-            "deleted_by": (deleted_by or "").strip() or DEFAULT_ACTOR,
-        })
         try:
+            record, remaining, plans, delete_paths, packet, evidence_template = _prepare_delete(
+                layout, path, tombstone, payload, target, result)
+            target = result.fid
+            _trim_uncommitted_tail(tombstone)
+            # Tombstone first: if the ledger write then fails, a delete_aborted
+            # event clears it. Files and sidecars change only after the ledger
+            # commit, because an unlink cannot be undone.
+            _append_event(tombstone, {
+                "schema": TOMBSTONE_SCHEMA,
+                "event": "deleted",
+                "fid": target,
+                "identity_key": identity_key(record),
+                "deleted_at": _utc_iso(),
+                "deleted_by": (deleted_by or "").strip() or DEFAULT_ACTOR,
+            })
             payload["findings"] = remaining
             payload["updated_at"] = _timestamp_iso()
-            _write_json_atomic(path, payload)
-        except Exception:
             try:
-                _append_event(tombstone, {"schema": TOMBSTONE_SCHEMA, "event": "delete_aborted",
-                                          "fid": target, "at": _utc_iso()})
-            except Exception:
-                pass
+                # Commit point: Bounty Core's writer ends in one rename, so if it
+                # raises the old ledger is still in place.
+                _write_json_atomic(path, payload)
+            except BaseException:
+                try:
+                    _append_event(tombstone, {"schema": TOMBSTONE_SCHEMA, "event": "delete_aborted",
+                                              "fid": target, "at": _utc_iso()})
+                except Exception:
+                    pass
+                raise
+        except LedgerDeleteError:
             raise
-        result.kept = keep
-        for artifact in delete_paths:
-            try:
-                if _still_safe_to_unlink(artifact, layout.lane_root,
-                                         evidence_template=evidence_template if artifact.name == EVIDENCE_FILENAME else None):
-                    artifact.unlink()
-                    result.deleted_files.append(artifact)
-                else:
-                    result.kept.append((artifact, "changed during delete; left in place"))
-            except OSError as exc:
-                result.kept.append((artifact, f"unlink failed: {exc.__class__.__name__}"))
-                result.warnings.append(f"could not delete generated file {artifact}: {exc}")
-        _prune_empty_dirs(packet)
+        except Exception as exc:
+            raise LedgerDeleteError(f"delete of {target} failed before commit: {exc.__class__.__name__}: {exc}") from exc
+        # Committed. Nothing below raises; problems become warnings (exit 3).
         try:
-            _refresh_and_persist(layout, path, payload)
-        except Exception as exc:  # the delete itself is committed; surface the stale views
-            result.warnings.append(f"navigation refresh failed after delete: {exc.__class__.__name__}: {exc}")
+            _fsync_ledger(path)
+        except Exception as exc:
+            result.warnings.append(f"ledger fsync failed after commit: {exc.__class__.__name__}: {exc}")
+        _finish_delete(layout, path, payload, result, plans, delete_paths, packet, evidence_template)
     return result
+
+
+def _prepare_delete(layout, path, tombstone, payload, target, result):
+    """Every refusal check and plan, before anything is written."""
+    _assert_ledger_well_formed(path)
+    read_tombstone_events(tombstone)  # fail closed before appending to a corrupt log
+    findings = [item for item in payload.get("findings", []) if isinstance(item, dict)]
+    index = next((i for i, item in enumerate(findings)
+                  if str(item.get("fid") or "").strip().upper() == target.upper()), None)
+    if index is None:
+        raise LedgerDeleteError(f"no finding found for fid {target}")
+    record = findings[index]
+    target = str(record.get("fid")).strip()
+    result.fid = target
+    status = finding_status(record)
+    if status != ARCHIVE_STATUS:
+        raise LedgerDeleteError(
+            f"refusing to delete {target}: status is {status or '(unset)'!r}, not 'archive'; "
+            "archive it first (e.g. --edit-finding with {\"status\":\"archive\"})")
+    if "_atomic_import_pending" in record:
+        raise LedgerDeleteError(f"refusing to delete {target}: an import is pending on this finding")
+    if _would_free_next_fid(target, findings):
+        raise LedgerDeleteError(
+            f"refusing to delete {target}: it is the highest FID of its prefix, so the next new finding "
+            "would reuse it; delete it after a newer finding exists in this lane")
+    plans = _plan_sidecar_scrub(layout, target)
+    delete_paths, keep, packet = classify_artifacts(layout, record)
+    result.kept = keep
+    evidence_template = (_pristine_evidence_template(layout, record)
+                         if any(p.name == EVIDENCE_FILENAME for p in delete_paths) else None)
+    remaining = findings[:index] + findings[index + 1:]
+    return record, remaining, plans, delete_paths, packet, evidence_template
+
+
+def _finish_delete(layout, path, payload, result, plans, delete_paths, packet, evidence_template) -> None:
+    """Post-commit cleanup: never raises; every problem becomes a warning (exit 3)."""
+    for plan in plans:
+        try:
+            _apply_sidecar_scrub(plan, layout.lane_root)
+            result.scrubbed.append((plan.path, plan.removed))
+        except Exception as exc:
+            result.kept.append((plan.path, f"{plan.removed} row(s) for {result.fid} not removed"))
+            result.warnings.append(f"could not remove {result.fid} rows from {plan.path}: {exc.__class__.__name__}: {exc}")
+    for artifact in delete_paths:
+        try:
+            if _still_safe_to_unlink(artifact, layout.lane_root,
+                                     evidence_template=evidence_template if artifact.name == EVIDENCE_FILENAME else None):
+                artifact.unlink()
+                result.deleted_files.append(artifact)
+            else:
+                result.kept.append((artifact, "changed during delete; left in place"))
+        except Exception as exc:
+            result.kept.append((artifact, f"unlink failed: {exc.__class__.__name__}"))
+            result.warnings.append(f"could not delete generated file {artifact}: {exc}")
+    try:
+        _prune_empty_dirs(packet)
+    except Exception as exc:
+        result.warnings.append(f"could not prune empty packet directory: {exc.__class__.__name__}: {exc}")
+    try:
+        _refresh_and_persist(layout, path, payload)
+    except Exception as exc:  # the delete itself is committed; surface the stale views
+        result.warnings.append(f"navigation refresh failed after delete: {exc.__class__.__name__}: {exc}")
 
 
 __all__ = [

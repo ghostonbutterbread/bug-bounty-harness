@@ -48,22 +48,24 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
     ``tombstoned=True`` so callers skip it instead of inserting it.
     """
 
-    def _tombstone_match(self, candidate: dict[str, Any]) -> str | None:
+    def _tombstone_match(self, candidate: dict[str, Any], *, loose: bool) -> str | None:
+        # ``loose`` only where Bounty Core's own lookup falls back to (file, class):
+        # ledger_check (check), import_finding, and reserve_batch.
         guard = tombstone_guard_for_layout(self.storage)
-        return guard.match(candidate) if guard else None
+        return guard.match(candidate, loose=loose) if guard else None
 
     def _skipped(self, candidate: dict[str, Any], fid: str, source: str) -> tuple[bool, str, dict[str, Any]]:
         _log_tombstone_skip(fid, source)
         return True, fid, {**dict(candidate), "fid": fid, "tombstoned": True}
 
     def check(self, finding_dict: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any]]:
-        fid = self._tombstone_match(finding_dict)
+        fid = self._tombstone_match(finding_dict, loose=True)
         if fid:
             return self._skipped(finding_dict, fid, f"{self.agent} check")
         return super().check(finding_dict)
 
     def import_finding(self, candidate: dict[str, Any], *, packet_mode: str = EVIDENCE_ONLY) -> tuple[bool, str, dict[str, Any]]:
-        fid = self._tombstone_match(candidate)
+        fid = self._tombstone_match(candidate, loose=True)
         if fid:
             return self._skipped(candidate, fid, f"{self.agent} import")
         return super().import_finding(candidate, packet_mode=packet_mode)
@@ -72,14 +74,14 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
         if not isinstance(candidates, list):
             return super().reserve_batch(candidates)
         guard = tombstone_guard_for_layout(self.storage)
-        matches = [guard.match(c) if guard and isinstance(c, dict) else None for c in candidates]
+        matches = [guard.match(c, loose=True) if guard and isinstance(c, dict) else None for c in candidates]
         allowed = [c for c, m in zip(candidates, matches) if not m]
         reserved = iter(super().reserve_batch(allowed) if allowed else [])
         return [self._skipped(c, m, f"{self.agent} batch") if m else next(reserved)
                 for c, m in zip(candidates, matches)]
 
     def update(self, finding_with_fid: dict[str, Any]) -> dict[str, Any]:
-        fid = self._tombstone_match(finding_with_fid)
+        fid = self._tombstone_match(finding_with_fid, loose=False)  # ledger_add: full key only
         if fid:
             return self._skipped(finding_with_fid, fid, f"{self.agent} update")[2]
         return super().update(finding_with_fid)

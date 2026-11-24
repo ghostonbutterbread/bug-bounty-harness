@@ -28,6 +28,7 @@ from agents import me_ledger  # noqa: E402
 from agents.ledger import create_team_ledger_from_storage, update_team_finding  # noqa: E402
 from agents.ledger_tombstones import (  # noqa: E402
     CorruptTombstoneLogError,
+    LedgerDeleteError,
     MalformedLedgerError,
     delete_finding_by_fid,
 )
@@ -364,7 +365,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
     def test_corrupt_or_symlinked_tombstone_log_fails_closed(self) -> None:
         self._delete_d01()
         with self.tombstone.open("ab") as handle:
-            handle.write(b'{"fid": "D02", "event": "dele')
+            handle.write(b'{"fid": "D02", "event": "dele\n')  # damaged *committed* line
         ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
         with self.assertRaises(CorruptTombstoneLogError):
             ledger.import_finding({"fid": "D01", "file": "x.js", "line": 1, "class_name": "xss", "type": "xss"})
@@ -402,7 +403,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         before = self.ledger.read_bytes()
         from unittest.mock import patch as mock_patch
         with mock_patch("agents.ledger_tombstones._write_json_atomic", side_effect=OSError("disk full")):
-            with self.assertRaises(OSError):
+            with self.assertRaisesRegex(LedgerDeleteError, "failed before commit: OSError: disk full"):
                 delete_finding_by_fid(PROGRAM, "D01", family=FAMILY, lane=LANE, root_override=self.root)
         self.assertEqual(self.ledger.read_bytes(), before)
         self.assertTrue(report.is_file())
@@ -436,6 +437,164 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertFalse(legacy.exists())
         self.assertIn(f"Deleted file: {legacy}", out)
+
+
+    # -- review round 2 regressions ----------------------------------------
+
+    def test_delete_scrubs_finding_rows_from_lane_sidecars(self) -> None:
+        dup = self.tmp / "dup.md"
+        dup.write_text("Title: Placeholder alpha\nClass: native-module-abuse\nFile: src/file1.js:1\n"
+                       "Description: ZQXSECRET duplicate note.\n", encoding="utf-8")
+        self.assertEqual(self._run("--from-file", str(dup), "--link-duplicate-comment")[0], 1)
+        comments = self.layout.ledgers_root / "manual_comments.jsonl"
+        with comments.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"fid": "D02", "raw_note": "keep me"}) + "\n")
+        stream = self.layout.ledgers_root / "findings.jsonl"
+        stream.write_text(json.dumps({"event": "finding_seen", "finding": {"fid": "D01", "title": "ZQXSECRET"}}) + "\n"
+                          + json.dumps({"fid": "D01", "description": "ZQXSECRET raw"}) + "\n"
+                          + json.dumps({"fid": "D03", "description": "other"}) + "\n", encoding="utf-8")
+        comments.chmod(0o640)
+        self._archive("D01")
+        code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"Removed 1 row(s) for D01: {comments}", out)
+        self.assertIn(f"Removed 2 row(s) for D01: {stream}", out)
+        for path in (comments, stream):
+            self.assertNotIn("ZQXSECRET", path.read_text(encoding="utf-8"))
+        self.assertEqual([json.loads(line)["fid"] for line in comments.read_text().splitlines()], ["D02"])
+        self.assertEqual([json.loads(line)["fid"] for line in stream.read_text().splitlines()], ["D03"])
+        self.assertEqual(stat.S_IMODE(comments.stat().st_mode), 0o640)
+
+    def test_malformed_or_symlinked_sidecar_refuses_before_commit(self) -> None:
+        self._archive("D01")
+        comments = self.layout.ledgers_root / "manual_comments.jsonl"
+        comments.write_text('{"fid": "D01", "raw_note": "x"}\n{"fid": "D0', encoding="utf-8")
+        before = self.ledger.read_bytes()
+        code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 1)
+        self.assertIn("manual_comments.jsonl line 2 is unreadable", err)
+        self.assertEqual(out, "")
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertFalse(self.tombstone.exists())
+        outside = self.tmp / "outside-comments.jsonl"
+        outside.write_text('{"fid": "D01"}\n', encoding="utf-8")
+        comments.unlink()
+        comments.symlink_to(outside)
+        self.assertEqual(self._run("--delete-finding", "D01")[0], 1)
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"fid": "D01"}\n')
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_comment_append_waits_for_ledger_lock(self) -> None:
+        from agents.manual_hunter import DuplicateCommentStore
+        store = DuplicateCommentStore(PROGRAM, family=FAMILY, lane=LANE, root_override=self.root)
+        done = threading.Event()
+        lock_path = self.layout.ledgers_root / "ledger.lock"
+        with lock_path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            worker = threading.Thread(target=lambda: (store.append(fid="D02", source_label="t", source_path=None,
+                                                                    raw_text="note", parsed_finding={}), done.set()))
+            worker.start()
+            time.sleep(0.3)
+            self.assertFalse(done.is_set(), "comment append must wait for the ledger lock")
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        worker.join(timeout=10)
+        self.assertTrue(done.is_set())
+
+    def test_unterminated_tombstone_tail_is_ignored_and_trimmed(self) -> None:
+        self._delete_d01()
+        with self.tombstone.open("ab") as handle:
+            handle.write(b'{"schema": "bbh-deleted-finding/2", "event": "del')
+        # The committed D01 tombstone still blocks; unrelated ingest works.
+        code, _out, err = self._run("--from-file", str(self.tmp / "Placeholder_alpha.md"))
+        self.assertEqual(code, 1)
+        self.assertIn("Skipped tombstoned finding D01", err)
+        self.assertEqual(self._ingest("Unrelated delta", "src/delta.js:4"), 0)
+        self._archive("D02")
+        self.assertEqual(self._run("--delete-finding", "D02")[0], 0)
+        lines = self.tombstone.read_text(encoding="utf-8").splitlines()
+        self.assertEqual([json.loads(line)["fid"] for line in lines], ["D01", "D02"])
+        # A damaged committed line still fails closed.
+        self.tombstone.write_text("not json\n" + self.tombstone.read_text(encoding="utf-8"), encoding="utf-8")
+        ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
+        with self.assertRaises(CorruptTombstoneLogError):
+            ledger.check({"file": "z.js", "line": 1, "class_name": "xss", "type": "xss"})
+
+    def test_leftover_tombstone_for_live_fid_does_not_block_updates(self) -> None:
+        row = self._findings()["D01"]
+        from agents.ledger_tombstones import identity_key
+        self.tombstone.write_text(json.dumps({"schema": "bbh-deleted-finding/2", "event": "deleted", "fid": "D01",
+                                              "identity_key": identity_key(row)}) + "\n", encoding="utf-8")
+        ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            updated = ledger.update({**row, "severity": "HIGH"})
+            checked = ledger.check(dict(row))
+        self.assertFalse(updated.get("tombstoned"))
+        self.assertFalse(checked[2].get("tombstoned"))
+        self.assertEqual(self._findings()["D01"]["severity"], "HIGH")
+        self.assertNotIn("Skipped tombstoned", err.getvalue())
+
+    def test_post_commit_failure_exits_3_with_warning(self) -> None:
+        self._archive("D01")
+        from unittest.mock import patch as mock_patch
+        self._write_generated_report("D01")
+        with mock_patch("agents.ledger_tombstones._refresh_and_persist", side_effect=RuntimeError("boom")), \
+                mock_patch("agents.ledger_tombstones._still_safe_to_unlink", side_effect=PermissionError("denied")):
+            code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 3)
+        self.assertIn("Finding deleted: D01", out)
+        self.assertIn("Warning: navigation refresh failed after delete: RuntimeError: boom", err)
+        self.assertIn("Warning: could not delete generated file", err)
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn("D01", self._findings())
+
+    def test_pre_commit_failure_is_a_clean_refusal(self) -> None:
+        self._archive("D01")
+        before = self.ledger.read_bytes()
+        from unittest.mock import patch as mock_patch
+        with mock_patch("agents.ledger_tombstones.classify_artifacts", side_effect=OSError("io error")):
+            code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertTrue(err.startswith("[manual_hunter] delete of D01 failed before commit: OSError"))
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertFalse(self.tombstone.exists())
+
+    def test_unreadable_evidence_is_kept_not_fatal(self) -> None:
+        self._archive("D01")
+        evidence = Path(self._findings()["D01"]["report_dir"]) / "EVIDENCE.md"
+        evidence.chmod(0)
+        self.addCleanup(evidence.chmod, 0o600)
+        code, out, _err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 0)
+        self.assertIn(f"Kept (unreadable (PermissionError); left in place): {evidence}", out)
+
+    def test_missing_lane_is_refused_without_creating_anything(self) -> None:
+        web_lane = self.root / FAMILY / PROGRAM / "web"
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main([PROGRAM, "--family", FAMILY, "--lane", "web", "--root", str(self.root), "--delete-finding", "D01"])
+        self.assertEqual(code, 1)
+        self.assertIn("lane has no ledger", err.getvalue())
+        self.assertFalse(web_lane.exists())
+
+    def test_actor_without_delete_is_a_usage_error(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as raised:
+            main([*self.base, "--actor", "x"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--actor is only valid with --delete-finding", err.getvalue())
+
+    def test_loose_identity_match_only_where_bounty_core_uses_it(self) -> None:
+        record = self._delete_d01()
+        loose = {"file": record["file"], "class_name": record["class_name"]}
+        ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
+        with redirect_stderr(io.StringIO()):
+            self.assertTrue(ledger.check(dict(loose))[2].get("tombstoned"))  # ledger_check matches (file, class)
+            updated = ledger.update(dict(loose))  # ledger_add matches the full key only
+        self.assertFalse(updated.get("tombstoned"))
+        added = update_team_finding(PROGRAM, {"fid": "D09", **loose}, family=FAMILY, lane=LANE, root_override=self.root)
+        self.assertFalse(added.get("tombstoned"))
 
 
 if __name__ == "__main__":

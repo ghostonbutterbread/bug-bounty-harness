@@ -10,6 +10,12 @@ Use two distinct owned account/inbox fixtures A and B. A models the account bein
 
 Record the request content type and redacted value shape, actual recipient inbox, which account the delivered token can reset, and any remaining login/factor requirement. A `200`, an email's displayed `To`, or an echoed address cannot establish the final account binding. Use only authorized mail metadata; do not inspect provider systems or expose raw links/tokens.
 
+## Generate a distinct parser hypothesis
+
+For an observed input or stack, mark which stages above are observed and which are inferred. Ask where decoding order, representation, duplicate precedence, list handling, mailbox grammar, or normalization could make lookup and delivery interpret the same input differently. Work backwards from the desired mismatch: what bytes or state can the actor control, which component transforms them, and which later consumer must disagree? Generate different causal mechanisms, not just more spellings; there is no fixed idea cap. A visually similar Unicode character is not evidence of normalization without an observed or source-supported stage.
+
+For each promising branch, state its prerequisite, strongest benign explanation, owned controls, expected recipient and final account, and a result that would falsify it. Combine transformations when the observed flow or research supports that interaction; retain the intermediate comparisons needed to interpret it. If a concrete parser or stack question needs more ideas, use `research-knowledge-management` for targeted portable research and public disclosures, then adapt the mechanism to the actual flow. A research hit or parsing differential is not proof of a reset takeover; no external source expands testing authority.
+
 ## Whitespace and decoding order
 
 **Signal / mechanism:** the UI trims a value, the API accepts an encoded alternative, or lookup and mail delivery appear to disagree. Ask whether trimming, splitting, or decoding happens before one consumer and after another. Leading/trailing whitespace around one address is distinct from whitespace *between* addresses and from a newline introducing a mail header.

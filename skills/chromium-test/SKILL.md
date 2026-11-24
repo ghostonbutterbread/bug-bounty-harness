@@ -230,18 +230,12 @@ remain protected; unavailable capacity/ownership queues rather than changing
 account. Explicit slots and legacy profiles are not silently migrated.
 The separate two-hour request-triggered cleanup still retains profile state.
 
-The optional `--owner-pid <local-task-supervisor-pid>` also supplies an explicit
-terminal task signal. It must cover the task lifetime on the browser node,
-not this request command, a remote process, or a shared daemon. Without it, a
-newly started browser is bound to the requesting agent process on the browser
-node (nearest `claude`/`codex`/`hermes`/`pi`/`omp`/… ancestor): if that agent
-exits without `release`, the provisioner stops the browser through its normal
-verified path. This includes headed and `--driving-mode manual` handoff
-browsers: only an unexpired `awaiting-input` hold (at most 3600 seconds) keeps
-one alive after its agent exits, so set the hold **before** exiting or handing
-off to a human, or pass a longer-lived `--owner-pid`. Remote one-shot requests
-with no agent ancestor stay ownerless. Legacy ownerless records remain
-conservative; missing telemetry is not evidence of idleness.
+Optional `--owner-pid <local-task-supervisor-pid>` is an explicit terminal task
+signal covering the task lifetime on the browser node (not this command, a
+remote process or a shared daemon). Without it, a new browser binds to its
+nearest local agent ancestor and stops via the verified path when that agent
+exits; set an `awaiting-input` hold (max 3600 s) **before** exiting or handing
+off. Legacy ownerless records stay conservative; missing telemetry is not idleness.
 
 A reclaimable healthy matching headless profile may transfer without restarting
 Chromium after its configured inactivity window. The provisioner fences old
@@ -673,9 +667,7 @@ path is not yet known; do not use a different path to bypass a named lease.
    has no `--ephemeral-profile` option. A lease remains locked
    while work awaits input: renew it with `--work-state awaiting-input`.
    A same-task operator handoff is not terminal; keep the existing lease and
-   browser until resume or a terminal disposition. Set the `awaiting-input`
-   hold before the handing-off agent exits: a browser bound to that agent stops
-   once the agent is gone and no hold is active. Only terminal completion,
+   browser until resume or a terminal disposition. Only terminal completion,
    transfer to another owner, or cancellation may call `release` with both
    `--disposition` and a non-secret `--profile-health` for the next agent.
 1. Request the engagement browser through the provisioner. When the final
@@ -696,18 +688,13 @@ path is not yet known; do not use a different path to bypass a named lease.
      --task-owned --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url about:blank
    ```
-   On `queued`/`queued-timeout`, preserve the exact task and account. The
-   provisioner already admits a swap-exhausted node when available RAM covers
-   the RAM minimum plus the swap shortfall and memory PSI is healthy (receipt
-   `swap_gate: covered-by-available-ram`). Only for `reason: no-capacity`,
-   read the nested `admission.reason` and check current memory pressure
-   (`/proc/pressure/memory`). If **only** the minimum-free-swap gate fails, RAM
-   is sufficient for the bounded browser, and memory pressure is healthy, retry
-   the same provisioner request with `--min-swap-free-mib 0`.
-   This lowers the free-swap admission threshold for that request; it does **not**
-   disable swap or bypass RAM admission. Otherwise perform non-browser preparation
-   and retry with bounded backoff; do not relax the RAM threshold to force a
-   launch. Never launch `chromium_test.py` directly to evade engagement admission.
+   On `queued`/`queued-timeout`, preserve the exact task and account. Admission
+   already covers a swap shortfall with available RAM when memory PSI is healthy
+   (`swap_gate: covered-by-available-ram`). For other `reason: no-capacity`, read
+   `admission.reason`: if **only** the free-swap gate fails and
+   `/proc/pressure/memory` is healthy, retry with `--min-swap-free-mib 0` (it
+   never bypasses RAM admission). Otherwise prepare without a browser, retry with
+   backoff, and never relax RAM or launch `chromium_test.py` to evade admission.
    For `reason: no-capacity`, run provisioner `cleanup` on the browser node to
    inspect admission and per-browser refusal reasons. It is a dry-run; use
    `cleanup --apply` only for rows proven terminal, explicitly headless and idle,
@@ -759,11 +746,8 @@ path is not yet known; do not use a different path to bypass a named lease.
    Use `handoff` only for a terminal transfer to another owner, not a same-task
    operator pause; use `cancelled` when that is the actual outcome. Choose health
    from the observed profile state, not by default.
-   At run end (or when lease IDs were lost), release every browser recorded for
-   this exact agent/run: run `release-run --agent-id <agent-id> --run-id
-   <run-id> --disposition completed --profile-health healthy`, review the
-   dry-run, then repeat with `--apply`. It never selects by unit name. Never
-   hand-roll `systemctl list-units` keep/stop comparisons on the browser node.
+   At run end or after losing lease IDs, use `release-run --agent-id --run-id`
+   (dry-run, then `--apply`); never hand-roll `systemctl list-units` comparisons.
    Verify the recorded root and CDP endpoint close; persistent account profiles remain.
    Dispose of a task-only profile only after its root is stopped and it is no
    longer in use. Never infer cleanup from directory deletion alone.

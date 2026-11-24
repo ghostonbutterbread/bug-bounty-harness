@@ -21,6 +21,7 @@ Usage:
 import sys
 import argparse
 import json
+import re
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -282,8 +283,18 @@ def run_fuzz(args, campaign, state):
     print(f"   Last wordlist: {last_wordlist}")
     print(f"   Paths already tested: {paths_tested}")
 
+    # The program's saved scope supplies exclusions that the campaign's domain
+    # list (HarnessConstraints) lacks, so never fuzz without it.
+    config = campaign.get("program_config")
+    program = config.get("program") if isinstance(config, dict) else None
+    if not isinstance(program, str) or not re.fullmatch(r"[a-z0-9_-]+", program):
+        print("   ❌ Fuzz needs the campaign's saved-scope program. No requests were made. "
+              "Create a new campaign with `run_campaign.py init --campaign <new-id> --program <program> ...`; "
+              "re-initializing this one needs --force, which resets its findings and fuzz state.")
+        return 1
+
     try:
-        agent = FuzzAgent(args.campaign)
+        agent = FuzzAgent(args.campaign, program=program)
         result = agent.run(max_requests=max_requests)
 
         print(f"\n   Fuzz session complete:")

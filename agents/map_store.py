@@ -307,6 +307,23 @@ def _entry_tags(entry: dict) -> set[str]:
     return {slugify(tag) for tag in entry.get("tags", []) if tag}
 
 
+def _observation_identity(entry: dict) -> tuple:
+    """Identify one current fact: scope, surface, location, title and exact tags.
+
+    Run, agent and body are deliberately excluded so a corrected re-write of the
+    same fact from a later run supersedes the earlier entry instead of sitting
+    beside it. Case, punctuation and tag order do not distinguish facts.
+    """
+    url = normalize_url(str(entry.get("url") or "")) if entry.get("url") else ""
+    return (
+        str(entry.get("scope") or ""),
+        slugify(str(entry.get("surface") or ""), fallback=""),
+        url.rstrip("/") if url != "/" else url,
+        slugify(str(entry.get("title") or ""), fallback=""),
+        tuple(sorted(_entry_tags(entry))),
+    )
+
+
 def _entry_test_labels(entry: dict) -> set[str]:
     """Return concise "tested for" labels from surface and vuln/status tags."""
     labels: set[str] = set()
@@ -871,7 +888,9 @@ class MapStore:
                 {"path": path, "title": observations[path].get("title", ""),
                  "status": _entry_status(observations[path]),
                  "timestamp": observations[path].get("timestamp", ""),
-                 "url": observations[path].get("url", "")}
+                 "url": observations[path].get("url", ""),
+                 **({"superseded_by": observations[path]["superseded_by"]}
+                    if observations[path].get("superseded_by") else {})}
                 if path in observations else {"path": path, "missing": True}
                 for path in entry.get("observation_paths", [])
             ],
@@ -904,6 +923,10 @@ class MapStore:
         behaviors: list[str] | None = None,
     ) -> Path:
         """Write a surface observation and index it.
+
+        Re-writing the same identity (scope, surface, URL, title and exact tag
+        set) supersedes the prior current entry: it is archived with
+        ``superseded_by`` and kept on disk; the new entry lists ``supersedes``.
 
         Args:
             url: Normalised URL (empty for app-wide or surface-wide).
@@ -1126,11 +1149,39 @@ class MapStore:
         }
         if reviewers:
             entry[AI_REVIEWED_BY_FIELD] = reviewers
+        # One current entry per identity: a re-write of the same fact archives
+        # the prior current entries (files and history kept) with explicit links
+        # instead of leaving an identically tagged sibling that reads as current.
+        # Only entries update-status could archive (file present) are eligible.
+        identity = _observation_identity(entry)
+        superseded = [
+            str(old["path"]) for old in self._read_index()
+            if old.get("path") and old.get("path") != entry["path"]
+            and _entry_status(old) != ARCHIVED_STATUS
+            and _observation_identity(old) == identity
+            and (self._maps_root / str(old["path"])).is_file()
+        ]
+        if superseded:
+            entry["supersedes"] = superseded
         self._upsert_entry(entry)
         self._refresh_pointer_index(
             obs_dir.parent,
             self._pointer_heading(scope=scope, surface=surface, url=url),
         )
+        for old_path in superseded:
+            self._update_status_unlocked(
+                path=old_path,
+                status=ARCHIVED_STATUS,
+                reason=f"Superseded by {entry['path']} (same scope, surface, location, title and tags).",
+                agent=agent,
+                model_id=None,
+                superseded_by=entry["path"],
+            )
+            print(
+                f"MapStore: archived superseded entry {old_path} "
+                f"(superseded_by {entry['path']})",
+                file=sys.stderr,
+            )
 
         return obs_path
 
@@ -1157,78 +1208,95 @@ class MapStore:
             raise ValueError("status update reason is required")
 
         with self._locked():
-            entries = self._read_index()
-            match: dict | None = None
-            for entry in entries:
-                if entry.get("path") == path:
-                    match = entry
-                    break
-            if match is None:
-                raise ValueError(f"No MapStore entry found for path: {path}")
-
-            obs_path = self._maps_root / path
-            if not obs_path.exists():
-                raise ValueError(f"Observation file is missing: {path}")
-
-            timestamp = iso_now()
-            reviewers = merge_ai_reviewers(
-                match.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
+            return self._update_status_unlocked(
+                path=path, status=status, reason=reason, agent=agent, model_id=model_id
             )
-            if reviewers:
-                match[AI_REVIEWED_BY_FIELD] = reviewers
-            match["status"] = status
-            match["status_updated"] = timestamp
-            match["status_agent"] = agent
-            match["status_reason"] = reason
-            history = match.get("status_history")
-            if not isinstance(history, list):
-                history = []
-            history.append({
-                "timestamp": timestamp,
-                "status": status,
-                "agent": agent,
-                "reason": reason,
-            })
-            match["status_history"] = history
-            entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-            self._write_index(entries)
 
-            content = obs_path.read_text(encoding="utf-8")
-            lines = content.splitlines()
-            replaced = False
+    def _update_status_unlocked(
+        self,
+        *,
+        path: str,
+        status: str,
+        reason: str,
+        agent: str,
+        model_id: str | None,
+        superseded_by: str | None = None,
+    ) -> dict:
+        """Apply a normalized status change; the caller holds the store lock."""
+        entries = self._read_index()
+        match: dict | None = None
+        for entry in entries:
+            if entry.get("path") == path:
+                match = entry
+                break
+        if match is None:
+            raise ValueError(f"No MapStore entry found for path: {path}")
+
+        obs_path = self._maps_root / path
+        if not obs_path.exists():
+            raise ValueError(f"Observation file is missing: {path}")
+
+        timestamp = iso_now()
+        reviewers = merge_ai_reviewers(
+            match.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
+        )
+        if reviewers:
+            match[AI_REVIEWED_BY_FIELD] = reviewers
+        match["status"] = status
+        match["status_updated"] = timestamp
+        match["status_agent"] = agent
+        match["status_reason"] = reason
+        if superseded_by:
+            match["superseded_by"] = superseded_by
+        history = match.get("status_history")
+        if not isinstance(history, list):
+            history = []
+        history.append({
+            "timestamp": timestamp,
+            "status": status,
+            "agent": agent,
+            "reason": reason,
+        })
+        match["status_history"] = history
+        entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        self._write_index(entries)
+
+        content = obs_path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        replaced = False
+        for idx, line in enumerate(lines):
+            if line.startswith("Status: "):
+                lines[idx] = f"Status: {status}"
+                replaced = True
+                break
+        if not replaced:
+            insert_at = 4 if len(lines) >= 4 else len(lines)
+            lines.insert(insert_at, f"Status: {status}")
+        if reviewers:
+            reviewer_line = f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}"
             for idx, line in enumerate(lines):
-                if line.startswith("Status: "):
-                    lines[idx] = f"Status: {status}"
-                    replaced = True
+                if line.startswith("AI Reviewed By: "):
+                    lines[idx] = reviewer_line
                     break
-            if not replaced:
-                insert_at = 4 if len(lines) >= 4 else len(lines)
-                lines.insert(insert_at, f"Status: {status}")
-            if reviewers:
-                reviewer_line = f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}"
-                for idx, line in enumerate(lines):
-                    if line.startswith("AI Reviewed By: "):
-                        lines[idx] = reviewer_line
-                        break
-                else:
-                    lines.insert(5 if len(lines) >= 5 else len(lines), reviewer_line)
-            content = "\n".join(lines).rstrip() + _format_status_note(
-                timestamp=timestamp,
-                status=status,
-                agent=agent,
-                reason=reason,
-            )
-            _atomic_write_text(obs_path, content.rstrip() + "\n")
-            self._refresh_pointer_index(
-                obs_path.parent.parent,
-                self._pointer_heading(
-                    scope=str(match.get("scope") or URL_SCOPE),
-                    surface=str(match.get("surface") or ""),
-                    url=str(match.get("url") or ""),
-                ),
-            )
+            else:
+                lines.insert(5 if len(lines) >= 5 else len(lines), reviewer_line)
+        content = "\n".join(lines).rstrip() + _format_status_note(
+            timestamp=timestamp,
+            status=status,
+            agent=agent,
+            reason=reason,
+        )
+        _atomic_write_text(obs_path, content.rstrip() + "\n")
+        self._refresh_pointer_index(
+            obs_path.parent.parent,
+            self._pointer_heading(
+                scope=str(match.get("scope") or URL_SCOPE),
+                surface=str(match.get("surface") or ""),
+                url=str(match.get("url") or ""),
+            ),
+        )
 
-            return dict(match)
+        return dict(match)
 
     # -- query ---------------------------------------------------------------
 
@@ -1722,7 +1790,8 @@ def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
             print(detail["body"].rstrip())
             print("\nLinked observations (lifecycle status is not test coverage):")
             for obs in detail["observations"]:
-                print(f"- {obs['path']} | {obs.get('status', 'missing')}")
+                superseded = f" | superseded by {obs['superseded_by']}" if obs.get("superseded_by") else ""
+                print(f"- {obs['path']} | {obs.get('status', 'missing')}{superseded}")
         return 0
     if args.limit < 1:
         raise ValueError("Behavior query limit must be positive")
@@ -1834,6 +1903,8 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
             print(f"  Status: {status}")
             print(f"  URL: {url_val}")
             print(f"  Path: {path}")
+            if entry.get("superseded_by"):
+                print(f"  Superseded by: {entry['superseded_by']}")
             if tags:
                 print(f"  Tags: {tags}")
             if cf_source:

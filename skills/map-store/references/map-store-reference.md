@@ -103,6 +103,14 @@ Statuses:
 Archived entries remain in MapStore. Query them explicitly with
 `--include-archived` or `--status archived`.
 
+**Corrections supersede.** A `write` with the same scope, surface, URL, title,
+and exact tag set is the same fact; case, punctuation, tag order, run ID, and
+agent do not distinguish it. The new entry becomes the one current entry and
+lists `supersedes`. Each prior current entry is archived with `superseded_by`
+and a lifecycle note; its file stays on disk as history. Do not hand-archive
+the old copy. Use a distinct title for a genuinely separate fact at the same
+location.
+
 Use `archived` plus `impact-waiver`/`dead-end` tags when a surface is still
 searchable but should not be selected as an active hunt target without a named
 wake condition. Use `needs_recheck` when the impact depends on unknown account

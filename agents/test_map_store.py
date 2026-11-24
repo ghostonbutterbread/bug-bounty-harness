@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -602,10 +603,15 @@ class TestMapStore:
             title="shared title",
         )
 
+        # Never clobbered; the same-identity re-write supersedes the first.
         assert first != second
         assert first.parent.name == "recon-shared-title"
         assert second.parent.name == "recon-shared-title-2"
-        assert len(store.query(scope=APP_SCOPE)) == 2
+        assert "First app-wide note" in first.read_text(encoding="utf-8")
+        assert [e["path"] for e in store.query(scope=APP_SCOPE)] == [
+            second.relative_to(store.maps_root).as_posix()
+        ]
+        assert len(store.query(scope=APP_SCOPE, include_archived=True)) == 2
 
     def test_write_updates_index(self, store: MapStore):
         store.init()
@@ -1150,8 +1156,153 @@ class TestMapStore:
         assert first != second
         assert first.parent.name == "filename-parameter"
         assert second.parent.name == "filename-parameter-2"
+        assert "Filename marker reflected" in first.read_text(encoding="utf-8")
         results = store.query(url="https://app.com/upload", surface="xss")
-        assert len(results) == 2
+        assert [e["path"] for e in results] == [second.relative_to(store.maps_root).as_posix()]
+        assert len(store.query(url="https://app.com/upload", include_archived=True)) == 2
+
+    # -- same-identity re-writes (PC-20261006-184250-c75063f4) ---------------
+
+    def _rel(self, store: MapStore, path: Path) -> str:
+        return path.relative_to(store.maps_root).as_posix()
+
+    def test_corrected_rewrite_from_later_run_supersedes_stale_entry(self, store: MapStore):
+        store.init()
+        common: dict[str, Any] = dict(
+            url="https://app.com/upload", surface="api", scope=URL_SCOPE,
+            title="upload endpoint reachability", tags=["reachability", "api-upload"],
+            agent="bunny-worker",
+        )
+        stale = store.write(body="Surface unreachable.\n", run_id="run-a", **common)
+        current = store.write(body="Surface is live: 200 OK.\n", run_id="run-b", **common)
+        stale_rel, current_rel = self._rel(store, stale), self._rel(store, current)
+
+        # A later agent sees exactly one current fact for this identity.
+        visible = store.query(url="https://app.com/upload")
+        assert [e["path"] for e in visible] == [current_rel]
+        assert visible[0]["supersedes"] == [stale_rel]
+
+        # History kept: the stale entry is archived, linked, and its body intact.
+        archived = next(e for e in store.query(include_archived=True) if e["path"] == stale_rel)
+        assert archived["status"] == ARCHIVED_STATUS
+        assert archived["superseded_by"] == current_rel
+        assert current_rel in archived["status_reason"]
+        assert archived["status_history"][-1]["status"] == ARCHIVED_STATUS
+        text = stale.read_text(encoding="utf-8")
+        assert "Surface unreachable." in text
+        assert "Status: archived" in text and f"Superseded by {current_rel}" in text
+        pointer = (stale.parent.parent / "index.md").read_text(encoding="utf-8")
+        assert current.parent.name in pointer and stale.parent.name not in pointer
+
+    def test_identity_ignores_case_punctuation_and_tag_order(self, store: MapStore):
+        store.init()
+        first = store.write(
+            url="https://App.com/upload/", surface="API", title="Upload Endpoint: Reachability",
+            tags=["Reachability", "api-upload"], body="One.\n",
+        )
+        second = store.write(
+            url="https://app.com/upload", surface="api", title="upload endpoint reachability",
+            tags=["api-upload", "reachability"], body="Two.\n",
+        )
+        assert [e["path"] for e in store.query()] == [self._rel(store, second)]
+        assert store.query(include_archived=True, statuses=[ARCHIVED_STATUS])[0]["path"] == self._rel(store, first)
+
+    def test_distinct_identities_remain_separate_current_entries(self, store: MapStore):
+        store.init()
+        base: dict[str, Any] = dict(url="https://app.com/upload", surface="api", scope=URL_SCOPE,
+                                    title="upload check", tags=["upload", "xss"])
+        variants: list[dict[str, Any]] = [
+            {},
+            {"title": "upload content-type check"},
+            {"tags": ["upload"]},
+            {"tags": ["upload", "xss", "investigated"]},
+            {"url": "https://app.com/upload/v2"},
+            {"surface": "xss"},
+            {"scope": SURFACE_SCOPE, "url": ""},
+            {"scope": APP_SCOPE, "url": ""},
+        ]
+        paths = {self._rel(store, store.write(body="Observed.\n", **{**base, **change}))
+                 for change in variants}
+        current = store.query()
+        assert len(paths) == len(variants)
+        assert {e["path"] for e in current} == paths
+        assert not any("supersedes" in e or "superseded_by" in e for e in current)
+
+    def test_rewrite_ignores_archived_entries_and_collapses_legacy_duplicates(self, store: MapStore):
+        store.init()
+        common: dict[str, Any] = dict(url="https://app.com/a", surface="js", title="bundle", tags=["js"])
+        manual = store.write(body="Manually archived.\n", **common)
+        store.update_status(path=self._rel(store, manual), status="archived", reason="Hand-archived duplicate.")
+        legacy_a = store.write(body="Legacy A.\n", **common)
+        legacy_b = store.write(body="Legacy B.\n", **common)
+        # Simulate pre-fix sibling duplicates by re-activating the superseded one.
+        store.update_status(path=self._rel(store, legacy_a), status="active", reason="pre-fix duplicate fixture")
+
+        newest = store.write(body="Current.\n", **common)
+
+        newest_entry = store.query()[0]
+        assert [e["path"] for e in store.query()] == [self._rel(store, newest)]
+        assert set(newest_entry["supersedes"]) == {self._rel(store, legacy_a), self._rel(store, legacy_b)}
+        by_path = {e["path"]: e for e in store.query(include_archived=True)}
+        assert by_path[self._rel(store, manual)]["status_reason"] == "Hand-archived duplicate."
+        assert "superseded_by" not in by_path[self._rel(store, manual)]
+
+    def test_concurrent_same_identity_cli_writes_leave_one_current_entry(self, store: MapStore):
+        store.init()
+        root = str(store._layout.base_root)
+        cwd = Path(__file__).resolve().parents[1]
+        commands = [
+            [sys.executable, "agents/map_store.py", "write", "--program", "testprog", "--root", root,
+             "--url", "https://app.com/race", "--surface", "api", "--title", "race fact",
+             "--tags", "race,api", "--run-id", f"run-{number}", "--body", f"Writer {number}."]
+            for number in range(4)
+        ]
+        processes = [subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE) for command in commands]
+        results = [(process.communicate(), process.returncode) for process in processes]
+        assert all(code == 0 for _, code in results), results
+
+        everything = store.query(include_archived=True)
+        current = store.query()
+        assert len(everything) == 4 and len(current) == 1
+        by_path = {e["path"]: e for e in everything}
+        for entry in everything:
+            seen, path = set(), entry["path"]
+            while by_path[path].get("superseded_by"):
+                assert path not in seen
+                seen.add(path)
+                path = by_path[path]["superseded_by"]
+            assert path == current[0]["path"]
+            assert (store.maps_root / entry["path"]).is_file()
+
+    def test_cli_write_prints_only_the_new_path_and_reports_supersede(self, store: MapStore, capsys):
+        from agents import map_store
+
+        store.init()
+        root = str(store._layout.base_root)
+        argv = ["write", "--program", "testprog", "--root", root, "--url", "https://app.com/x",
+                "--surface", "api", "--title", "fact", "--tags", "a,b"]
+        assert map_store.main([*argv, "--body", "Old."]) == 0
+        old = capsys.readouterr().out.strip()
+        assert map_store.main([*argv, "--body", "New."]) == 0
+        captured = capsys.readouterr()
+        new = captured.out.strip()
+        assert new != old and "\n" not in new and Path(new).is_file()
+        assert Path(old).relative_to(store.maps_root).as_posix() in captured.err
+        assert "superseded_by" in captured.err
+        new_rel = Path(new).relative_to(store.maps_root).as_posix()
+        assert map_store.main(["query", "--program", "testprog", "--root", root, "--include-archived"]) == 0
+        assert f"Superseded by: {new_rel}" in capsys.readouterr().out
+
+    def test_behavior_detail_links_superseded_evidence_to_current_entry(self, store: MapStore):
+        store.init()
+        common: dict[str, Any] = dict(url="https://app.com/import", surface="api", title="xml import", tags=["xml"])
+        old = store.write(body="Accepted XML.\n", **common)
+        store.write_behavior(name="XML import", kinds=["parser"],
+                             observation_paths=[self._rel(store, old)], body="Parses XML.\n")
+        new = store.write(body="Accepted XML; DOCTYPE stripped.\n", **common)
+        linked = store.behavior_detail("xml-import")["observations"]
+        assert linked == [{**linked[0], "status": ARCHIVED_STATUS, "superseded_by": self._rel(store, new)}]
 
     def test_write_updates_parent_pointer_index(self, store: MapStore):
         store.init()

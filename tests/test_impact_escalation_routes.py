@@ -9,11 +9,9 @@ SSRF_OVERLAY = ROOT / "skills/ssrf-impact-escalation/SKILL.md"
 def test_finding_to_report_route_keeps_initial_capture_first():
     entry = ENTRY.read_text(encoding="utf-8")
     capture = (ROOT / "skills/manual-hunter/SKILL.md").read_text(encoding="utf-8")
-    reporting = (ROOT / "skills/security-reporting/SKILL.md").read_text(encoding="utf-8")
     assert entry.index("After recording a proven FID") < entry.index("load `impact-escalation`")
     assert entry.index("load `impact-escalation`") < entry.index("Load the standalone `bunny-report-and-triage`")
     assert capture.index("ingest it promptly") < capture.index("Then load `impact-escalation`")
-    assert "same FID" in reporting
 
 
 def test_xss_overlay_routes_to_guard_owner_and_checks_effect():

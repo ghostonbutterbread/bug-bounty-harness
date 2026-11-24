@@ -12,6 +12,19 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
+**Mechanism.** A request carries an object reference; the server authorizes one
+reference and loads another. A bug exists when those two diverge. Name where
+this endpoint authorizes and where it loads before choosing a mutation, and
+confirm the effect on the authoritative resource rather than on the status line.
+`skills/access-control/references/mutations/idor.md` indexes the mutation groups
+by which divergence each one bets on.
+
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. State why each variation should behave differently
+before sending it (`idor-live-policy`). The surface is gated once, not per
+reference; do not leave a warm vector to record a blocker.
+
 1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
@@ -20,7 +33,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    Avoid querying MapStore or prior attempts until this concrete location/context exists.
 3. **Fresh Observations** — Aim to identify 3-5 fresh object references, ID patterns, role
    differences, or auth boundaries from direct observation before pulling
-   prior state.
+   prior state. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read shared state in this order:
    - `/account-management` registry at
      `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`

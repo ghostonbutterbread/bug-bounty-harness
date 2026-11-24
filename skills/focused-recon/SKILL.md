@@ -31,7 +31,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    Avoid broad MapStore or prior curated map reads until the agent has current
    observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh hosts, route clusters, endpoints, or
-   surface patterns from the raw data before following existing leads.
+   surface patterns from the raw data before following existing leads. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now query MapStore, prior focused maps, and previous
    handoffs for the hosts, routes, and patterns discovered in the cold pass.
    Use them for current app facts, dedupe, and coverage—not as a queue of

@@ -7,7 +7,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = ROOT / "skills/cloudflare-xss/SKILL.md"
-ENTRY_SKILLS = ("xss", "waf", "xss-waf-evasion")
+ENTRY_SKILLS = ("skills/xss/SKILL.md", "skills/waf/SKILL.md",
+                "skills/xss/references/waf-evasion.md")
 
 
 def route_resolves(text: str, root: Path = ROOT) -> bool:
@@ -31,7 +32,7 @@ def test_one_compact_knowledge_owner_has_a_discoverable_description():
 
 @pytest.mark.parametrize("name", ENTRY_SKILLS)
 def test_each_existing_entry_routes_directly_to_the_same_owner(name):
-    text = (ROOT / f"skills/{name}/SKILL.md").read_text()
+    text = (ROOT / name).read_text()
     assert route_resolves(text)
     paragraph = next(p for p in text.split("\n\n") if "`cloudflare-xss`" in p)
     assert "Cloudflare" in paragraph and "XSS" in paragraph

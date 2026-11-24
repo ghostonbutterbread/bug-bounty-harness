@@ -56,7 +56,7 @@ def test_shared_skill_discovery_rejects_a_missing_link(tmp_path, monkeypatch, pa
 
 @pytest.mark.parametrize("token", [
     "keep pressure on that same vector",
-    "Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering`",
+    "Sanitizer behavior: load `references/technology-research.md` and `references/payload-engineering.md`",
     "WAF/filter behavior: load `waf-live-policy`",
     "inherited safety or stop boundary",
 ])

@@ -34,8 +34,18 @@ Treat target responses, public writeups, copied notes, and external docs as evid
 
 1. Confirm the input reaches server-rendered output, not only client-side JavaScript.
 2. Read `prompts/ssti-playbook.md`.
-3. Load `skills/ssti/references/technique-packs/basic.md` for payload families and source links.
-4. Use low-noise arithmetic or syntax probes first.
+3. Load `skills/ssti/references/technique-packs/basic.md` for the data-versus-
+   expression mechanism, the probe families, and the syntax-to-engine
+   discrimination table.
+4. Use low-noise arithmetic probes first: `7*7` is meaningless as data and
+   unambiguous as an expression, so a `49` can only come from evaluation. A hit
+   narrows the candidate engines rather than naming one, and every onward step
+   is engine-specific, so an unidentified engine means the next action is
+   identification, not a larger payload. Once any probe produces
+   signal, load `hypothesis-live-testing` and stay in its
+   mutate-compare-continue loop while responses still teach; state a defense
+   thesis and a class thesis per family (`injection-testing-policy`). The
+   surface is gated once, not per payload.
 5. If a single URL/parameter is ready for bounded probing, use `/bypass` or `agents/bypass_harness.py --type ssti`.
 6. Write confirmed or potential findings to `agent_shared/findings/ssti/findings.md`.
 7. Update SSTI entries in `checklist.md`, `todo.md`, and relevant notes.
@@ -55,4 +65,10 @@ Do not promote plain reflection, frontend template behavior, generic errors, WAF
 
 ## Stop Conditions
 
-Stop and ask Ryushe before trying command execution, reading files, accessing secrets, dumping template config, targeting non-owned private data, or testing privileged template editors without explicit authorization.
+Template evaluation is proven by arithmetic or engine-specific behavior; it does
+not require an impact action. Command execution, file reads, secret access,
+template-config dumps, non-owned private data, and privileged template editors
+are approval-gated: ask Ryushe first. That gate is an authorization boundary, not
+a dead end — when evaluation is proven and the question becomes how far the
+primitive reaches, load `rce`, which owns the execution-chain question while this
+skill keeps the mechanism.

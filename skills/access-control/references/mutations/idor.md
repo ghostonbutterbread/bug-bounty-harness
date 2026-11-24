@@ -2,6 +2,43 @@
 
 Use this for object, ownership, tenant, and lifecycle mutations. If the main question becomes encoding, parser confusion, method override, path normalization, trusted headers, or WAF behavior, switch to `/bypass`.
 
+## Mechanism
+
+A request carries an object reference. Somewhere the server decides whether the
+caller may have that object, and somewhere else it loads one:
+
+```text
+request -> parse reference -> authorize(reference) -> load(reference) -> respond
+```
+
+A bug exists when **the reference the check read is not the reference the
+handler loaded**. Every group below is one way to make those two diverge, so
+pick the group matching how this endpoint most plausibly splits them rather than
+working the list top to bottom.
+
+| Group | The divergence it bets on |
+|---|---|
+| Object Reference | there is no check on this reference at all |
+| Ownership Field | the check trusts a client-supplied owner instead of the session |
+| List Versus Direct Fetch | filtering lives in the list query, so the direct fetch has no check |
+| Tenant And Workspace | the check validates the parent and the handler trusts the child |
+| GraphQL And Opaque ID | the check guards the REST path while a resolver reaches the same object |
+| Lifecycle And Stale Reference | the check was correct when the object was created and is not re-evaluated |
+| Storage And Media | the check guards the metadata route and the bytes are served elsewhere |
+| Encoding-Like Cases | the check and the loader normalize the reference differently |
+
+A 401, 403, or 302 is about the *response*, not the load: read the body before
+concluding the object was protected, and confirm the effect on the authoritative
+resource rather than on the status line.
+
+## Deriving a new one
+
+When the groups are spent, name the two points explicitly for this endpoint —
+where does it authorize, and where does it load — then make them read different
+references. A new group is one divergence nobody listed yet: a second reference
+location the check ignores, a code path that reaches the loader without the
+check, or a moment when the check's answer goes stale.
+
 ## Account Baseline
 
 IDOR needs comparison accounts.

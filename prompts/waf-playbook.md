@@ -34,7 +34,7 @@ lane. Read it from the repository root as `prompts/waf-playbook.md`.
   rather than filter passage.
 - **Payload/decoder:** identify a representation the acting control may inspect
   differently from the origin or final consumer; state the parser stage and a
-  negative control. For XSS use `xss-waf-evasion` and the selected XSS lane.
+  negative control. For XSS use `xss`'s `references/waf-evasion.md` and the selected XSS lane.
 
 Do not exhaust generic Tier 1/Tier 2 permutations by default. In particular,
 `agents/bypass_harness.py` and the interceptor have automatic nested retries
@@ -44,7 +44,7 @@ aggregate-rate-governed retries are implemented and verified. Follow
 `waf-live-policy` for scope, rate, challenge, stop, and claim boundaries.
 For conditional shared inspection, normalization, routing, exception, and
 client/challenge questions, load the on-demand `skills/waf/references/core-mechanisms.md`
-through `waf`; XSS browser/sanitizer questions stay in `xss-waf-evasion`.
+through `waf`; XSS browser/sanitizer questions stay in `xss`'s `references/waf-evasion.md`.
 
 ## Verify and record
 

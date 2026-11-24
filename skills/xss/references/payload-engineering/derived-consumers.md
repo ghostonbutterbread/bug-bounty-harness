@@ -4,7 +4,7 @@ Load from `idea-tree.md` when a value arrives through a message, API, model,
 stream, inherited property or later workflow—or when a plausible later renderer
 needs its feeder found. Explore sink-first with the missing source named; for a
 claimed XSS path, establish both attacker control and the reachable *render*
-consumer. `dom-xss` owns browser-side tracing; `xss-lifecycle` owns
+consumer. `dom-xss` owns browser-side tracing; `references/lifecycle.md` owns
 producer-to-later-consumer lineage;
 `ai-tester`/`prompt-injection` own AI instruction-following questions. A
 compromised transport or model response is not automatically XSS.
@@ -16,7 +16,7 @@ compromised transport or model response is not automatically XSS.
 | **GraphQL errors and extensions:** an error message, path, extension or alias can contain controlled query/input text that a developer console, UI toast or later report renders. | Compare network JSON and the same controlled field in a mounted UI consumer. If the error is escaped text, returned only to the attacker's own API client, or never exposed to another user, keep it a different or self-only lead. GraphQL parsing faults do not substitute for HTML proof. |
 | **SSE / WebSocket events:** a real-time event may carry a stored field, topic, label or error through a client handler to a dashboard. Arrival is not rendering. | Record the owned writer, subscribed event, handler, event-to-DOM transformation and victim reachability; compare event body with text-only rendering when useful. If only a WebSocket authentication/Origin flaw is present, route that separately (CSWSH is not XSS); if this event has no executable sink, retire that tested event-to-sink edge, not other subscribed consumers. Avoid emitting into public/staff feeds without permission. |
 | **AI/model/Markdown output:** attacker-controlled prompt, document, retrieved text or metadata may influence generated text that a product inserts into Markdown/HTML or emits via a tool. Separate the model's instruction-following behavior from the *consumer's* parsing. | Establish controlled influence, output provenance, mounted consumer, HTML/URL rendering and browser result. Compare inert output in safe text and the same renderer; if the model never emits the required construct or output stays text, name the missing edge. Do not infer model-mediated XSS from prompt injection or a raw transcript alone. Route tool misuse to `ai-tester`/`indirect-injection`. |
-| **Async or delayed workflow:** previews, exports, notifications, drafts, email, logs and activity feeds may transform the same stored input differently. | Reuse the original producer marker and owned fixture; preserve multiple distinct downstream-consumer ideas even if live probes are sequenced. `xss-lifecycle` owns the graph. An unavailable entitlement, absent session or unmounted panel is a prerequisite—not sanitizer success or proof of every later view. |
+| **Async or delayed workflow:** previews, exports, notifications, drafts, email, logs and activity feeds may transform the same stored input differently. | Reuse the original producer marker and owned fixture; preserve multiple distinct downstream-consumer ideas even if live probes are sequenced. `references/lifecycle.md` owns the graph. An unavailable entitlement, absent session or unmounted panel is a prerequisite—not sanitizer success or proof of every later view. |
 
 **For a selected event-to-render question (not a limit on ideas):**
 
@@ -37,5 +37,5 @@ compromised transport or model response is not automatically XSS.
 **Provenance:** Advanced-XSS pinned commit
 `7d529fe86fe8bdef73b393db9274e427cf637182` supplies topic leads only;
 this reference explicitly separates transport, prompt injection and prototype
-primitives from proven browser execution. Use `xss-technology-research` for a
+primitives from proven browser execution. Use `references/technology-research.md` for a
 concrete renderer/parser/card and the selected live-testing owner for scope.

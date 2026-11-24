@@ -19,7 +19,7 @@ Load only relevant sources:
   class lane's Attempts. Use reviewed ResearchMap cards for matching mechanisms.
 - For an observed WAF or application filter, load `waf`; its on-demand
   `references/core-mechanisms.md` is a conditional source map, not a bypass
-  catalogue. Use the class overlay (for XSS, `xss-waf-evasion`) for consumer
+  catalogue. Use the class overlay (for XSS, `xss`'s `references/waf-evasion.md`) for consumer
   grammar and impact proof.
 - Public references when needed for a concrete missing mechanism:
   - PortSwigger Web Security Academy: `https://portswigger.net/web-security`

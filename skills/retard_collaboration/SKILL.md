@@ -1,5 +1,5 @@
 ---
-name: retard-collaboration
+name: retard_collaboration
 description: Use when the user asks for Retard mode, retard collaboration, creative multi-agent bug bounty brainstorming, or attack-chain generation from existing zero_day_team findings and wants lateral ideas, filtered concepts, or synthesized exploit chains.
 ---
 # Retard Collaboration — Creative Multi-Agent Brainstorming

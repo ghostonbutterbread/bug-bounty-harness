@@ -1,9 +1,8 @@
----
-name: xss-payload-engineering
-description: Use when a warm or hot XSS vector needs payload families composed from the observed context, primitives, transforms, browser, framework, and defenses.
----
-
 # XSS Payload Engineering
+
+Compose payload families from the observed context, primitives, transforms,
+browser, framework and defenses. Load from the `xss` router when this is the
+next question; formerly the `xss-payload-engineering` skill.
 
 Load after `xss` and the selected reflected/stored/DOM lane when the next task
 is payload selection, mutation, or reduction. This overlay turns observations
@@ -28,13 +27,13 @@ Use the profile to answer: **what language can this input still speak, and
 which executable consumer could interpret it?**
 
 When a sanitizer, URL check, browser reparse, assembled field, or large inert
-matrix leaves the next idea unclear, read `references/mechanism-ideation.md`.
+matrix leaves the next idea unclear, read `references/payload-engineering/mechanism-ideation.md`.
 It supplies a causal branching worksheet and small discriminators; do not load
 it as a mandatory startup checklist or treat a local fixture as target proof.
 
 For an observed nontraditional interpreter, derived event/AI input, or
 defense-chain question—or a surprising mechanism not in the usual queue—read
-`references/idea-tree.md`. The tree routes to existing XSS owners and
+`references/payload-engineering/idea-tree.md`. The tree routes to existing XSS owners and
 conditional idea references. Start with the leaf closest to the current
 question; open other relevant leaves whenever another feeder, transform,
 consumer, defense, or new clue suggests a distinct explanation. Keep multiple
@@ -43,7 +42,7 @@ ideation. This is not a second payload corpus or a required per-run checklist.
 
 For character encodings, Unicode variants, entity/escape representations, and
 parser-stage differentials, read
-`references/parser-stage-character-variants.md`. Treat it as a transformation
+`references/payload-engineering/parser-stage-character-variants.md`. Treat it as a transformation
 map: test the observed decoder/normalizer/reparse boundary, not a generic list
 of lookalike characters.
 
@@ -84,12 +83,12 @@ before reading an inert result as a negative, establish that this consumer ran.
   differential becomes the interesting boundary. Classify the boundary before
   choosing a materially distinct representation. If a plausible XSS consumer
   remains and bypass construction is now the question, load `waf` for its
-  baseline → control → cards/research loop and `xss-waf-evasion` for the
+  baseline → control → cards/research loop and `references/waf-evasion.md` for the
   filter-to-executable-consumer reasoning. Neither the interceptor nor a vendor
   card substitutes for browser proof.
-- Load `xss-technology-research` when an observed stack or defense fingerprint
+- Load `references/technology-research.md` when an observed stack or defense fingerprint
   could change the candidate queue.
-- Return to `xss-lifecycle` when a controlled value gains a later consumer or a
+- Return to `references/lifecycle.md` when a controlled value gains a later consumer or a
   changed representation.
 
 ## Completion

@@ -89,7 +89,10 @@ def test_mandatory_recon_ry_child_route_preserves_exact_host_stop_gate() -> None
     assert "one distinct project per eligible host" in child
     assert "A grant limited to one origin or path does not authorize that active profile" in child
     assert "A URL limited to one scheme/port or an allowed path is **not** a host-wide grant" in playbook
-    assert "do not run active `exact-urls` stages" in playbook.lower()
+    # The "do not run active stages" wording was superseded by a stronger,
+    # wrapper-enforced refusal. Assert the current property, not the old phrasing.
+    assert "wrapper refuses the entire active run" in playbook
+    assert "`exact-urls`" in playbook
     assert "--remote-project /home/ryushe/bounties/<program>/exact/<host-key>" in playbook
     assert "do not launch the next host until the prior PID has completed" in playbook
     assert "not** an aggregate concurrent cap" in playbook
@@ -109,9 +112,17 @@ def test_mixed_scope_broad_profiles_are_not_implicitly_safe() -> None:
     child = " ".join(text("skills/recon-ry/SKILL.md").split())
     assert "wildcard hosts **and** a restricted exact origin/path" in recon
     assert "Do not launch either broad profile on the mixed set" in recon
-    assert "This preflight applies to **every** active profile, including `snap` and `full`" in playbook
-    assert "reduce the exact URL to a host" in playbook
-    assert "Do not launch that mixed set" in playbook
+    # The profile list has grown since this was written, which is what broke the
+    # original exact-sentence pin. Assert the claim and each covered profile so
+    # extending the list stays green while dropping one still fails.
+    assert "This preflight applies to **every** active profile" in playbook
+    for profile in ("`snap`", "`full`", "`exact-urls`", "`queue`"):
+        assert profile in playbook, f"preflight no longer names {profile}"
+    # Both phrasings were superseded by wrapper-enforced refusals. The property
+    # is unchanged: a mixed or path-restricted scope must not be widened into a
+    # host-wide active run.
+    assert "refuses to fall back to subdomain enumeration from an exact URL" in playbook
+    assert "including mixed wildcard scope" in playbook
     assert "mixed-scope preflight before `snap` or `full`" in child
     assert "wildcard scope alongside an origin/path-limited exact URL" in entry
     assert "Stop the active run" in entry

@@ -10,7 +10,7 @@ SKILLS = ROOT / "skills"
 PROMOTED = (
     "rce-exploration", "rce-surface-mapping", "rce-lifecycle",
     "rce-validation", "rce-technology-research", "account-registry",
-    "blocker-first-analysis", "research-knowledge-management", "hunt-orchestration",
+    "blocker-first-analysis", "research-knowledge-management",
 )
 
 
@@ -24,7 +24,16 @@ class SkillPromotionRoutesTest(unittest.TestCase):
                 self.assertTrue(text.startswith(f"---\nname: {name}\n"))
                 self.assertIn(f"| **{name}** |", registry)
                 for ref in re.findall(r"`(references/[^`]+\.md)`", text):
-                    self.assertTrue((path.parent / ref).is_file(), f"{name}: {ref}")
+                    # Skills cite a sibling's reference by naming the owner and
+                    # then the path relative to it ("load Hunter Loop's
+                    # `references/x.md`"). Resolve locally first, then anywhere
+                    # under skills/, so a genuinely missing file still fails.
+                    if (path.parent / ref).is_file():
+                        continue
+                    owned_elsewhere = list(SKILLS.glob(f"*/{ref}"))
+                    self.assertTrue(owned_elsewhere, f"{name}: {ref} exists in no skill")
+                for ref in re.findall(r"`(skills/[^`]+/references/[^`]+\.md)`", text):
+                    self.assertTrue((ROOT / ref).is_file(), f"{name}: {ref}")
                 self.assertNotIn("/home/ryushe/", text)
 
     def test_rce_class_entry_and_overlapping_owners(self):
@@ -80,7 +89,7 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("external context could distinguish", research)
 
     def test_transport_blocker_and_rce_validation_routes(self):
-        hunt = (SKILLS / "hunt-orchestration" / "SKILL.md").read_text(encoding="utf-8")
+        hunt = (SKILLS / "hunter-loop" / "references" / "solo-hunter-and-sidecars.md").read_text(encoding="utf-8")
         entry = (SKILLS / "rce" / "SKILL.md").read_text(encoding="utf-8")
         mapping = (SKILLS / "rce-surface-mapping" / "SKILL.md").read_text(encoding="utf-8")
         validation = (SKILLS / "rce-validation" / "SKILL.md").read_text(encoding="utf-8")

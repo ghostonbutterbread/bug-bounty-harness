@@ -1,6 +1,6 @@
 ---
 name: hunt
-description: Use when starting or orchestrating a bug bounty hunt, running /hunt for a program, selecting testing tasks, or coordinating parallel security research work.
+description: Use for the `/hunt` slash entry on a program: explore a current surface through normal browser and task-proxy behavior. Goal-driven runs load `bug-goals`; solo hunting cadence loads `hunter-loop`; multi-agent campaigns load `bunny`.
 ---
 # Hunt — Start a Bug Bounty Hunt
 

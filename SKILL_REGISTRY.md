@@ -68,7 +68,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **rce-validation** | Bounded precursor or proof | `skills/rce-validation/SKILL.md` |
 | **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |
 | **csp-bypass** | Load when CSP appears to block a plausible XSS path | `skills/csp-bypass/SKILL.md`; researched policy-analysis and trusted-script bypass mechanisms; route to the active XSS lane for source-to-sink proof |
-| **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
+| **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, `dom-xss` and `blind-xss`. Cross-lane overlays are its own references, loaded by path rather than selected as skills: `references/payload-engineering.md`, `references/waf-evasion.md`, `references/lifecycle.md`, `references/technology-research.md` (formerly the `xss-payload-engineering`, `xss-waf-evasion`, `xss-lifecycle` and `xss-technology-research` skills) |
 | **cloudflare-xss** | Cloudflare observed during XSS work, with or without a WAF block | `skills/cloudflare-xss/SKILL.md`; single source-cited knowledge shelf, reached from XSS and WAF skills |
 | **xss-gtm** | Load with `/xss` when a controlled path selects a GTM ID or loads its script | `skills/xss-gtm/SKILL.md`; preconfigured XSS fixture, not GTM account management |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
@@ -100,7 +100,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **program-finder** | `/program-finder {paid-program-shortlist-question}` | `skills/program-finder/SKILL.md`; public, pre-selection shortlist, not a scope or testing permission |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |
-| **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
+| **csrf** | `/csrf {program}` | `skills/csrf/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |
@@ -133,8 +133,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **adaptive-rate-control** | `/adaptive-rate-control` when implementing a target-bucket controller (design guidance, not a live runner) | `skills/adaptive-rate-control/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
-| **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
-| **hunt-orchestration** | `/hunt-orchestration {program}` for solo hunter and bounded sidecars | `skills/hunt-orchestration/SKILL.md`; `hunt-orchestration-policy` owns sidecar admission |
+| **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md`; solo primary-hunter loop, transport-failure gate, event-driven sidecars, handoff queue and long-goal cadence in `skills/hunter-loop/references/solo-hunter-and-sidecars.md` (absorbed the former `hunt-orchestration` skill); `hunt-orchestration-policy` still owns sidecar admission |
 | **research-knowledge-management** | `/research-knowledge-management {research-question}` | `skills/research-knowledge-management/SKILL.md`; ResearchMap corpus, source selection map, and source admission |
 | **research-source-intake** | Evaluate a new research source or its role in hunting | `skills/research-source-intake/SKILL.md`; comparison, access and evidence review |
 | **bunny** | `/bunny {program} --goal {objective}` or explicit Bunny `multi` parameter (collaborative default; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
@@ -174,7 +173,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **program-severity-scoring** | `/program-severity-scoring {program}` | `skills/program-severity-scoring/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
 | **bunny-report-and-triage** | Load the installed standalone fork directly after a populated FID `EVIDENCE.md` (one FID-named final, report-only by default) | External skill; not copied into BBH `skills/` |
-| **security-reporting** | Deprecated compatibility redirect, not a report writer; load `bunny-report-and-triage` instead | `skills/security-reporting/SKILL.md` |
+| **security-reporting** | Archived. Load `bunny-report-and-triage` instead | `skills/_archive/security-reporting/SKILL.md` |
 
 ---
 

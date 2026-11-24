@@ -90,6 +90,14 @@ Use a progression:
 3. low-noise execution payload
 4. mutation/bypass families only after render context is known
 
+Step 3 is selected by the render context, not by the write primitive. Classify
+the consumer's context first, then take the shape from the context table in
+`reflected-xss`; the escape needed is a property of where the value lands, and
+one stored value can land in a different context at each consumer. Delivery
+differs here: a stored admin or notification view can assume a victim
+interaction, so interaction-dependent handlers stay viable where a one-shot
+reflected link could not use them.
+
 Good stored XSS often comes from downstream consumers:
 
 - safe-looking title becomes notification HTML

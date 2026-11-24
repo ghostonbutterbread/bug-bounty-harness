@@ -30,7 +30,7 @@ credentials between profiles, hosts, CLIs, or providers. Presence of a saved
 login is only a lead; confirm the selected route with a read-only model call.
 Use existing auth/status tools and report only non-secret route metadata.
 
-- **Hermes xAI:** load `hermes-agent` and its provider reference. Check
+- **Hermes xAI:** check
   `hermes auth status xai-oauth` and `hermes auth status xai`. Either authenticated
   xAI route is eligible if it serves `grok-4.6` at high. Prefer a working
   subscription route, then a working API route. Use invocation-scoped launch:

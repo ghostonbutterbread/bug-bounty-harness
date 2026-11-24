@@ -38,12 +38,19 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    fetch/URL-handling surfaces directly. Observe what the app does with URLs.
    Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fetch surfaces, URL parameters, webhook
-   endpoints, or import flows from direct observation.
+   endpoints, or import flows from direct observation. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read `injection-testing-policy` once a URL/fetch
    sink exists or is strongly suspected. Query prior MapStore/hunt entries for
    the concrete URL, parameter, fetch surface, or parser boundary the agent
    found. Use prior results to rebound from known boundaries and avoid
    duplicates, not to choose the first target.
+
+**Depth.** Once any probe produces signal on an owned surface, load
+`hypothesis-live-testing` and stay in its mutate-compare-continue loop while
+responses still teach. Build each family from a defense thesis and a class
+thesis (`injection-testing-policy`). The surface is gated once, not per
+payload; do not leave a warm vector to record a blocker.
 5. Read `references/common-locations.md` to decide where to hunt.
 6. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
    parser, metadata, header, WAF, and segmentation ideas.
@@ -127,13 +134,31 @@ Typical SSRF pressure ladder:
    timing, body/content-type, and auth context when visible
 4. block classification: scheme, hostname allowlist, private IP, redirect,
    parser split, content-type, async queue, WAF, or header requirement
-5. family queue: redirects, DNS tricks, parser confusion, userinfo, IPv6,
-   octal/decimal, suffix/prefix allowlist, protocol smuggling, Host/header
-   trust
+5. family queue, chosen from the block classified at step 4 rather than rotated
+   (see the table below)
 6. internal-surface discovery at a low rate: architecture-led destinations,
    IP/root checks, internal pages/APIs, service identity, metadata, and
    observable responses or effects, including sensitive exposure when reached
 7. impact proof, residual next probe, or exact kill reason
+
+Every family at step 5 bets on the same shape: **the validator parses the URL
+one way and the fetcher connects another way.** Pick from the block you actually
+classified; a rotated list teaches nothing.
+
+| Family | The disagreement it bets on | Shape |
+|---|---|---|
+| alternate IP encodings | validator string-matches a decimal dotted quad; the resolver accepts other radixes | `http://127.1/`, `http://2130706433/`, `http://0x7f000001/`, `http://017700000001/` |
+| userinfo confusion | validator reads the host as everything after `//`; the fetcher reads it after `@` | `http://allowed.example@127.0.0.1/` |
+| IPv6 forms | validator has no IPv6 branch at all | `http://[::1]/`, `http://[::ffff:127.0.0.1]/` |
+| redirect following | validator checks the first URL; the fetcher follows a 30x to a second one | owned host returning `302` to an internal target |
+| DNS rebinding / TOCTOU | validation and fetch resolve independently | controlled name with a short TTL, or A/AAAA split |
+| suffix or prefix allowlist | validator uses `startswith`/`endswith` instead of parsing | `http://allowed.example.attacker.test/`, `http://attacker.test/allowed.example` |
+| scheme handling | the sink is a general URL opener, not an HTTP client | `file://`, `gopher://`, `dict://` where the stack supports them |
+| parser split | validator and fetcher disagree on fragments, backslashes, or whitespace | `http://allowed.example#@127.0.0.1/`, `http://allowed.example\\@127.0.0.1/` |
+| Host/header trust | routing happens downstream on a header the validator ignores | preserved `Host` or forwarding headers on an allowed destination |
+
+Acceptance is not a bypass and a callback is not internal reach: confirm which
+destination was actually connected to before escalating to step 6.
 
 ## Primary Harness
 

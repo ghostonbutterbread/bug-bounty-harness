@@ -4,7 +4,7 @@ Load this reference from the XSS router when deciding whether a vector is
 `exhausted`, or when a defense hit is about to end work on a vector that still
 has a plausible executable consumer.
 
-The router owns pressure state. `xss-payload-engineering` owns payload families
+The router owns pressure state. `references/payload-engineering.md` owns payload families
 and character/parser variants. This reference owns only the **non-payload axes**
 a vector can still be varied along, so that an exhaustion claim can be checked
 by a reader instead of taken on trust.
@@ -26,7 +26,7 @@ next axis is cheap and in-scope, varying it is ordinary work.
 | --- | --- |
 | Input location | Query, body, path segment, header, cookie, fragment, stored object field, filename, uploaded content. |
 | Request shape | Method, duplicate/array/nested parameter notation, content type, parameter precedence, GET-shaped mutation, method override. |
-| Representation | Encoding and decode stages — delegate the specifics to `xss-payload-engineering`. |
+| Representation | Encoding and decode stages — delegate the specifics to `references/payload-engineering.md`. |
 | Auth state | Unauthenticated, owned authenticated, second owned account, elevated role, cross-principal writer. The same field often has a different escaping path per role. |
 | Consumer | The same stored value in a different renderer: list vs detail, email, export, PDF, notification, admin view, feed, mobile, embed, print. |
 | Producer | A different write path to the same field — see `source-acquisition.md`. |

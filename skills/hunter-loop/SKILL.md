@@ -21,6 +21,13 @@ parent performs the same check directly. A worker's `coverage_exhausted` closes
 only its supported chain, not the goal or vulnerability class. Do not impose
 this checkpoint on ordinary interactive hunts.
 
+Hunter Loop absorbed the former `hunt-orchestration` skill. For the solo
+primary-hunter loop, the transport and intermediary failure gate, event-driven
+sidecar admission, off-goal discovery preservation, the operator handoff queue,
+and long-goal cadence, load
+`references/solo-hunter-and-sidecars.md`. Bunny remains the multi-agent
+campaign coordinator; this skill is the single-agent cadence it delegates to.
+
 For a long-running multi-agent hunt, Hunter Loop may use Hermes Kanban as the
 local orchestrator's durable work queue. External CLI agents keep their own
 native session/run logs and publish only durable hunt outcomes into the
@@ -64,9 +71,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    only for bounded dedupe, coverage, or safety after selecting a current
    surface; retest/extension requires an explicit user request. For a selected
    file/class pair, use `/ledger`'s compact `prior-work` check. A positive
-   answer stops that line of investigation in an ordinary hunt; select fresh
-   work from current app observations, not a variation or chain of the known
-   finding.
+   answer closes that exact issue in an ordinary hunt: do not re-report it. A
+   materially distinct issue on the same file or class is still new work; name
+   what makes it distinct and test it on current evidence.
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.

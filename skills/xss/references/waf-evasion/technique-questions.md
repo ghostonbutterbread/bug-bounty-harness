@@ -36,9 +36,9 @@ self-only execution without proving victim delivery. Keep these claims apart.
 
 ## Source ownership
 
-- Parser/code-point details: `skills/xss-payload-engineering/references/parser-stage-character-variants.md` (load via `skill_view(name='xss-payload-engineering', file_path='references/parser-stage-character-variants.md')`).
+- Parser/code-point details: `skills/xss/references/payload-engineering/parser-stage-character-variants.md` (load via `skill_view(name='xss', file_path='references/payload-engineering/parser-stage-character-variants.md')`).
 - Initial XSS context ideas: `skills/xss/references/payload-selection.md` (load with `skill_view(name='xss', file_path='references/payload-selection.md')`).
 - General WAF mechanism/source links: `skills/waf/references/core-mechanisms.md` (load with `skill_view(name='waf', file_path='references/core-mechanisms.md')`).
-- XSS rule/browser/sanitizer links: this skill's `references/vendor-and-mechanism-sources.md` (load with `skill_view(name='xss-waf-evasion', file_path='references/vendor-and-mechanism-sources.md')`).
+- XSS rule/browser/sanitizer links: `skills/xss/references/waf-evasion/vendor-and-mechanism-sources.md` (load with `skill_view(name='xss', file_path='references/waf-evasion/vendor-and-mechanism-sources.md')`).
 - Exact target payloads/responses: the XSS Attempts stream, **not** a public
   ResearchMap card or a copied corpus in this skill.

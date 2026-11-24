@@ -13,7 +13,7 @@ Treat the reference examples as idea patterns, not a fixed checklist. Adapt them
 
 1. Read scope, owned-account context, and `/live-testing-policy`.
 2. Confirm every email address, inbox, reset token, target account, and resource is owned or explicitly approved.
-3. If a disposable/destructible account is needed, load `/temporary-email`. If Ghost's mailbox is needed, load `/gmail`.
+3. If a disposable/destructible account is needed, load `/temporary-email`. If Ghost's mailbox is needed, load `email-access-policy` and `mail`.
 4. Observe a baseline request, delivered link/code behavior, and final redemption/account result when available, without storing raw links, tokens, cookies, passwords, or private email bodies. If a baseline cannot yet be observed, consult the hidden-endpoint ideas in `references/ato-patterns.md` first; do not treat a missing fixture as a negative.
 5. Read `references/ato-patterns.md` for technique examples and controls.
 6. Route focused lanes:

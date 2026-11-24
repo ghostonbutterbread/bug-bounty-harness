@@ -6,8 +6,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "skills"
 ENTRY_ROUTES = (
-    "hunt", "bug-goals", "waf", "xss-technology-research",
-    "rce-technology-research", "vulnerability-patch-research",
+    "skills/hunt/SKILL.md", "skills/bug-goals/SKILL.md", "skills/waf/SKILL.md",
+    "skills/xss/references/technology-research.md",
+    "skills/rce-technology-research/SKILL.md",
+    "skills/vulnerability-patch-research/SKILL.md",
 )
 
 
@@ -17,7 +19,7 @@ def route_errors(root: Path) -> list[str]:
     intake = skills / "research-source-intake" / "SKILL.md"
     mapping = skills / "research-knowledge-management" / "references" / "research-source-map.md"
     registry = root / "SKILL_REGISTRY.md"
-    paths = [skills / name / "SKILL.md" for name in ENTRY_ROUTES]
+    paths = [root / rel for rel in ENTRY_ROUTES]
     receipt = skills / "research-knowledge-management/references/source-evaluations/hexbrain.md"
     required = [entry, intake, mapping, registry, receipt, *paths]
     missing = [str(p.relative_to(root)) for p in required if not p.is_file()]
@@ -77,7 +79,7 @@ class ResearchSourceRoutesTest(unittest.TestCase):
                 "skills/research-source-intake/SKILL.md",
                 "skills/research-knowledge-management/references/research-source-map.md",
                 "skills/research-knowledge-management/references/source-evaluations/hexbrain.md",
-                *(f"skills/{name}/SKILL.md" for name in ENTRY_ROUTES),
+                *ENTRY_ROUTES,
             ):
                 dest = fixture / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +98,7 @@ class ResearchSourceRoutesTest(unittest.TestCase):
                 "skills/research-source-intake/SKILL.md",
                 "skills/research-knowledge-management/references/research-source-map.md",
                 "skills/research-knowledge-management/references/source-evaluations/hexbrain.md",
-                *(f"skills/{name}/SKILL.md" for name in ENTRY_ROUTES),
+                *ENTRY_ROUTES,
             ):
                 dest = fixture / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)

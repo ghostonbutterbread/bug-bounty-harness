@@ -33,8 +33,8 @@ bypass candidate guarantees XSS.
   post-insertion DOM; ask whether a later decoder, renderer, mutation, or
   consumer reparses it differently. Client bundle code does not prove the
   server-side policy or another view uses the same sanitizer. Use
-  `xss-technology-research` for a matching mechanism and
-  `xss-payload-engineering` for context-directed and exploratory candidates.
+  `references/technology-research.md` for a matching mechanism and
+  `references/payload-engineering.md` for context-directed and exploratory candidates.
 - **CSP / browser execution:** First establish that the controlled value reaches
   a browser-interpreted executable context. Read the delivered enforcing policy
   (not only a Report-Only header or static configuration), its directives,
@@ -45,11 +45,11 @@ bypass candidate guarantees XSS.
   browser execution proof; a console violation or markup injection alone is not
   proof.
 - **WAF / request filter:** Use `waf-live-policy` to classify block, challenge,
-  rate, and edge-versus-origin effects, then `waf` and `xss-waf-evasion` for the
+  rate, and edge-versus-origin effects, then `waf` and `references/waf-evasion.md` for the
   measured representation/control loop. Passing the filter only advances the
   input to downstream validation, sanitization, CSP, and browser proof. Do not
   apply a WAF playbook to a DOM-only source that never crosses it.
-- **Missing or changed consumer:** Use `xss-lifecycle` to follow the same value
+- **Missing or changed consumer:** Use `references/lifecycle.md` to follow the same value
   through storage, preview, feed, export, notification, embedded view, or
   framework re-render. A safe first render does not settle a distinct later
   renderer. Preserve the original producer and ownership/cleanup state when

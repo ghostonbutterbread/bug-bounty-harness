@@ -1,4 +1,6 @@
 from pathlib import Path
+
+from agents.skill_text import norm as _skn
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,9 +14,8 @@ GOALS = SKILLS / "bug-goals" / "SKILL.md"
 
 class BunnySkillTests(unittest.TestCase):
     def test_collaborative_browser_tiers_and_passive_team_grants(self):
-        text = " ".join(COLLABORATIVE.read_text(encoding="utf-8").split())
-        dispatch = " ".join((SKILLS / "bunny" / "references" / "dispatch.md")
-                            .read_text(encoding="utf-8").split())
+        text = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        dispatch = _skn((SKILLS / "bunny" / "references" / "dispatch.md").read_text(encoding="utf-8"))
         self.assertLess(text.index("same-principal separate browsers"),
                         text.index("two approved accounts"))
         self.assertLess(text.index("two approved accounts"),
@@ -23,26 +24,26 @@ class BunnySkillTests(unittest.TestCase):
                        "team-return", "not proof that a quiet worker is done",
                        "no routine re-provisioning"):
             self.assertIn(phrase, text)
-        for phrase in ("private reference", "team_browser", "exact worker/run",
+        for phrase in ("private reference", "teambrowser", "exact worker/run",
                        "no raw CDP URL", "worker does not call the provisioner"):
             self.assertIn(phrase, dispatch)
 
     def test_default_route_and_explicit_offhand(self):
-        router = ROUTER.read_text(encoding="utf-8")
-        self.assertIn("name: bunny\n", router)
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
+        self.assertIn("name: bunny\n", ROUTER.read_text(encoding="utf-8"))  # raw: the newline terminates the field
         self.assertIn("opt-in", router)
-        self.assertIn("Keep `hunt-orchestration`", router)
+        self.assertIn("Keep hunter-loop", router)
         self.assertIn("Default: collaborative", router)
-        self.assertIn("load `bunny-collaborative` before dispatch", router)
+        self.assertIn("load bunny-collaborative before dispatch", router)
         self.assertIn("coordinator and each collaborative worker must load", router)
         self.assertIn("Explicit: offhand", router)
-        self.assertIn("load `bunny-offhand` in the coordinator", router)
-        self.assertIn("not** a Bunny mode skill", router)
+        self.assertIn("load bunny-offhand in the coordinator", router)
+        self.assertIn("not a Bunny mode skill", router)
         self.assertIn("Do not silently fall back", router)
         self.assertIn("mode change occurs at an evidence checkpoint", router)
 
     def test_shared_account_and_evidence_guards(self):
-        router = ROUTER.read_text(encoding="utf-8")
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
         self.assertIn("not as a universal start gate", router)
         self.assertIn("A logout is a diagnostic event", router)
         self.assertIn("Independently verify credible candidates", router)
@@ -50,7 +51,7 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("do not automatically submit externally", router)
 
     def test_all_modes_route_worker_artifacts_to_program_storage(self):
-        router = " ".join(ROUTER.read_text(encoding="utf-8").split())
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
         for phrase in (
             "program-specific artifact destination",
             "bulky run outputs",
@@ -61,8 +62,8 @@ class BunnySkillTests(unittest.TestCase):
             self.assertIn(phrase, router)
 
     def test_mode_and_model_arguments_are_composable_and_worker_scoped(self):
-        router = ROUTER.read_text(encoding="utf-8")
-        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
+        collaborative = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
         for phrase in (
             "Bunny multi model <provider>:<model-id>",
             "Bunny model <model-id>",
@@ -78,23 +79,23 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("ordinary subagent tools", collaborative)
         self.assertIn("--model", router)
         self.assertIn("--provider", router)
-        self.assertIn("interactive worker route in `bunny`", collaborative)
+        self.assertIn("interactive worker route in bunny", collaborative)
         self.assertIn("successive bounded segments", collaborative)
         self.assertIn("do not use approval-bypassing one-shot", collaborative)
         self.assertIn("real PTY", router)
         self.assertIn("Approvals: manual", router)
         self.assertIn("Approvals: smart", router)
-        self.assertIn("without `YOLO bypass active`", router)
+        self.assertIn("without YOLO bypass active", router)
         self.assertIn("same owned PTY", collaborative)
-        self.assertIn("not `delegate_task` steer/stop", collaborative)
+        self.assertIn("not delegatetask steer/stop", collaborative)
         self.assertIn("pending approval", collaborative)
-        self.assertIn("final-result-only", OFFHAND.read_text(encoding="utf-8"))
+        self.assertIn("final-result-only", _skn(OFFHAND.read_text(encoding="utf-8")))
 
     def test_omp_worker_model_route_is_explicit_and_run_scoped(self):
-        router = ROUTER.read_text(encoding="utf-8")
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
         reference = SKILLS / "bunny" / "references" / "omp-worker-routing.md"
         self.assertIn("(references/omp-worker-routing.md)", router)
-        text = " ".join(reference.read_text(encoding="utf-8").split())
+        text = _skn(reference.read_text(encoding="utf-8"))
         for phrase in (
             "operator-controlled", "--config", "modelRoles", "task.perCallModel",
             "bunny-recon", "provider-qualified", "effective model and provider",
@@ -108,32 +109,32 @@ class BunnySkillTests(unittest.TestCase):
         for phrase in (
             "collaborative mode", "offhand", "ordinary scoped worker",
             "do not launch collaborative role files", "Grok coordinator preset",
-            "do not use OMP's headless `task` children for live testing",
+            "do not use OMP's headless task children for live testing",
             "v18.16.0", "task/executor.ts", "task/structured-subagent.ts",
         ):
             self.assertIn(phrase, text)
 
     def test_multi_program_is_depth_first_with_bounded_workers(self):
-        router = ROUTER.read_text(encoding="utf-8")
-        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
-        multi = MULTI.read_text(encoding="utf-8")
-        goals = GOALS.read_text(encoding="utf-8")
-        registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
-        self.assertIn("`multi` is a parameter", router)
-        self.assertIn("coordinator loads `bunny-multi` before dispatch", collaborative)
-        self.assertIn("Ordinary workers load this collaborative skill, not `bunny-multi`", collaborative)
-        self.assertIn("Without `multi`, use the ordinary single-program contract", collaborative)
-        self.assertIn("name: bunny-multi\n", multi)
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
+        collaborative = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        multi = _skn(MULTI.read_text(encoding="utf-8"))
+        goals = _skn(GOALS.read_text(encoding="utf-8"))
+        registry = _skn((ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8"))
+        self.assertIn("multi is a parameter", router)
+        self.assertIn("coordinator loads bunny-multi before dispatch", collaborative)
+        self.assertIn("Ordinary workers load this collaborative skill, not bunny-multi", collaborative)
+        self.assertIn("Without multi, use the ordinary single-program contract", collaborative)
+        self.assertIn("name: bunny-multi\n", MULTI.read_text(encoding="utf-8"))  # raw: the newline terminates the field
         self.assertNotIn("/goal bunny multi", goals)
         self.assertNotIn("run-local coordinator key", router)
         for phrase in (
             "only in the coordinator",
-            "not a new Bunny mode, a `/goal` requirement",
+            "not a new Bunny mode, a /goal requirement",
             "Several domains within one program are still one program",
             "run-local coordinator key",
             "not in any program's Shared data",
             "all active worker/run IDs",
-            "not** a timer, deadline, or reason to move on",
+            "not a timer, deadline, or reason to move on",
             "close a program only on evidence-backed grounds",
             "three active subagents total",
             "interactive CLI workers count",
@@ -144,30 +145,31 @@ class BunnySkillTests(unittest.TestCase):
             "call it separately for each named program",
             "does not validate a comma-separated list",
             "Bunny remains the sole coordinator",
-            "without `/goal`, this goal helper is not a prerequisite",
+            "without /goal, this goal helper is not a prerequisite",
         ):
             self.assertIn(phrase, multi)
-        self.assertIn("| **bunny-multi** |", registry)
+        self.assertIn("| bunny-multi |", registry)
 
     def test_collaborative_worker_roles_and_load(self):
-        text = COLLABORATIVE.read_text(encoding="utf-8")
-        self.assertIn("name: bunny-collaborative\n", text)
+        text = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        self.assertIn("name: bunny-collaborative\n", COLLABORATIVE.read_text(encoding="utf-8"))  # raw: the newline terminates the field
         self.assertIn("Both the coordinator and every collaborative worker load", text)
         self.assertIn("Load bunny-collaborative before acting", text)
         self.assertIn("ordinary subagent tools", text)
         for role in ("hunter", "recon", "verifier", "reporter"):
             name = f"bunny-{role}"
-            self.assertIn(f"`{name}`", text)
-            body = (SKILLS / "bunny" / "agents" / f"{name}.md").read_text(encoding="utf-8")
-            self.assertTrue(body.startswith(f"---\nname: {name}\n"))
-            self.assertIn("load `bunny-collaborative`", body)
+            self.assertIn(name, text)
+            raw_body = (SKILLS / "bunny" / "agents" / f"{name}.md").read_text(encoding="utf-8")
+            # raw: the frontmatter block is line-structured
+            self.assertTrue(raw_body.startswith(f"---\nname: {name}\n"))
+            self.assertIn("load bunny-collaborative", _skn(raw_body))
 
     def test_checkpoint_and_negative_challenge(self):
-        text = COLLABORATIVE.read_text(encoding="utf-8")
-        hunter = (SKILLS / "bunny" / "agents" / "bunny-hunter.md").read_text(encoding="utf-8")
+        text = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        hunter = _skn((SKILLS / "bunny" / "agents" / "bunny-hunter.md").read_text(encoding="utf-8"))
         for phrase in (
             "send the coordinator a bounded checkpoint",
-            "observed result **versus** interpretation",
+            "observed result versus interpretation",
             "successive bounded segments",
             "periodic stall check is a backstop",
             "3–5 coordinator feedback turns",
@@ -182,19 +184,19 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("motivational search stance, not evidence", hunter)
 
     def test_workers_own_scoped_store_writes_and_parent_reconciles(self):
-        text = COLLABORATIVE.read_text(encoding="utf-8")
+        text = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
         for phrase in (
             "resolved program, family, and lane", "exact Attempt stream ID",
-            "Worker-owned writes", "attempt:<attempt-run-id>:<attempt_id>",
+            "Worker-owned writes", "attempt:<attempt-run-id>:<attemptid>",
             "read-back", "no Coverage assessment was justified",
             "do not transcribe", "parent", "open sibling",
         ):
             self.assertIn(phrase, text)
-        self.assertIn("worker writes", GOALS.read_text(encoding="utf-8"))
+        self.assertIn("worker writes", _skn(GOALS.read_text(encoding="utf-8")))
 
     def test_offhand_requires_no_worker_mode(self):
-        text = OFFHAND.read_text(encoding="utf-8")
-        self.assertIn("name: bunny-offhand\n", text)
+        text = _skn(OFFHAND.read_text(encoding="utf-8"))
+        self.assertIn("name: bunny-offhand\n", OFFHAND.read_text(encoding="utf-8"))  # raw: the newline terminates the field
         self.assertIn("Only the coordinator loads this mode skill", text)
         self.assertIn("Do not instruct workers to load a Bunny mode skill", text)
         self.assertIn("final bounded result", text)
@@ -202,17 +204,16 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("named policy load list and standing ownership question", text)
 
     def test_named_policy_loads_and_ownership_question(self):
-        router = ROUTER.read_text(encoding="utf-8")
-        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
-        dispatch = (SKILLS / "bunny" / "references" / "dispatch.md").read_text(
-            encoding="utf-8"
-        )
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
+        collaborative = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        dispatch = _skn((SKILLS / "bunny" / "references" / "dispatch.md")
+                        .read_text(encoding="utf-8"))
         for phrase in (
             "Named policy loads",
             "by name",
             "context, never authorization",
             "Standing ownership question",
-            "whose item or account that **action** touches",
+            "whose item or account that action touches",
             "account-testing-policy",
             "Do not paraphrase that policy as etiquette",
             "do not re-scope onto third-party surfaces",
@@ -220,25 +221,23 @@ class BunnySkillTests(unittest.TestCase):
             self.assertIn(phrase, router)
         for phrase in (
             "Ownership check before engagement",
-            "this **action** touches",
+            "this action touches",
             "even if the packet omitted that skill",
             "Packet language does not override a loaded policy",
         ):
             self.assertIn(phrase, collaborative)
         self.assertIn(
-            "named load list and standing ownership question from `bunny` shared boundaries",
+            "named load list and standing ownership question from bunny shared boundaries",
             dispatch,
         )
 
     def test_fetcher_family_steward_keeps_one_hunter_per_family(self):
-        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
-        dispatch = (SKILLS / "bunny" / "references" / "dispatch.md").read_text(
-            encoding="utf-8"
-        )
-        offhand = OFFHAND.read_text(encoding="utf-8")
-        reference = (
-            SKILLS / "bunny-collaborative" / "references" / "fetcher-family.md"
-        ).read_text(encoding="utf-8")
+        collaborative = _skn(COLLABORATIVE.read_text(encoding="utf-8"))
+        dispatch = _skn((SKILLS / "bunny" / "references" / "dispatch.md")
+                        .read_text(encoding="utf-8"))
+        offhand = _skn(OFFHAND.read_text(encoding="utf-8"))
+        reference = _skn((SKILLS / "bunny-collaborative" / "references" /
+                          "fetcher-family.md").read_text(encoding="utf-8"))
         for phrase in (
             "Fetcher-family stewardship",
             "at most one steward per open family",
@@ -286,7 +285,7 @@ class BunnySkillTests(unittest.TestCase):
         self.assertNotIn("hunt-orchestration-policy", reference)
 
     def assert_fetcher_family_route_resolves(self, skill_dir):
-        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        text = _skn((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
         self.assertEqual(text.count("(references/fetcher-family.md)"), 2)
         self.assertTrue(
             (skill_dir / "references" / "fetcher-family.md").is_file(),
@@ -303,7 +302,7 @@ class BunnySkillTests(unittest.TestCase):
             shutil.copytree(SKILLS / "bunny-collaborative", projection)
             self.assert_fetcher_family_route_resolves(projection)
             router = projection / "SKILL.md"
-            original = router.read_text(encoding="utf-8")
+            original = _skn(router.read_text(encoding="utf-8"))
             replaced = original.replace("(references/fetcher-family.md)", "", 1)
             self.assertEqual(original.count("(references/fetcher-family.md)") - 1,
                              replaced.count("(references/fetcher-family.md)"))
@@ -316,7 +315,7 @@ class BunnySkillTests(unittest.TestCase):
                 self.assert_fetcher_family_route_resolves(projection)
 
     def test_grok_coordinator_preset_is_explicit_and_keeps_worker_alias(self):
-        router = ROUTER.read_text(encoding="utf-8")
+        router = _skn(ROUTER.read_text(encoding="utf-8"))
         for phrase in (
             "bunny grok w/ glm <objective>",
             "Grok 4.6 high as coordinator",
@@ -324,7 +323,7 @@ class BunnySkillTests(unittest.TestCase):
             "bunny model grok <objective>",
             "retains the worker-model meaning",
             "Outside the explicit Grok coordinator preset",
-            "does not resolve the `multi` + offhand conflict",
+            "does not resolve the multi + offhand conflict",
         ):
             self.assertIn(phrase, router)
         reference = SKILLS / "bunny" / "references" / "grok-coordinator.md"
@@ -332,24 +331,23 @@ class BunnySkillTests(unittest.TestCase):
         self.assertTrue(reference.is_file())
 
     def test_grok_transport_and_mixed_worker_route_contract(self):
-        text = (SKILLS / "bunny" / "references" / "grok-coordinator.md").read_text(
-            encoding="utf-8"
-        )
+        text = _skn((SKILLS / "bunny" / "references" / "grok-coordinator.md")
+                    .read_text(encoding="utf-8"))
         for phrase in (
             "bunny grok with glm <objective>",
             "bunny multi grok w/ glm <objective>",
-            "grok-4.6` / high",
-            "glm-5.3-flash` / max",
+            "grok-4.6 / high",
+            "glm-5.3-flash / max",
             "not an invented model ID",
             "hermes auth status xai-oauth",
             "hermes auth status xai",
             "Hermes xAI auth is not Grok",
             "try the other eligible",
             "read-only model call",
-            "not a second\ncampaign coordinator",
+            "not a second campaign coordinator",
             "--provider xai-oauth --model grok-4.6 --reasoning high",
             "--provider zai --model glm-5.3-flash --reasoning max",
-            "model/provider/**effort** override",
+            "model/provider/effort override",
             "cannot enforce this mixed route",
             "do not mutate global delegation settings",
             "Do not silently reduce max",
@@ -359,7 +357,7 @@ class BunnySkillTests(unittest.TestCase):
             self.assertIn(phrase, text)
 
     def assert_grok_route_resolves(self, skill_dir):
-        router = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        router = _skn((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
         self.assertIn("(references/grok-coordinator.md)", router)
         self.assertTrue(
             (skill_dir / "references" / "grok-coordinator.md").is_file(),
@@ -376,7 +374,7 @@ class BunnySkillTests(unittest.TestCase):
             shutil.copytree(SKILLS / "bunny", projection)
             self.assert_grok_route_resolves(projection)
             router = projection / "SKILL.md"
-            original = router.read_text(encoding="utf-8")
+            original = _skn(router.read_text(encoding="utf-8"))
             router.write_text(original.replace("(references/grok-coordinator.md)", ""))
             with self.assertRaises(AssertionError):
                 self.assert_grok_route_resolves(projection)
@@ -386,10 +384,10 @@ class BunnySkillTests(unittest.TestCase):
                 self.assert_grok_route_resolves(projection)
 
     def test_registered(self):
-        registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
+        registry = _skn((ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8"))
         for name in ("bunny", "bunny-collaborative", "bunny-multi", "bunny-offhand"):
-            self.assertIn(f"| **{name}** |", registry)
-            self.assertIn(f"`skills/{name}/SKILL.md`", registry)
+            self.assertIn(f"| {name} |", registry)
+            self.assertIn(f"skills/{name}/SKILL.md", registry)
 
 
 if __name__ == "__main__":

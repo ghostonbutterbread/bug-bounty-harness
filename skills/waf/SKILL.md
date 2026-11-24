@@ -12,7 +12,7 @@ For live filtering load `waf-live-policy` and the inherited scope, rate,
 challenge, and stop rules. Load `blocker-first-analysis` to locate the blocker,
 `hypothesis-expansion-policy` to deepen or defer it, and `bypass` for generic
 parser questions. For a plausible XSS path whose next obstacle is filtering,
-load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
+load `xss`'s `references/waf-evasion.md` after the XSS lane and `xss`'s `references/payload-engineering.md`.
 
 If Cloudflare is observed during XSS work, load `cloudflare-xss` for
 feature-specific knowledge and ideas; no WAF block is needed to consult it.
@@ -47,7 +47,7 @@ feature-specific knowledge and ideas; no WAF block is needed to consult it.
    (with `skill_view(name='waf', file_path='references/core-mechanisms.md')`)
    for a conditional inspection/representation/control question, then do
    bounded, fingerprint-led source research (`technology-research`; for XSS use
-   `xss-technology-research`) before another family. Compare upstream docs,
+   `xss`'s `references/technology-research.md`) before another family. Compare upstream docs,
    source, and relevant research with observed conditions; no local card or
    search result is not a negative target finding. When selecting external
    analogues, load `research-knowledge-management` and its source map, including
@@ -69,7 +69,7 @@ bank. The on-demand shared reference is not a payload list or deployed-rule
 claim; use it to ask a discriminating question only after the current blocker
 is observed. Vendor-specific tricks belong in reviewed, condition-matched
 ResearchMap cards; target outcomes belong in MapStore. For XSS-specific
-candidate grammar, consumer proof, and source pointers, load `xss-waf-evasion`.
+candidate grammar, consumer proof, and source pointers, load `xss`'s `references/waf-evasion.md`.
 
 ## Tool boundary: controlled comparison, not automatic retries
 

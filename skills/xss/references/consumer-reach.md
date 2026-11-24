@@ -36,7 +36,7 @@ stay within published rules and owned, rate-safe fixtures.
   an internal cohort as a substitute for normal customer enablement.
 - **Other owned session or producer:** an authorized role, import, SDK, or form
   may reach the same sink. Keep its ingress and transforms distinct; use
-  `references/source-acquisition.md` to find writers and `xss-lifecycle` for
+  `references/source-acquisition.md` to find writers and `references/lifecycle.md` for
   later consumers. A reachable sibling path may merit its own context-matched
   probes even when the original view remains absent.
 - **Human challenge:** follow `captcha-policy` for an authorized browser flow;
@@ -53,7 +53,7 @@ transfer that conclusion to sibling routes or parsers.
 ## Once mounted, return to the XSS lane
 
 For a value that reaches a consumer, locate the first changed representation
-with `references/defense-chain.md`. Use `xss-payload-engineering` and its
+with `references/defense-chain.md`. Use `references/payload-engineering.md` and its
 mechanism-ideation or idea-tree references for materially different parser
 mechanisms, not to avoid resolving a missing mount. A safe render through one
 helper does not settle another renderer. Preserve the producer, consumer,

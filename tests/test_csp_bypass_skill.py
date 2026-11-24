@@ -38,13 +38,13 @@ class CspBypassSkillTests(unittest.TestCase):
             .partition("- **WAF / request filter:**")[0]
         )
 
-        self.assertIn("`xss-technology-research`", xss_sanitizer_route)
-        self.assertIn("`xss-payload-engineering`", xss_sanitizer_route)
+        self.assertIn("`references/technology-research.md`", xss_sanitizer_route)
+        self.assertIn("`references/payload-engineering.md`", xss_sanitizer_route)
         self.assertIn("`csp-bypass`", xss_csp_route)
         self.assertIn("selected XSS lane", xss_csp_route)
         self.assertIn("`waf-live-policy`", xss_waf_route)
         self.assertIn("`waf`", xss_waf_route)
-        self.assertIn("`xss-waf-evasion`", xss_waf_route)
+        self.assertIn("`references/waf-evasion.md`", xss_waf_route)
         self.assertIn("`csp-bypass`", chain_csp_route)
         self.assertIn("selected XSS lane", chain_csp_route)
 

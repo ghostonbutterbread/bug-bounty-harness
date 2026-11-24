@@ -1,18 +1,20 @@
 """Discovery contracts for the canonical Bunny roles (no model calls)."""
 from pathlib import Path
 
+from agents.skill_text import norm as _skn
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_role_instructions_are_read_before_workers_act():
-    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    text = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text())
     assert "read the canonical role file" in text
     assert "before acting" in text
 
 
 def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
-    text = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().split())
-    assert "selected checkout's `bunny-collaborative`" in text
+    text = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text())
+    assert "selected checkout's bunny-collaborative" in text
     assert "wait for Bunny's go-ahead" in text
     assert "before any target action" in text
     assert "For a completion-only worker" in text
@@ -22,29 +24,29 @@ def test_collaborative_workers_confirm_role_and_mode_before_target_actions():
 
 
 def test_verifier_and_reporter_are_spawned_only_when_needed():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
-    assert "`bunny-verifier` for a credible candidate" in text
-    assert "`bunny-reporter` after verified evidence" in text
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
+    assert "bunny-verifier for a credible candidate" in text
+    assert "bunny-reporter after verified evidence" in text
 
 
 def test_collaborative_routes_dispatch_through_owning_bunny_skill():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
-    assert "`bunny` skill's `references/dispatch.md`" in text
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
+    assert "bunny skill's references/dispatch.md" in text
     assert "../bunny/references/dispatch.md" not in text
 
 
 def test_router_loads_dispatch_only_for_collaborative_mode():
-    router = (ROOT / "skills/bunny/SKILL.md").read_text()
+    router = _skn((ROOT / "skills/bunny/SKILL.md").read_text())
     assert "Before collaborative dispatch, load [Bunny team dispatch]" in router
 
 
 def test_router_loads_the_team_dispatch_contract():
     bunny = ROOT / "skills/bunny"
-    router = (bunny / "SKILL.md").read_text()
+    router = _skn((bunny / "SKILL.md").read_text())
     assert "(references/dispatch.md)" in router
     dispatch = bunny / "references/dispatch.md"
     assert dispatch.is_file()
-    text = dispatch.read_text()
+    flat = _skn(dispatch.read_text())
     for phrase in [
         "ordinary subagent tools",
         "do not build or require a harness-specific",
@@ -53,32 +55,36 @@ def test_router_loads_the_team_dispatch_contract():
         "Recon and the hunter talk with each other",
         "Bunny relays",
     ]:
-        assert phrase in text
-    assert "PI_SUBAGENT_EXTRA_AGENT_DIRS" not in text
-    assert "subagent({" not in text
+        assert phrase in flat
+    # Identifier guards read raw: normalised text strips underscores, so a
+    # normalised haystack would never match these needles and the guards would
+    # pass vacuously.
+    raw = dispatch.read_text()
+    assert "PI_SUBAGENT_EXTRA_AGENT_DIRS" not in raw
+    assert "subagent({" not in raw
 
 
 def test_dispatch_does_not_load_collaborative_roles_for_offhand_workers():
-    text = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().lower().split())
+    text = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text()).lower()
     assert "explicit offhand" in text
     assert "ordinary scoped workers" in text
     assert "do not launch these collaborative role files" in text
 
 
 def test_dispatch_does_not_prescribe_a_harness():
-    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    text = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text())
     assert "current harness" in text
     assert "ordinary subagent tools" in text
 
 
 def test_store_handoff_is_pointer_based_and_acknowledged():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
     for phrase in ["Pointer handoffs", "recipient acknowledges", "read-back", "existing stores", "do not copy"]:
         assert phrase in text
 
 
 def test_team_messages_are_direct_with_explicit_relay_fallback():
-    text = (ROOT / "skills/bunny/references/dispatch.md").read_text()
+    text = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text())
     assert "Recon and the hunter talk with each other" in text
     assert "Bunny relays" in text
     normalized = " ".join(text.split())
@@ -87,7 +93,7 @@ def test_team_messages_are_direct_with_explicit_relay_fallback():
 
 
 def test_operations_and_evidence_ownership_stay_separate():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
     assert "Coordinator-owned operational support" in text
     assert "Bunny owns provisioning" in text
     assert "same-principal separate browsers" in text
@@ -101,21 +107,21 @@ def test_operations_and_evidence_ownership_stay_separate():
 
 
 def test_investigative_runs_keep_worker_autonomy():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
     assert "does not expand authority" in text
 
 
 def test_continuity_keeps_the_investigator_and_distinguishes_stop_causes():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
     for phrase in ["A new question", "same investigator", "harness deadline", "provider/process failure", "new segment ID"]:
         assert phrase in text
-    role = (ROOT / "agents/bunny-hunter.md").read_text()
+    role = _skn((ROOT / "agents/bunny-hunter.md").read_text())
     assert "choose and revise your investigative theory" in role
 
 
 def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
-    text = " ".join((ROOT / "skills/bunny-collaborative/SKILL.md").read_text().split())
-    dispatch = " ".join((ROOT / "skills/bunny/references/dispatch.md").read_text().split())
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
+    dispatch = _skn((ROOT / "skills/bunny/references/dispatch.md").read_text())
     for phrase in (
         "second observed compaction", "third observed compaction",
         "fresh hunter or recon worker", "across revivals",
@@ -126,7 +132,7 @@ def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
         "untransferred branches remain private",
         "ACKs its branch ID in the private channel",
         "public evidence-pointer ACK alone does not verify private pickup",
-        "delegate` immediately changes the ledger owner",
+        "delegate immediately changes the ledger owner",
         "delegated but unacknowledged",
         "authorized reclaim path",
         "return its exact private grant",
@@ -141,6 +147,6 @@ def test_hunter_recon_context_rotation_keeps_evidence_and_ownership():
 
 
 def test_blunt_challenge_is_not_followed_by_motivational_disclaimers():
-    text = (ROOT / "skills/bunny-collaborative/SKILL.md").read_text()
+    text = _skn((ROOT / "skills/bunny-collaborative/SKILL.md").read_text())
     assert "Do not append a motivational disclaimer" in text
     assert "internal evidence rule" in text

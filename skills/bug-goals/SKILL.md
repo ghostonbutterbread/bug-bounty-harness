@@ -103,16 +103,21 @@ intercept the external goal runner's completion operation.
 
 ## Before calling a hunt goal done
 
-This is an explicit behavioral requirement for a vulnerability-hunt `/goal`.
-Agents were treating a finished current path as a finished objective, so a
-stop never asked whether other surface would still serve the goal. The
-question is guidance for the next skill, not a sweep and not a second checklist.
+Applies to a vulnerability-hunt `/goal`. Agents were closing the objective when
+the current path finished, without asking whether other surface would still
+serve it. This section is the closure gate for that failure.
 
-Before treating a vulnerability-hunt goal as done, ask whether unexamined surface would still move this objective.
-That question also applies before a negative exhaustion stop. A strong current
-signal still comes first. Do not leave a warm or hot chain to satisfy the question.
+Read pressure state before closing: warm or hot means continue the chain and skip this gate; cold or exhausted makes this gate required.
 
-Answer by loading the skill that owns the missing question:
+- **`warm` or `hot`** — continue the chain. A breadth check never preempts an
+  active signal, so this gate does not run and there is nothing to abandon.
+- **`cold` or `exhausted`** — the gate is required. It must return either one
+  named direction now under test, or a specific reason each direction below is
+  unavailable on this program. "No further surface was found" is not such a
+  reason. A packet budget, rotation, or time limit explains a pause, so record a
+  bounded stop with its residual and wake condition instead of a closure.
+
+At `cold` or `exhausted`, load the owning skill rather than running a new sweep:
 
 - Another consumer, API operation, parameter, or JavaScript corpus might still
   serve the goal → `surface-expansion`.
@@ -124,10 +129,9 @@ Answer by loading the skill that owns the missing question:
 - An auth or role state the goal could depend on is untested → `access-control`.
   A client or UI claim whose server enforcement is unproven → `assumption-testing`.
 
-If none of those questions would change the next action, say why. Only verified
-fulfillment completes the goal; otherwise record a bounded stop with the residual
-and wake condition. Do not reopen a locally exhausted lane without a new wake
-condition.
+Only independently verified fulfillment of the stated objective closes the goal.
+Everything else is a bounded stop carrying its residual and wake condition. Do
+not reopen a locally exhausted lane without a new wake condition.
 
 The goal router's completion contract carries this question for broad, focused,
 and continuation hunts. Technology-review and revalidation goals do not get it:

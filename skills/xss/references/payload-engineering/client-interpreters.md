@@ -2,7 +2,7 @@
 
 Load from `idea-tree.md` when a mapped input, plausible sink, or unexpected
 consumer suggests one of these client interpreters. `dom-xss` owns the
-source-to-sink trace and browser proof; `xss-lifecycle` owns later consumers.
+source-to-sink trace and browser proof; `references/lifecycle.md` owns later consumers.
 Use the rows as idea lenses; a new interpreter need not be listed here. When
 testing a claimed path, observe the caller and use an inert marker or contrasting
 observation if it helps identify the missing edge. A technology label alone is
@@ -21,10 +21,10 @@ not a proven vector.
 | **Console/DevTools:** is a developer-only log merely displaying hostile text, or does an application-owned console/dashboard transform it into an executable DOM? | Trace an observed renderer and plausible approved victim path. An instruction to paste code is social-engineered self-XSS, not a cross-user XSS finding; don't persuade staff to perform an action to complete a test. |
 
 **Related owners:** `dom-xss` for browser sources/sinks, `upload-surface`
-for uploaded content and response headers, `xss-lifecycle` for later views,
-`xss-technology-research` for a concrete framework/browser fingerprint. Browser
+for uploaded content and response headers, `references/lifecycle.md` for later views,
+`references/technology-research.md` for a concrete framework/browser fingerprint. Browser
 execution in the claimed consumer—not a static token, log line or request—is
-the XSS proof boundary. `references/defense-edges.md` handles delivered CSP and
+the XSS proof boundary. `references/payload-engineering/defense-edges.md` handles delivered CSP and
 Trusted Types when those are the first acting blockers.
 
 **Provenance:** idea families from pinned Advanced-XSS README commit

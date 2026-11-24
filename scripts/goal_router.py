@@ -203,9 +203,10 @@ def opening_contract(mode: str) -> list[str]:
 
 
 HUNT_DONE_SURFACE = [
-    "Before treating a vulnerability-hunt goal as done, ask whether unexamined surface would still move this objective.",
-    "Load the owning skill rather than running a new sweep: surface-expansion for another consumer, API, parameter, or JavaScript corpus; live-map when the runtime map is thin; technology-research when an observed component could change the next decision; bypass when a filter, parser, or access control stopped the path, or waf when that skill's trigger applies; access-control or assumption-testing when an auth, role, or client-claimed rule the goal could depend on is untested.",
-    "If none of those questions would change the next action, say why. Only verified fulfillment completes the goal; otherwise record a bounded stop with the residual and wake condition. Do not interrupt a warm or hot chain, and do not reopen a locally exhausted lane without a new wake condition.",
+    "Read pressure state before closing: warm or hot means continue the chain and skip this gate; cold or exhausted makes this gate required.",
+    "At cold or exhausted, load the owning skill rather than running a new sweep: surface-expansion for another consumer, API, parameter, or JavaScript corpus; live-map when the runtime map is thin; technology-research when an observed component could change the next decision; bypass when a filter, parser, or access control stopped the path, or waf when that skill's trigger applies; access-control or assumption-testing when an auth, role, or client-claimed rule the goal could depend on is untested.",
+    "At cold or exhausted this gate must return either one named direction now under test, or a specific reason each direction is unavailable on this program; no further surface was found is not such a reason, and a packet budget, rotation, or time limit explains a pause rather than a closure.",
+    "Only verified fulfillment completes the goal; otherwise record a bounded stop with the residual and wake condition. Do not reopen a locally exhausted lane without a new wake condition.",
 ]
 
 

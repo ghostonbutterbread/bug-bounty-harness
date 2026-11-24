@@ -47,7 +47,7 @@ repeat an equivalent mutation after its predicted stage was falsified.
   to a harmless literal; compare the same route/session/time.
 - **Counter-explanation:** The origin rejects or normalizes both forms, a client
   pre-encodes differently, or the suspected decoder does not run on this field.
-- **Sources to ask about transformations:** [AWS ordered text transformations](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-transformation.html), [OWASP HTTP parameter pollution](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/07-Injection/04-HTTP_Parameter_Pollution/). Browser-specific HTML/JS interpretation belongs to `xss-waf-evasion`.
+- **Sources to ask about transformations:** [AWS ordered text transformations](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-transformation.html), [OWASP HTTP parameter pollution](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/07-Injection/04-HTTP_Parameter_Pollution/). Browser-specific HTML/JS interpretation belongs to `xss`'s `references/waf-evasion.md`.
 
 ### Routing and body representation
 

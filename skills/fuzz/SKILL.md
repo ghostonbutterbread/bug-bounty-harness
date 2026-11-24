@@ -34,7 +34,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    Probe a few endpoints directly before reading prior notes. Avoid broad
    MapStore or prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh routes, parameters, or response
-   patterns from direct probing before pulling prior state.
+   patterns from direct probing before pulling prior state. A narrow or
+   already-warm surface need not meet a count; it is orientation, not a quota.
 4. **Memory Overlay** — Now read shared state in this order:
    - `notes/summary.md`
    - `notes/observations.md`

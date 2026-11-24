@@ -1,9 +1,11 @@
----
-name: hunt-orchestration
-description: Use when an agent is asked to hunt, examine, or explore a security target and must decide whether to remain a solo hunter or launch bounded research, mapper, verifier, or synthesis sidecars.
----
+# Solo Primary Hunter And Event-Driven Sidecars
 
-# Hunt Orchestration
+Hunter Loop reference. Load when deciding whether to stay a solo hunter or
+admit a bounded research, mapping, verifier, or synthesis sidecar, and for the
+transport-failure gate, handoff queue, and long-goal cadence.
+
+`hunt-orchestration-policy` in AI Policies still owns sidecar admission
+authority; this reference owns the hunting cadence around it.
 
 ## Purpose
 

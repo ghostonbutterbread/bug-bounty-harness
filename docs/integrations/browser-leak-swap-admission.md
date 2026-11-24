@@ -8,8 +8,9 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
-- **Latest immutable recovery checkpoint:** see "Interruption / resume handoff"
-- **Feature implementation commit(s):** see "Interruption / resume handoff"
+- **Latest immutable recovery checkpoint:** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
+- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
+  (the branch tip adds a later dossier-only handoff commit)
 - **Inspiration / canonical references:** papercuts PC-20260901-181544-9b2b73ff,
   PC-20260918-222033-c990c35b, PC-20261020-021756-adc41ee2; Kanban t_297ebf3e and
   children (t_a465b37a, t_f9938cf9, t_414d3d60, t_b3dda7dc, t_3ca526e0); prior beta
@@ -102,8 +103,26 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
 
 ## Evidence and review
 
-- Tests and commands: see the handoff section (filled at commit time with exact
-  receipts). New module `agents/test_browser_run_lifecycle.py` (33 tests).
+- Tests and commands (BBH `.venv` python 3.11, pytest 9.1.1; each module run
+  from its own checkout with `PYTHONPATH=<checkout>:<checkout>/agents` and a
+  short scratch `--basetemp`; long basetemps add unrelated `AF_UNIX path too
+  long` failures):
+  - New module: `python -m pytest -q agents/test_browser_run_lifecycle.py` →
+    **33 passed**.
+  - Before/after sweep of 57 modules (every `agents/test_browser_*.py`, every
+    module importing the provisioner/lifecycle/lease-recovery helpers, and the
+    three skill-text contract modules that read the edited guidance): base
+    `3f72ed81` **978 passed / 58 failed / 66 skipped**; branch **1011 passed /
+    58 failed / 66 skipped**. The failing test IDs are identical on both
+    (no new failures, none fixed); they are pre-existing and recorded in
+    `BUGFIXES.md`. Unchanged key modules: `test_browser_provisioner` 106/106,
+    `test_browser_lease_recovery` 21/21, `test_browser_safe_resume` 33/33,
+    `test_browser_stop_fence` 25/25, `test_browser_driving_mode` 4 skipped
+    (opt-in real-browser fixture) on both.
+  - RED/GREEN probe (scratch, not committed) asserting the fixed behavior:
+    base `3f72ed81` **3 failed** (ownerless start, swap-exhausted rejection,
+    no run-keyed release); branch **3 passed**.
+  - `git diff --cached --check` clean.
 - Independent review: not yet performed — the parent owns review/integration.
 - Replay/cohort/fixture evidence: temporary SQLite registries, fake `/proc`
   trees, a real short-lived child process for terminal identity, mocked systemd.
@@ -129,8 +148,9 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
-- **Latest immutable recovery checkpoint:** recorded in the follow-up dossier commit
-- **Feature implementation commit(s):** recorded in the follow-up dossier commit
+- **Latest immutable recovery checkpoint:** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
+- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`;
+  the branch tip is a later dossier-only commit — verify it separately.
 - **Exact resume point:** independent review of `3f72ed81..fix/browser-leak-swap-admission`
 - **Working-tree state at handoff:** clean
 

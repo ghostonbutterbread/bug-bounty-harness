@@ -7,21 +7,36 @@ description: Use when hunting JavaScript for behaviors, hidden surfaces, and tes
 
 An unqualified “hunt the JavaScript” runs this **whole adaptive methodology**.
 The agent maps the app's client-visible behaviors, chooses consequential or
-unusual flows, traces them deeply, and hands off specific questions. It does
-not stop at endpoint extraction, run a fixed vulnerability-class matrix, or
-claim exhaustive coverage from a scanner. Collection mechanics belong to
-`/js-pull`; class-specific live validation belongs to the owning skills.
+unusual flows, traces them deeply, then tests what it found. It does not stop
+at endpoint extraction, run a fixed vulnerability-class matrix, or claim
+exhaustive coverage from a scanner. Collection mechanics belong to `/js-pull`;
+class-specific payloads and proof belong to the owning skills.
+
+## Modes
+
+- **Default (online):** `/js-hunt` defaults to online. Review the JS offline,
+  then live-validate the selected leads through `references/live-validation.md`
+  and give each a disposition before ending. Review workers stay offline; live
+  work runs in the parent or in separate live validators under the normal scope
+  and live-testing gates.
+- **Offline** (`--offline`, or a request for offline or static-only work): use
+  available artifacts with no target traffic and no network collection, name
+  missing material as a gap, and leave each lead open with its next
+  discriminator.
+- **Collection-only:** stop after `/js-pull`.
 
 ## Connect the code with the application
 
-For a live JS hunt, the parent can use `live-map` and the task browser/proxy to
-understand the relevant feature, actual request and loaded assets, then trace the
-corresponding code; a source-derived action or consumer can in turn guide the
-next browser observation. Use `technology-research` when a stack detail changes
-the question. Correlate the page, flow and asset; code alone does not establish
-current reachability or server enforcement. A strong lead need not wait for a
-complete map or inventory. Explicitly offline work stays offline; offline workers
-never send target requests. Collection-only requests remain collection-only.
+In the default mode, the parent uses `live-map` and the task browser/proxy to
+understand the relevant feature, actual request and loaded assets, then trace
+the corresponding code; a source-derived action or consumer can in turn guide
+the next browser observation. This observation is part of the live stage, so it
+follows the same scope and live-testing gates, and review workers never do it.
+Use `technology-research` when a stack detail changes the question. Correlate
+the page, flow and asset; code alone does not establish current reachability or
+server enforcement. A strong lead need not wait for a complete map or
+inventory. Explicitly offline work stays offline; offline workers never send
+target requests. Collection-only requests remain collection-only.
 
 ## Start and Focus
 
@@ -37,9 +52,7 @@ never send target requests. Collection-only requests remain collection-only.
   fails or is blocked, continue with available artifacts and report failed,
   unattempted, and missing coverage; do not claim a complete hunt.
 - Trace a strong lead or available local artifact immediately; an inventory is
-  not a prerequisite. Explicitly offline work uses available artifacts with no
-  network collection and names missing material as a gap. Collection-only work
-  stops after collection. For a narrower current question, collect only what is
+  not a prerequisite. For a narrower current question, collect only what is
   useful to that question when permitted, not an automatic broad campaign.
   Use whichever inventory metadata, provenance and complete packet paths exist.
   An interrupted inventory may lack final indexes or provenance: review its
@@ -125,11 +138,12 @@ before ending so a strong lead does not silently replace the remaining hunt.
 ## 2. Campaign Coverage and Handoff
 
 For each selected lead, retain controllability, observed versus inferred edges,
-a hypothesis, missing proof and the next discriminator. Live validation is a
-separate policy-governed step on scoped, owned resources; offline workers never
-send target requests. Treat third-party URLs as context, not automatic scope.
+a hypothesis, missing proof and the next discriminator. In the default mode,
+live validation follows synthesis automatically as a policy-governed stage on
+scoped, owned resources; offline workers never send target requests. Treat
+third-party URLs as context, not automatic scope.
 
-Output three bounded sections:
+Output three bounded sections, plus lead dispositions in the default mode:
 
 1. **Surface map:** feature families, actions, request/field vocabulary, and
    noteworthy decisions or data flows with evidence pointers.
@@ -148,6 +162,8 @@ Output three bounded sections:
    claiming indexed coverage. Send useful
    verified observations through `/map-store` and durable notes, not raw bundle
    dumps; dedupe run-local proposals before promoting.
+4. **Lead dispositions** (default mode): each selected lead's outcome and count
+   per disposition, as defined in `references/live-validation.md`.
 
 Use the analysis lens's specialist routes, including `rce-deserialization`
 for encoded round-tripped state or a behavior-capable object-loader lead. The
@@ -162,10 +178,11 @@ role-based surface map and anomaly review, then a focused tracer only when
 warranted, with at most three active JS-review subagents. The parent allocates
 bounded packets, verifies cited functions, merges duplicates, and covers gaps
 without spawning one worker per vulnerability class. Store each worker report
-separately under `native_fanout/`. No repository-specific team runner and no
-live validation inside this offline pass. `deep` means more evidence-selected
-tracing; `offline-fanout` names the optional execution strategy, not another
-method.
+separately under `native_fanout/`. No repository-specific team runner. The
+review pass stays offline; in the default mode, live validators run after it as
+a separate stage and never share review-worker slots. `deep` means more
+evidence-selected tracing; `offline-fanout` names the optional execution
+strategy for the review pass, not another method.
 
 ### Example handoff (illustrative, not a finding)
 
@@ -174,4 +191,5 @@ supplies `viewer`. The JS shows the client's allowed values and request shape,
 **not** the server's authorization. The lead asks whether this actor can assign
 other roles to an owned workspace member; an observed request and a bounded
 owned-account comparison would belong to `/analyze-endpoint` and then
-`/access-control`. Until then, status is **requires server confirmation**.
+`/access-control`. The default mode runs that comparison and records the
+disposition; in offline mode the status stays **requires server confirmation**.

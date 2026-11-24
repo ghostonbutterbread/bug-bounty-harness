@@ -11,8 +11,11 @@ at the JS for vulnerabilities" means **run the adaptive `/js-hunt` workflow**;
 the operator need not name a vulnerability class. Trace a strong lead or
 available local artifact immediately; a missing inventory is not a gate.
 For a broader hunt without suitable material, use `/js-pull` for scoped
-collection when permitted. Explicitly offline work uses available artifacts
-with no network collection; report missing material as a gap. Explicit
+collection when permitted. `/js-hunt` defaults to online: its review pass stays
+offline, then it live-validates the selected leads and gives each a
+disposition. An explicit `--offline` request, or a request for offline or
+static-only work, uses available artifacts with no network collection and no
+target traffic, and reports missing material as a gap. Explicit
 collection-only requests stop after `/js-pull` has produced a usable corpus.
 
 ## Intent Routes
@@ -62,7 +65,9 @@ Before any target fetch or browser interaction, apply the program rules and the
 normal `general-security-testing-policy` / `live-testing-policy` chain; load
 `resource-safety-policy` for local artifact processing. For script-run coverage
 judgment, load `/bb-script-rules`. Offline JS review never authorizes a live
-probe. Third-party URLs in scoped JS are read-only context, not targetable scope.
+probe: the review workers stay offline even in the default online mode, where
+live validation is a separate stage. Third-party URLs in scoped JS are
+read-only context, not targetable scope.
 
 Keep the evidence chain `page/flow -> JS URL -> sha256 -> packet/module ->
 behavior -> related request -> next discriminator`. A regex/AST hit, source-map

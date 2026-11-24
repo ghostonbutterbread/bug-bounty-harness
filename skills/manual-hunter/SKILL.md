@@ -134,3 +134,7 @@ bbh agents/manual_hunter.py <program> --lane <lane> \
 ```
 
 The canonical ledger is patched by FID and navigation refreshes without rewriting the Bunny report or create-only Evidence Report. Reconcile the corrected claim in `EVIDENCE.md` and the existing final report separately; do not silently regenerate it. Do not hand-edit `ledger.json`, invent facts, or use this command to set platform submission outcomes (`--set-submission` owns those).
+
+## Delete an archived finding
+
+Only on operator request: archive first (`--edit-finding FID`, `{"status":"archive"}`), then `bbh agents/manual_hunter.py <program> --lane <lane> --delete-finding FID [--actor <label>]`; undo with `--restore-finding FID`. It refuses unarchived/unknown FIDs, a malformed ledger, and a prefix's highest FID; tombstones the record, retires only unedited generated files, lists kept files, and blocks re-import. Contract: `docs/integrations/ledger-delete-finding.md`.

@@ -194,3 +194,19 @@ not evidence that the new generic path disposed an active browser.
 red, and a genuine regression in browser transfer would be masked by it. First
 task is to run this cluster **with** a provisioned CDP browser and record whether
 the failures persist; only then decide whether it is a code defect.
+
+## Malformed `ledger.json` is silently replaced by an empty ledger on write
+
+**Location:** Bounty Core `bounty_core/ledger.py` `_read_payload` /
+`_locked_payload` (pinned revision `9db8b23d`), reached from every exclusive
+writer: `patch_finding_by_fid` (`manual_hunter.py --edit-finding`,
+`--set-submission`), `import_finding`, `ledger_add`, team reservations.
+**Evidence:** on synthetic storage, a truncated `ledger.json` followed by one
+`patch_finding_by_fid` call returned `None` and rewrote the file as
+`{"version": 2, ..., "findings": []}`. `_read_payload` maps a JSON decode error
+to the default payload and `_locked_payload` writes it back atomically.
+**Impact:** one Board edit on a partially synced or corrupted ledger erases every
+finding in that lane. `manual_hunter.py --delete-finding` checks the raw file
+under the lock and fails closed (`agents/ledger_tombstones.py`), but the other
+writers do not. Fix in Bounty Core (raise on an unparseable existing ledger),
+then bump the BBH pin; tracked separately from the ledger-delete feature.

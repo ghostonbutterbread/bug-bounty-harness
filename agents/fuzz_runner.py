@@ -318,7 +318,10 @@ class FuzzAgent:
             for path in remaining:
                 if len(batch) >= batch_size:
                     break
-                if self.is_in_scope(_candidate_url(target, path)):
+                # Whitespace-bearing entries fail closed: ScopeValidator strips a
+                # trailing " [..]" tool annotation before checking, so the checked
+                # URL could differ from the one ffuf sends.
+                if not any(ch.isspace() for ch in path) and self.is_in_scope(_candidate_url(target, path)):
                     batch.append(path)
                 else:
                     refused += 1

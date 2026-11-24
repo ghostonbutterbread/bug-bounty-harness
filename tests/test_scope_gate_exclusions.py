@@ -372,6 +372,17 @@ def test_fuzz_never_sends_path_excluded_wordlist_entries(fuzz_env, monkeypatch, 
     assert received == [("https://example.test/FUZZ", ["ok"])]
 
 
+def test_fuzz_refuses_annotation_shaped_entries(fuzz_env, monkeypatch, tmp_path):
+    # ScopeValidator would check "x" after stripping " [..]", while ffuf sends
+    # the whole line, which a normalizing server resolves under /admin.
+    received = _run_stubbed_ffuf(
+        fuzz_env, monkeypatch, tmp_path,
+        allow="example.test\n", exclude="https://example.test/admin\n",
+        target="https://example.test", words=["x [/../admin/]", "ok"],
+    )
+    assert received == [("https://example.test/FUZZ", ["ok"])]
+
+
 def test_fuzz_skips_wordlist_when_every_entry_is_excluded(fuzz_env, monkeypatch, tmp_path):
     received = _run_stubbed_ffuf(
         fuzz_env, monkeypatch, tmp_path,

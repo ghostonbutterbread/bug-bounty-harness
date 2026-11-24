@@ -4,6 +4,14 @@ These source checks complement, not replace, an independent agent walkthrough.
 """
 from pathlib import Path
 
+from agents.skill_text import norm, read_norm
+
+def claims_ci(text: str, *fragments: str) -> None:
+    """Assert each fragment appears, case-insensitively on normalised forms."""
+    haystack = text.lower()
+    missing = [f for f in fragments if norm(f).lower() not in haystack]
+    assert not missing, f"missing claims: {missing}"
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -40,19 +48,32 @@ def test_xss_uses_generic_mapping_without_adding_generic_xss_routing():
     assert "load `xss`" not in live
 
 
-def test_existing_js_or_strong_lead_never_forces_online_collection():
-    router = text("skills/js/SKILL.md")
-    hunt = text("skills/js-hunt/SKILL.md")
-    for body in (router, hunt):
-        assert "available local" in body
-        assert "strong lead" in body
-        assert "explicitly offline" in body
-        assert "no network" in body
-    assert "`/js-hunt` calls `/js-pull` first" not in router
-    assert "otherwise load `/js-pull` once for scoped collection" not in hunt
-    playbook = text("prompts/js-playbook.md")
-    assert "if there is no suitable inventory, pull first" not in playbook
-    assert "explicitly offline" in playbook and "without network collection" in playbook
+def test_js_hunt_defaults_to_live_validation_and_keeps_review_workers_offline():
+    hunt = read_norm(ROOT / "skills/js-hunt/SKILL.md")
+    live = read_norm(ROOT / "skills/js-hunt/references/live-validation.md")
+    claims_ci(hunt, "defaults to online", "references/live-validation.md",
+           "give each a disposition", "--offline", "no target traffic",
+           "no network collection", "offline workers never send target requests",
+           "live validators run after it as a separate stage",
+           "never share review-worker slots")
+    claims_ci(live, "general-security-testing-policy", "live-testing-policy",
+           "task browser", "task-MITM", "per surface, not per lead",
+           "bbh agents/leads.py create", "hypothesis-ledger",
+           "drive the feature", "analyze-endpoint",
+           "finding linked", "enforcement established", "needs_recheck",
+           "next discriminator and wake condition", "count for each disposition", "not yet live-validated")
+    fanout = read_norm(ROOT / "skills/js/references/offline-fanout.md")
+    claims_ci(fanout, "workers never send target requests",
+           "skills/js-hunt/references/live-validation.md",
+           "offline mode stops at the hypothesis queue")
+    playbook = read_norm(ROOT / "prompts/js-playbook.md")
+    claims_ci(playbook, "defaults to online",
+           "skills/js-hunt/references/live-validation.md")
+    router = read_norm(ROOT / "skills/js/SKILL.md")
+    claims_ci(router, "defaults to online", "review workers stay offline")
+    lens = read_norm(ROOT / "skills/js/references/analysis-lens.md")
+    claims_ci(lens, "this lens itself never authorizes a live probe")
+
 
 
 def test_offline_fanout_uses_existing_packets_not_acquisition():

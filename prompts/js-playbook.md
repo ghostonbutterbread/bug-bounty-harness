@@ -7,8 +7,11 @@
 behavior-map -> prioritize -> deep-trace -> evidence-handoff workflow in
 `skills/js-hunt/SKILL.md`. Trace a strong lead or available local artifact
 without waiting for inventory. For broader work, use `/js-pull` for scoped
-collection when permitted; explicitly offline work uses available artifacts
-without network collection and records missing material as a gap.
+collection when permitted. `/js-hunt` defaults to online: its review pass stays
+offline, then it live-validates the selected leads and gives each a
+disposition. An explicit `--offline` request, or a request for offline or
+static-only work, uses available artifacts without network collection or target
+traffic and records missing material as a gap.
 `--focus endpoints|params|secrets|application-logic|dataflows` biases the same
 workflow rather than creating separate tools or claiming review of other areas.
 The existing acquisition and provenance mechanics below remain canonical.
@@ -601,8 +604,10 @@ Candidate rows should include `kind`, `surface`, `scope`, optional `url`,
 The synthesis/promoter pass dedupes these rows against existing MapStore and
 promotes only useful durable observations.
 
-Do not let offline agents validate against the live app directly. Live testing
-starts from the selected hypothesis queue and follows `live-testing-policy`.
+Do not let offline agents validate against the live app directly. In
+`/js-hunt`'s default mode the parent runs the live-validation stage in
+`skills/js-hunt/references/live-validation.md` after this pass, with separate
+live validators; offline mode stops at the hypothesis queue.
 
 ## Agent Deep Review
 

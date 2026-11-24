@@ -3,7 +3,9 @@
 Use this reference from `/js-hunt` when the inventory has enough independent
 packets for native-subagent review. An unqualified "hunt the JavaScript" runs
 the adaptive methodology whether or not fanout is warranted; this reference
-only owns the optional offline execution strategy.
+only owns the optional offline execution strategy. `/js-hunt`'s default mode
+adds a later live-validation stage; this reference never runs it, and its
+workers never send target requests.
 
 The purpose is broad offline depth: review existing local packets with native
 subagents, synthesize in the parent model, and hand only selected hypotheses to
@@ -158,5 +160,7 @@ promotes only useful durable observations. If a query has no match, the lead is
 new-to-current-index; continue normal analysis and avoid claiming global
 novelty from absence alone.
 
-Do not let offline agents validate against the live app directly. Live testing
-starts from the selected hypothesis queue and follows `live-testing-policy`.
+Do not let offline agents validate against the live app directly. In
+`/js-hunt`'s default mode the parent runs the live-validation stage in
+`skills/js-hunt/references/live-validation.md` after this pass, with separate
+live validators; offline mode stops at the hypothesis queue.

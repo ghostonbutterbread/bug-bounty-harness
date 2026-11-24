@@ -66,6 +66,9 @@ mark it unknown; do not invent it. Distinguish observed code, plausible executio
 browser/proxy request, observed server effect, and validated impact. An offline
 hypothesis remains a hypothesis. Explicitly offline work has no network action;
 partial local files and packets are usable without acquisition or index writes.
+In `/js-hunt`'s default mode the parent live-validates selected leads after the
+review pass, under the normal scope and live-testing gates; this lens itself
+never authorizes a live probe.
 
 For a concrete observed request use `/analyze-endpoint`; route supported leads
 to their specialist: object/role decisions to `/idor` or `/access-control`,

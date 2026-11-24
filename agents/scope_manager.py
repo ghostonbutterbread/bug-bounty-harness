@@ -7,12 +7,25 @@ from pathlib import Path
 from textwrap import dedent
 from urllib.parse import urlparse
 
+try:
+    from agents.scope_validator import ScopeValidator, _extract_host, _safe_host, strip_tool_annotation
+except ModuleNotFoundError:
+    from scope_validator import ScopeValidator, _extract_host, _safe_host, strip_tool_annotation
+
 
 class ScopeManager:
-    """Load and validate scope for a bug bounty program."""
+    """Load and validate scope for a bug bounty program.
+
+    Allow entries come from this class's own files (domains/urls below).
+    Exclusions, their file precedence, deny-wins matching and host parsing
+    are ScopeValidator's, so the two gates agree on excluded and ambiguous
+    targets. An unreadable scope file raises ScopeFileReadError (an OSError).
+    """
     
     SCOPES_BASE = Path.home() / "Shared" / "scopes"
     LEGACY_RECON_BASE = Path.home() / "Shared" / "bounty_recon"
+    # Set by __init__; only an instance that bypasses __init__ has none.
+    _validator: ScopeValidator | None = None
     
     def __init__(self, program: str):
         self.program = program
@@ -25,6 +38,9 @@ class ScopeManager:
         self.blocked_or_sensitive_classes = self.policy.get("blocked_or_sensitive_classes", [])
         self.domains = self._load_domains()
         self.urls = self._load_urls()
+        self._validator = ScopeValidator(
+            program, scopes_base=self.SCOPES_BASE, legacy_recon_base=self.LEGACY_RECON_BASE
+        )
 
     def _candidate_files(self, names: list[str]) -> list[Path]:
         paths = [self.scope_dir / name for name in names]
@@ -64,32 +80,32 @@ class ScopeManager:
         return urls
 
     def _extract_host(self, target: str) -> str:
-        """Extract a hostname from either a URL or a bare host input."""
-        if not target:
-            return ""
+        """Extract a hostname from a URL or bare host; "" if ambiguous.
 
-        parsed = urlparse(target)
-        if parsed.hostname:
-            return parsed.hostname.lower()
-
-        host = parsed.path.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
-        return host.lower()
+        Uses ScopeValidator's parser, which refuses backslashes, userinfo,
+        control characters and malformed ports instead of guessing which
+        host a browser or HTTP client would contact.
+        """
+        return _extract_host(target or "")
     
     def is_in_scope(self, target: str) -> bool:
-        """Check if target is in scope."""
-        parsed = urlparse(target)
+        """Check if target is in scope; an exclusion always wins."""
         host = self._extract_host(target)
+        if not host:
+            return False
+        if self._validator is not None and self._validator.is_out_of_scope(target):
+            return False
+        target = strip_tool_annotation(target)
+        parsed = urlparse(target)
         
-        # Check exact domain
-        if host in self.domains:
-            return True
-        
-        # Check wildcard (*.example.com)
+        # Exact domain or wildcard (*.example.com), compared in canonical form
         for domain in self.domains:
             if domain.startswith("*."):
-                base = domain[2:]
-                if host == base or host.endswith(f".{base}"):
+                base = _safe_host(domain[2:])
+                if base and (host == base or host.endswith(f".{base}")):
                     return True
+            elif _safe_host(domain) == host:
+                return True
         
         # Check if URL is in scope
         if target.rstrip("/") in self.urls:

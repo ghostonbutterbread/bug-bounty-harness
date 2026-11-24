@@ -22,6 +22,7 @@ if str(_AGENT_DIR) not in sys.path:
 
 
 from bounty_core.recon import start_run, write_manifest
+from scope_validator import _extract_host
 
 from .models import AssetGraphRecord, EvidenceSource, GraphEdge, make_graph_id, utc_now
 
@@ -113,7 +114,7 @@ class AssetIntelligenceGraph:
             return "out-of-scope"
         if any(scope_matches(pattern, value) for pattern in self.in_scope_patterns):
             return "in-scope"
-        host = host_from_value(value)
+        host = scope_host(value)
         target = self.target.lower()
         if host and target and (host == target or host.endswith(f".{target}")):
             return "needs-human-review"
@@ -651,8 +652,23 @@ def is_probable_domain(value: str) -> bool:
     return bool(re.fullmatch(r"(\*\.)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}", host, flags=re.I))
 
 
+def scope_host(value: str) -> str:
+    """Host for a scope label via ScopeValidator's parser; "" if ambiguous.
+
+    A bare value is also read as an http authority so ``host:port`` keeps its
+    host while ``evil.test?x=.target.com`` labels as ``evil.test``. A
+    wildcard-shaped value labels by its base, as ``normalize_domain`` does.
+    """
+    raw = str(value or "").strip()
+    if raw.startswith("*."):
+        raw = raw[2:]
+    return _extract_host(raw) or ("" if "://" in raw else _extract_host(f"http://{raw}"))
+
+
 def scope_matches(pattern: str, value: str) -> bool:
-    host = host_from_value(value)
+    host = scope_host(value)
+    if not host:
+        return False
     raw = str(value or "").strip().lower().rstrip("/")
     pattern = pattern.lower().rstrip("/")
     if not pattern:

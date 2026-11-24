@@ -162,12 +162,19 @@ The real fuzz caller was also ungated: `run_campaign.py run --agent fuzz` built
 `FuzzAgent(campaign)` without a program, so `FuzzAgent.is_in_scope` returned
 True and `HarnessConstraints` (campaign domain list, no exclusions) was the only
 check; `in-scope.txt` `x.com` plus `out-of-scope.txt` `admin.x.com` let
-`https://admin.x.com` through. `run_fuzz` now passes the campaign's recorded
-`program_config.program`, so ScopeValidator and its exclusions gate each target,
-and refuses to run (exit 1, no requests) when no valid program is recorded.
-`FuzzAgent` without a program now raises instead of allowing everything. A
-campaign created without `--program` (and no inferred program) must be
-re-created with `run_campaign.py init --program <program>` before fuzzing.
+`https://admin.x.com` through. Even with a program, only the target was checked:
+wordlist entries such as `admin` reached ffuf under a `https://x.com/admin`
+exclusion, and a target with `?query`/`#fragment` put `FUZZ` beside, not under,
+an allowed path. `run_fuzz` now passes the campaign's recorded
+`program_config.program` and refuses to run (exit 1, no requests) without a
+valid one; `FuzzAgent` without a program raises; an empty saved scope raises
+from `run()`. The program's ScopeValidator (allows and exclusions, path
+exclusions case-insensitively) now checks the target and each concrete URL
+handed to ffuf (`<target path>/<entry>`, query/fragment dropped), and
+HarnessConstraints checks the target's domain. What ffuf does after sending a
+URL (redirects) is not gated; see the ffuf redirect entry. A campaign without a
+recorded program needs a new campaign (`init --campaign <new-id> --program
+<program>`); `--force` on the old one resets its findings and fuzz state.
 Regression: `tests/test_scope_gate_exclusions.py`.
 
 ## Proxy-store private-ancestor fence can never pass under `/tmp`
@@ -290,7 +297,34 @@ exclusion matching treats these as excluded.
 
 **Impact:** labels only (the module sends no per-candidate requests), but
 `target_intel` can rank an excluded path as in scope. Reuse ScopeValidator's
-URL-pattern exclusion matching in its own task.
+URL-pattern exclusion matching in its own task. Relatedly, exotic spellings of an
+excluded host that are not URL/domain-shaped (e.g. bare `user@admin.x.test`)
+label `unknown` rather than `out-of-scope`.
+
+## ffuf redirect following is not scope-contained
+
+**Location:** `agents/fuzz_runner.py` `_execute_ffuf` (`-r` when
+`rate_limit_events > 0`).
+
+**Evidence:** after any rate-limit event the fuzz agent passes `-r`, so ffuf
+follows each response's redirects itself. Only the URLs BBH hands to ffuf are
+scope-checked; a redirect from an in-scope URL to an excluded or third-party
+destination is followed without a check.
+
+**Impact:** request containment gap during rate-sensitive fuzzing. Drop `-r`
+(record 3xx `Location` as a finding instead) or verify ffuf's redirect behavior
+under a scope-enforcing proxy, in its own task.
+
+## ScopeValidator accepts only lowercase http(s) schemes
+
+**Location:** `agents/scope_validator.py` `_extract_host` (`startswith("http://")`).
+
+**Evidence:** `HTTPS://api.example.com/` yields no host, so ScopeValidator,
+ScopeManager and every consumer refuse it even when `api.example.com` is in
+scope. HarnessConstraints and asset labels lowercase the scheme first.
+
+**Impact:** fails closed (lost coverage for uppercase-scheme inputs, no escape).
+Lowercase the scheme in `_extract_host` in its own task if those inputs matter.
 
 ## ScopeManager URL allows ignore the port
 

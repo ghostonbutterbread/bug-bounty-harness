@@ -425,11 +425,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}")
         return 2
     except OSError as exc:
-        # Includes ScopeFileReadError; caught by base class so module identity
-        # does not matter. The message names the file and the OS error.
-        print(f"error: {exc}")
-        print("hint: fix the unreadable or malformed file named above "
-              "(re-pull scope with --platform if it is a scope file), then retry")
+        # Scope file reads (ScopeFileReadError, caught by base class so module
+        # identity does not matter), scope pulls (network) and layout writes.
+        print(f"error: could not read or fetch scope, or write program files: {exc}")
+        print("hint: fix the cause above (file permissions/content or network), then retry")
         return 2
     if args.json:
         print(json.dumps(result, indent=2))

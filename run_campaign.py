@@ -288,8 +288,9 @@ def run_fuzz(args, campaign, state):
     config = campaign.get("program_config")
     program = config.get("program") if isinstance(config, dict) else None
     if not isinstance(program, str) or not re.fullmatch(r"[a-z0-9_-]+", program):
-        print("   ❌ Fuzz needs the campaign's saved-scope program; re-create the campaign with "
-              "`run_campaign.py init --program <program>`. No requests were made.")
+        print("   ❌ Fuzz needs the campaign's saved-scope program. No requests were made. "
+              "Create a new campaign with `run_campaign.py init --campaign <new-id> --program <program> ...`; "
+              "re-initializing this one needs --force, which resets its findings and fuzz state.")
         return 1
 
     try:

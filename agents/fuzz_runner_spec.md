@@ -18,8 +18,8 @@ Harness-aware fuzzing agent that:
 ```python
 from agents.fuzz_runner import FuzzAgent
 
-agent = FuzzAgent(campaign_id)
-agent.run(max_requests=500)  # runs until budget or completion
+agent = FuzzAgent(campaign_id, program="<saved-scope-program>")  # program required
+agent.run(max_requests=500)  # runs until budget or completion; empty saved scope raises
 ```
 
 ## State Shape (in campaign.json)
@@ -52,10 +52,10 @@ agent.run(max_requests=500)  # runs until budget or completion
 
 4. For each target URL in scope:
    - For each path from wordlist (skip if already tested):
-     - enforce scope constraint
+     - enforce scope on the concrete URL TARGET_PATH/<path> (program scope)
      - enforce rate limit
      - check budget
-     - run: ffuf -u TARGET/FUZZ -w WORDLIST [flags]
+     - run: ffuf -u TARGET_PATH/FUZZ -w WORDLIST [flags]  (query/fragment dropped)
      - record result
      - if 403/429: backoff, break
      - if interesting (200 with content, 301/302, 401/403 on admin paths):
@@ -105,9 +105,14 @@ if http_code == 429:
 
 ## Integration
 
-- Requires the campaign's saved-scope program (`program_config.program`); its
-  ScopeValidator, including exclusions, gates each target before
-  harness_core.HarnessConstraints (domain/rate/budget). No program, no run.
+- Requires the campaign's saved-scope program (`program_config.program`). Its
+  ScopeValidator (allows and exclusions, including path exclusions) checks each
+  target and each concrete URL handed to ffuf; harness_core.HarnessConstraints
+  checks the target's domain, rate and budget. No program or an empty saved
+  scope: no run.
+- Not gated: what ffuf does after sending a URL. With `-r` (added once rate
+  limiting was seen) ffuf follows redirects, possibly to out-of-scope
+  destinations; these checks are request-URL filters, not containment.
 - Uses harness_core.CampaignState for state persistence
 - Findings stored in campaign["findings"]["potential"] with category="fuzz"
 - Raw ffuf output saved to campaigns/{campaign_id}/fuzz_raw_{timestamp}.txt

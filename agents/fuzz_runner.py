@@ -31,7 +31,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from harness_core import CampaignState, HarnessConstraints, HarnessViolation
 
@@ -75,6 +75,21 @@ RESULT_LINE_RE = re.compile(
 )
 
 
+def _ffuf_base_url(target: str) -> str:
+    """ffuf -u template with FUZZ under the target's path; query/fragment dropped.
+
+    Joining onto "<target>/" would place FUZZ beside the last path segment when
+    the target carries a query or fragment, i.e. outside a path-scoped allow.
+    """
+    parts = urlsplit(target)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/", "", "")) + "FUZZ"
+
+
+def _candidate_url(target: str, entry: str) -> str:
+    """The concrete URL ffuf requests for one wordlist entry (it substitutes FUZZ)."""
+    return _ffuf_base_url(target).replace("FUZZ", entry.lstrip("/"))
+
+
 def _safe_log_span(logger, **fields) -> None:
     if logger is None:
         return
@@ -99,7 +114,8 @@ class FuzzAgent:
         if ScopeValidator is None:
             raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
         if not program:
-            raise ValueError("Fuzz requires the campaign's saved-scope program; re-create the campaign with `run_campaign.py init --program <program>`")
+            raise ValueError("Fuzz requires the campaign's saved-scope program; create a campaign with `run_campaign.py init --program <program>`")
+        self.program = program
         self.scope = ScopeValidator(program)
 
         # Setup rate limiter (ffuf handles its own rate; this covers pre-checks)
@@ -117,6 +133,12 @@ class FuzzAgent:
         return self.scope.is_in_scope(url)
 
     def run(self, max_requests: int = 500) -> dict:
+        if self.scope.is_empty():
+            # Otherwise every target is skipped and the run looks successful.
+            raise ValueError(
+                f"saved scope for program {self.program!r} has no allow entries; "
+                "pull the program's scope (scripts/program_init.py <program> --platform <platform>) and retry"
+            )
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         raw_path = self.campaign_dir / f"fuzz_raw_{timestamp}.txt"
         findings_path = self.campaign_dir / f"fuzz_findings_{timestamp}.txt"
@@ -289,7 +311,23 @@ class FuzzAgent:
             if batch_size <= 0:
                 break
 
-            batch = remaining[:batch_size]
+            # Gate each concrete request URL, not only the target, so a path
+            # exclusion under an allowed host never reaches ffuf. Checked lazily:
+            # wordlists are large and only one batch is sent per wordlist.
+            batch, refused = [], 0
+            for path in remaining:
+                if len(batch) >= batch_size:
+                    break
+                if self.is_in_scope(_candidate_url(target, path)):
+                    batch.append(path)
+                else:
+                    refused += 1
+            if refused:
+                print(f"[SKIP] {refused} out-of-scope path(s) under {target} in {wordlist.name}")
+            if not batch:
+                print(f"[SKIP] No in-scope paths left under {target} in {wordlist.name}")
+                continue
+            batch_size = len(batch)
             # Mark ALL batch paths as tested BEFORE ffuf runs — even if ffuf crashes
             # or exits early due to rate limit, we don't retry these paths
             for path in batch:
@@ -373,7 +411,7 @@ class FuzzAgent:
         ffuf_args = [
             FFUF_PATH,
             "-u",
-            urljoin(f"{target.rstrip('/')}/", "FUZZ"),
+            _ffuf_base_url(target),
             "-w",
             "",
             "-t",
@@ -471,7 +509,7 @@ class FuzzAgent:
             "category": "fuzz",
             "target": target,
             "path": path,
-            "url": urljoin(f"{target.rstrip('/')}/", path.lstrip("/")),
+            "url": _candidate_url(target, path),
             "status": status,
             "content_length": size,
             "raw": clean_line,

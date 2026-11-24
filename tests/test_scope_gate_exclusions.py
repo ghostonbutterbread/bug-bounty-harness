@@ -327,7 +327,79 @@ def test_fuzz_agent_without_program_fails_closed(fuzz_env):
         fuzz_env.FuzzAgent("demo")
 
 
-def test_run_fuzz_passes_recorded_program_and_refuses_without(monkeypatch):
+def _run_stubbed_ffuf(fuzz_env, monkeypatch, tmp_path, *, allow, exclude, target, words):
+    """Drive _run_target with ffuf stubbed; return the (-u URL, words) it received."""
+    import io
+
+    scope = tmp_path / "scopes" / PROGRAM
+    _write(scope, "in-scope.txt", allow)
+    _write(scope, "out-of-scope.txt", exclude)
+    wordlist = tmp_path / "words.txt"
+    wordlist.write_text("\n".join(words) + "\n", encoding="utf-8")
+    received = []
+
+    class FakeFfuf:
+        def __init__(self, args, **kwargs):
+            received.append((args[2], Path(args[4]).read_text(encoding="utf-8").split()))
+            self.stdout = iter(())
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(fuzz_env.subprocess, "Popen", FakeFfuf)
+    constraints = HarnessConstraints({
+        "scope": {"domains": ["example.test"]},
+        "stats": {"max_requests_per_session": 100, "rate_limit_rpm": 600, "rate_limit_rps": 1000,
+                  "requests_this_session": 0, "total_requests": 0},
+    })
+    fuzz_state = {"wordlist_paths": [str(wordlist)], "wordlist_idx": 0, "paths_tested": [],
+                  "tested_pairs": [], "rate_limit_events": 0}
+    agent = fuzz_env.FuzzAgent("demo", PROGRAM)
+    agent._run_target(campaign={}, constraints=constraints, fuzz_state=fuzz_state,
+                      target=target, max_requests=10, raw_file=io.StringIO())
+    return received
+
+
+def test_fuzz_never_sends_path_excluded_wordlist_entries(fuzz_env, monkeypatch, tmp_path):
+    received = _run_stubbed_ffuf(
+        fuzz_env, monkeypatch, tmp_path,
+        allow="*.example.test\nexample.test\n",
+        exclude="admin.example.test\nhttps://example.test/admin\n",
+        target="https://example.test",
+        words=["admin", "ADMIN", "admin/users", "ok"],
+    )
+    # ScopeValidator path exclusions are case-insensitive and cover sub-paths.
+    assert received == [("https://example.test/FUZZ", ["ok"])]
+
+
+def test_fuzz_skips_wordlist_when_every_entry_is_excluded(fuzz_env, monkeypatch, tmp_path):
+    received = _run_stubbed_ffuf(
+        fuzz_env, monkeypatch, tmp_path,
+        allow="example.test\n", exclude="https://example.test/admin\n",
+        target="https://example.test", words=["admin", "Admin/x"],
+    )
+    assert received == []
+
+
+@pytest.mark.parametrize("target", ["https://example.test/api/v1?q", "https://example.test/api/v1#f",
+                                    "https://example.test/api/v1/"])
+def test_fuzz_template_stays_under_the_allowed_path(fuzz_env, monkeypatch, tmp_path, target):
+    received = _run_stubbed_ffuf(
+        fuzz_env, monkeypatch, tmp_path,
+        allow="https://example.test/api/v1\n", exclude="",
+        target=target, words=["users"],
+    )
+    assert received == [("https://example.test/api/v1/FUZZ", ["users"])]
+
+
+def test_fuzz_run_refuses_empty_saved_scope(fuzz_env, tmp_path):
+    (tmp_path / "scopes" / PROGRAM / "in-scope.txt").unlink()
+    agent = fuzz_env.FuzzAgent("demo", PROGRAM)
+    with pytest.raises(ValueError, match="no allow entries"):
+        agent.run(max_requests=10)
+
+
+def test_run_fuzz_passes_recorded_program_and_refuses_without(monkeypatch, capsys):
     import importlib.util
     import sys
     from types import SimpleNamespace
@@ -356,6 +428,8 @@ def test_run_fuzz_passes_recorded_program_and_refuses_without(monkeypatch):
                      {"program_config": {"program": "../other"}}):
         assert run_campaign.run_fuzz(args, campaign, None) == 1
     assert calls == [("demo", PROGRAM)]
+    out = capsys.readouterr().out
+    assert "<new-id>" in out and "--force" in out
 
 
 # --- program_init CLI boundary ----------------------------------------------------

@@ -10,27 +10,56 @@ from __future__ import annotations
 
 if __name__ == "__main__":
     raise SystemExit(
-        "agents.attempts is a Python library, not a CLI. Import append_attempt; "
+        "agents.attempts is a Python library, not a CLI. To record an Attempt "
+        "from a shell, run: bbh scripts/append_attempt.py --help. For Python use, "
         "see docs/attempt-recording-contract.md in the selected BBH checkout "
         "(locate it with bbh --print-command docs/attempt-recording-contract.md)."
     )
 
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from agents.storage_resolver import WEB_FAMILY, resolve_storage
+
+def _core_import_guidance(exc: ImportError) -> str:
+    """Explain a Bounty Core mismatch with the interpreter and module it used."""
+    from importlib.util import find_spec
+
+    try:
+        # Locate without executing: a stale package may fail in its own __init__.
+        spec = find_spec("bounty_core")
+    except (ImportError, ValueError):
+        spec = None
+    core_location = (spec.origin or "namespace package") if spec else "not installed"
+    return (
+        f"agents.attempts cannot load the Bounty Core it requires ({exc}); "
+        f"interpreter: {sys.executable}; bounty_core: {core_location}. "
+        "This usually means a system Python, another checkout's .venv, or a "
+        "PYTHONPATH pointing at a stale bounty-core clone. Record Attempts "
+        "through the selected checkout instead: bbh scripts/append_attempt.py "
+        "--help. If that fails the same way, re-sync that checkout to its "
+        "requirements.txt pin: (cd \"$(bbh --root)\" && ./setup.sh "
+        "--install-python-deps). Do not add another bounty-core checkout to "
+        "PYTHONPATH."
+    )
 
 
-from bounty_core.evidence import (  # noqa: E402
-    REQUIRED_EVENT_FIELDS,
-    append_event,
-    read_events,
-    redact_event_value,
-    utc_timestamp,
-)
-from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers  # noqa: E402
+try:
+    from agents.storage_resolver import WEB_FAMILY, resolve_storage
+    from bounty_core.evidence import (
+        REQUIRED_EVENT_FIELDS,
+        append_event,
+        read_events,
+        redact_event_value,
+        utc_timestamp,
+    )
+    from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers
+except ImportError as exc:
+    if not (exc.name or "").startswith("bounty_core"):
+        raise
+    raise type(exc)(_core_import_guidance(exc), name=exc.name, path=exc.path) from exc
 
 # Legacy names remain stable while BBH consumers migrate to the generic Core API.
 REQUIRED_ATTEMPT_FIELDS = ("timestamp", "tool", "target", "outcome", "stop_reason")

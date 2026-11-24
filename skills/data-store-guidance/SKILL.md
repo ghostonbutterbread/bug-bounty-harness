@@ -19,7 +19,7 @@ Commands, schemas and procedures belong to those owning skills.
 - **Static AppMap** — source-code application maps and research campaigns. Owners: `/appmap`, `/appmap-research-librarian`.
 - **Public Leads** — evidence-backed cross-run leads stored in MapStore. Owner: `/leads`.
 - **Private hypotheses** — owner/run-private candidates and their lifecycle. Owner: `/hypothesis-ledger`.
-- **Attempts** — exact deliberate target-directed test history. Owner: `attempt-recording-policy`; BBH adapter: `agents/attempts.py`.
+- **Attempts** — exact deliberate target-directed test history. Owner: `attempt-recording-policy`; BBH adapter: `agents/attempts.py`; shell interface: `scripts/append_attempt.py`.
 - **Live Coverage** — mapped surface/input/consumer/class questions and scoped review assessments. Owner: `/coverage`.
 - **Static Coverage** — file/class review against a Shared Brain source snapshot. Owner: `/coverage`.
 - **Notes** — published coordination, timelines, handoffs and working-artifact pointers. Owner: `/bounty-notes`.

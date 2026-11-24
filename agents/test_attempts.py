@@ -21,6 +21,7 @@ def test_attempts_module_cli_fails_with_actionable_library_guidance(tmp_path: Pa
         assert "library" in result.stderr.lower()
         assert "agents.attempts" in result.stderr
         assert "docs/attempt-recording-contract.md" in result.stderr
+        assert "bbh scripts/append_attempt.py --help" in result.stderr
     assert list(tmp_path.iterdir()) == []
 
 

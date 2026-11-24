@@ -8,7 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/mapstore-update-in-place`
-- **Latest immutable recovery checkpoint:** the implementation commit on this branch (see `git log origin/beta..fix/mapstore-update-in-place`)
+- **Latest immutable recovery checkpoint:** `18529a2995be6fda138834fea651d302ebbf0d8a`
+- **Feature implementation commit(s):** `18529a2995be6fda138834fea651d302ebbf0d8a`; the branch tip adds a later dossier-only receipt commit
 - **Inspiration / canonical references:** papercut `PC-20261006-184250-c75063f4` (HIGH, breaking); `bf777097` (append-safe URL observations), `f336512e` (reviewer attribution on updates), `ad546f6e` (retain orientation on behavior updates)
 
 ## Intent
@@ -72,7 +73,12 @@ Python `/home/ryushe/projects/bug_bounty_harness/.venv/bin/python`,
   tests/test_skill_hygiene.py tests/test_data_store_guidance.py`): 122 passed.
 - New/updated tests run against base code: 7 of 8 fail as expected; the
   distinct-identity negative control passes on both.
-- Branch: see the decision record for the full-selection receipt.
+- Branch `18529a29`, same 8 files plus `tests/test_papercut_contract_docs.py`:
+  134 passed (122 existing + 7 new + 5 papercut-contract docs; 2 existing
+  duplicate-title tests updated to the supersede contract). Skill-text suites
+  that reference MapStore (17 files): 111 passed, 9 subtests passed.
+  `git diff --check` clean; `skills/map-store/SKILL.md` stays at its 544-line
+  budget.
 - Independent review: not performed by the implementer; assigned to the parent.
 
 ## Blockers and deferred work
@@ -103,3 +109,5 @@ Python `/home/ryushe/projects/bug_bounty_harness/.venv/bin/python`,
   `map:` Coverage pointers, URL Ingest receipts and Hypothesis pointers keep
   referencing the exact evidence they recorded, while only one entry stays
   current. Matches the manual worker workaround (archive with a reason).
+- 2026-11-24 — implementation `18529a29` committed and pushed to
+  `origin/fix/mapstore-update-in-place`; receipts recorded; review-ready.

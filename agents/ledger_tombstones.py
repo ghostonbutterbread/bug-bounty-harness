@@ -34,6 +34,7 @@ from typing import Any, Iterable
 # module-private upstream; see docs/integrations/ledger-delete-finding.md for
 # the proposed upstream home of this operation.
 from bounty_core.ledger import (  # noqa: E402
+    _core_identity,
     _finding_key_for,
     _locked_payload,
     _timestamp_iso,
@@ -127,15 +128,24 @@ class CorruptTombstoneLogError(LedgerDeleteError):
     """The tombstone log is unreadable; refuse rather than let deleted findings back in."""
 
 
-def _split_committed(data: bytes) -> tuple[bytes, bytes]:
-    """Split log bytes into newline-terminated (committed) lines and an unterminated tail.
+def _split_jsonl(data: bytes) -> tuple[list[bytes], bytes]:
+    """Split JSONL bytes on ``b"\\n"`` only: (terminated lines, unterminated tail).
 
-    Each event is written by one ``os.write`` that ends in a newline, and the
-    ledger write happens only after that append returns, so a tail without a
-    newline is a crash mid-append that never committed anything.
+    ``str.splitlines()`` also splits on U+0085, U+2028, U+2029, ``\\v``,
+    ``\\f`` and ``\\x1c``-``\\x1e``, which may legitimately appear inside a
+    JSON string written with ``ensure_ascii=False`` by another writer, so it is
+    never used on JSONL here.
     """
-    cut = data.rfind(b"\n") + 1
-    return data[:cut], data[cut:]
+    parts = data.split(b"\n")
+    return parts[:-1], parts[-1]
+
+
+def _parse_event(line: bytes) -> dict[str, Any] | None:
+    try:
+        event = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return event if isinstance(event, dict) and str(event.get("fid") or "").strip() else None
 
 
 _EVENT_CACHE: dict[str, tuple[tuple[int, int, int], list[dict[str, Any]]]] = {}
@@ -144,10 +154,13 @@ _EVENT_CACHE: dict[str, tuple[tuple[int, int, int], list[dict[str, Any]]]] = {}
 def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
     """Return committed events in file order; fail closed on a symlinked or corrupt log.
 
-    An unterminated final line is ignored (see :func:`_split_committed`). Any
-    other non-empty line that is not a JSON object with a FID raises
-    :class:`CorruptTombstoneLogError`, so a damaged log never silently disables
-    the resurrection guard. Parsed events are cached per (inode, size, mtime).
+    Each event is one fsynced ``os.write`` ending in ``\\n`` and the ledger write
+    happens only after it returns. A final line without ``\\n`` that parses as a
+    complete event counts as committed (only the newline was lost); one that does
+    not parse is a crash mid-append that never committed, and is ignored. Any
+    other unreadable line raises :class:`CorruptTombstoneLogError`, so a damaged
+    log never silently disables the resurrection guard. Parsed events are cached
+    per (inode, size, mtime).
     """
     if path.is_symlink():
         raise CorruptTombstoneLogError(f"tombstone log is a symlink; refusing to use it: {path}")
@@ -160,37 +173,41 @@ def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
     cached = _EVENT_CACHE.get(str(path))
     if cached is not None and cached[0] == stamp:
         return cached[1]
-    committed, _tail = _split_committed(path.read_bytes())
+    lines, tail = _split_jsonl(path.read_bytes())
     events: list[dict[str, Any]] = []
-    for number, line in enumerate(committed.decode("utf-8", errors="replace").splitlines(), start=1):
-        line = line.strip()
-        if not line:
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
             continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            event = None
-        if not isinstance(event, dict) or not str(event.get("fid") or "").strip():
+        event = _parse_event(line)
+        if event is None:
             raise CorruptTombstoneLogError(
                 f"tombstone log line {number} is unreadable; repair {path} before ledger writes in this lane")
         events.append(event)
+    tail_event = _parse_event(tail) if tail.strip() else None
+    if tail_event is not None:
+        events.append(tail_event)
     _EVENT_CACHE[str(path)] = (stamp, events)
     return events
 
 
-def _trim_uncommitted_tail(path: Path) -> None:
-    """Drop an unterminated final line before appending (caller holds the ledger lock)."""
+def _repair_tail(path: Path) -> None:
+    """Before appending (caller holds the ledger lock): terminate a complete final
+    event that lost its newline, or truncate a partial one that never committed."""
     if not path.is_file() or path.is_symlink():
         return
     data = path.read_bytes()
-    committed, tail = _split_committed(data)
-    if tail:
-        fd = os.open(path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0))
-        try:
-            os.ftruncate(fd, len(committed))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+    _lines, tail = _split_jsonl(data)
+    if not tail:
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        if _parse_event(tail) is not None:
+            os.write(fd, b"\n")
+        else:
+            os.ftruncate(fd, len(data) - len(tail))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def active_tombstones(path: Path) -> dict[str, dict[str, Any]]:
@@ -217,7 +234,8 @@ def _append_event(path: Path, event: dict[str, Any]) -> None:
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags, 0o600)
     try:
-        os.write(fd, (json.dumps(event, sort_keys=False, ensure_ascii=False) + "\n").encode("utf-8"))
+        # ASCII-only JSON: no raw line/paragraph separators can reach the log.
+        os.write(fd, (json.dumps(event, sort_keys=False, ensure_ascii=True) + "\n").encode("ascii"))
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -553,18 +571,62 @@ def _fsync_ledger(path: Path) -> None:
 FINDING_TEXT_SIDECARS = ("manual_comments.jsonl", "findings.jsonl")
 
 
-def _row_fid(row: dict[str, Any]) -> set[str]:
-    fids = {str(row.get(key) or "").strip().upper() for key in ("fid", "harness_fid")}
-    nested = row.get("finding")
-    if isinstance(nested, dict):
-        fids |= {str(nested.get(key) or "").strip().upper() for key in ("fid", "harness_fid")}
-    return fids - {""}
+def _row_matches(row: dict[str, Any], fid: str, identity: str) -> bool:
+    """A row belongs to the FID by ``fid``/``harness_fid``, a nested ``finding``
+    object, or Bounty Core's ``identity`` (``update_finding``'s ``finding_updated``)."""
+    candidates = [row]
+    if isinstance(row.get("finding"), dict):
+        candidates.append(row["finding"])
+    for item in candidates:
+        if fid in {str(item.get(key) or "").strip().upper() for key in ("fid", "harness_fid")}:
+            return True
+        if str(item.get("identity") or "").strip() == identity:
+            return True
+    return False
+
+
+def _scrub_bytes(data: bytes, fid: str, identity: str, path: Path) -> tuple[bytes, int]:
+    """Return ``data`` without the FID's rows, every other byte preserved.
+
+    Lines are split on ``b"\\n"`` only. A committed line that is not a JSON
+    object raises; an unparseable unterminated tail is an append still in flight
+    (Bounty Core appends some rows without the ledger lock) and is kept as-is.
+    """
+    lines, tail = _split_jsonl(data)
+    kept: list[bytes] = []
+    removed = 0
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            kept.append(line + b"\n")
+            continue
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            row = None
+        if not isinstance(row, dict):
+            raise LedgerDeleteError(
+                f"refusing to delete: {path} line {number} is unreadable; repair it so {fid}'s rows can be removed")
+        if _row_matches(row, fid, identity):
+            removed += 1
+        else:
+            kept.append(line + b"\n")
+    if tail.strip():
+        try:
+            tail_row = json.loads(tail.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            tail_row = None
+        if isinstance(tail_row, dict) and _row_matches(tail_row, fid, identity):
+            removed += 1
+            tail = b""
+    return b"".join(kept) + tail, removed
 
 
 @dataclass
 class _SidecarPlan:
     path: Path
-    text: str
+    source: bytes
+    fid: str
+    identity: str
     removed: int
 
 
@@ -577,6 +639,7 @@ def _plan_sidecar_scrub(layout: StorageLayout, fid: str) -> list[_SidecarPlan]:
     """
     plans: list[_SidecarPlan] = []
     target = fid.strip().upper()
+    identity = _core_identity(layout.program, layout.family, layout.lane, fid.strip())
     for name in FINDING_TEXT_SIDECARS:
         path = layout.ledgers_root / name
         if path.is_symlink():
@@ -586,48 +649,50 @@ def _plan_sidecar_scrub(layout: StorageLayout, fid: str) -> list[_SidecarPlan]:
         if not path.is_file():
             raise LedgerDeleteError(f"refusing to delete: {path} is not a regular file")
         try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
+            source = path.read_bytes()
+        except OSError as exc:
             raise LedgerDeleteError(f"refusing to delete: cannot read {path} ({exc.__class__.__name__})") from exc
-        kept_lines: list[str] = []
-        removed = 0
-        for number, line in enumerate(raw.splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                row = None
-            if not isinstance(row, dict):
-                raise LedgerDeleteError(
-                    f"refusing to delete: {path} line {number} is unreadable; repair it so {fid}'s rows can be removed")
-            if target in _row_fid(row):
-                removed += 1
-            else:
-                kept_lines.append(line)
+        _new, removed = _scrub_bytes(source, target, identity, path)
         if removed:
-            plans.append(_SidecarPlan(path, "".join(f"{line}\n" for line in kept_lines), removed))
+            plans.append(_SidecarPlan(path, source, target, identity, removed))
     return plans
 
 
-def _apply_sidecar_scrub(plan: _SidecarPlan, lane_root: Path) -> None:
-    """Atomically replace one sidecar (same dir temp file, original mode, fsync, no symlinks)."""
+def _apply_sidecar_scrub(plan: _SidecarPlan, lane_root: Path) -> int:
+    """Atomically replace one sidecar; returns the number of rows removed.
+
+    The file is re-read immediately before the replace and re-planned if it
+    changed since planning (Bounty Core's lockless ``finding_seen`` append), so
+    only the read-to-rename window remains. Same-dir temp file, original mode,
+    fsync, no symlinks.
+    """
     path = plan.path
     if path.is_symlink() or not path.is_file() or not _no_symlink_between(path, lane_root):
         raise LedgerDeleteError(f"{path} changed to a non-regular file during delete")
+    current = path.read_bytes()
+    new, removed = _scrub_bytes(current, plan.fid, plan.identity, path)
+    if not removed:
+        return 0
     mode = path.stat().st_mode & 0o777
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(plan.text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(new)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temp_name, mode)
+        if path.read_bytes() != current:  # grew while we wrote: re-plan once more
+            new, removed = _scrub_bytes(path.read_bytes(), plan.fid, plan.identity, path)
+            with open(temp_name, "wb") as handle:
+                handle.write(new)
+                handle.flush()
+                os.fsync(handle.fileno())
         os.replace(temp_name, path)
     except BaseException:
         Path(temp_name).unlink(missing_ok=True)
         raise
     _fsync_dir(path.parent)
+    return removed
 
 
 def delete_finding_by_fid(
@@ -661,7 +726,7 @@ def delete_finding_by_fid(
             record, remaining, plans, delete_paths, packet, evidence_template = _prepare_delete(
                 layout, path, tombstone, payload, target, result)
             target = result.fid
-            _trim_uncommitted_tail(tombstone)
+            _repair_tail(tombstone)
             # Tombstone first: if the ledger write then fails, a delete_aborted
             # event clears it. Files and sidecars change only after the ledger
             # commit, because an unlink cannot be undone.
@@ -735,8 +800,9 @@ def _finish_delete(layout, path, payload, result, plans, delete_paths, packet, e
     """Post-commit cleanup: never raises; every problem becomes a warning (exit 3)."""
     for plan in plans:
         try:
-            _apply_sidecar_scrub(plan, layout.lane_root)
-            result.scrubbed.append((plan.path, plan.removed))
+            removed = _apply_sidecar_scrub(plan, layout.lane_root)
+            if removed:
+                result.scrubbed.append((plan.path, removed))
         except Exception as exc:
             result.kept.append((plan.path, f"{plan.removed} row(s) for {result.fid} not removed"))
             result.warnings.append(f"could not remove {result.fid} rows from {plan.path}: {exc.__class__.__name__}: {exc}")

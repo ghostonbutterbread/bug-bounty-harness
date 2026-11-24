@@ -468,7 +468,12 @@ class LedgerDeleteFindingTests(unittest.TestCase):
     def test_malformed_or_symlinked_sidecar_refuses_before_commit(self) -> None:
         self._archive("D01")
         comments = self.layout.ledgers_root / "manual_comments.jsonl"
-        comments.write_text('{"fid": "D01", "raw_note": "x"}\n{"fid": "D0', encoding="utf-8")
+        # An unterminated partial tail is an append in flight: kept, not fatal.
+        comments.write_text('{"fid": "D02", "raw_note": "x"}\n{"fid": "D0', encoding="utf-8")
+        from agents.ledger_tombstones import _plan_sidecar_scrub
+        self.assertEqual(_plan_sidecar_scrub(self.layout, "D01"), [])
+        # A damaged committed line refuses the delete before anything changes.
+        comments.write_text('{"fid": "D01", "raw_note": "x"}\n{"fid": "D0\n{"fid": "D02"}\n', encoding="utf-8")
         before = self.ledger.read_bytes()
         code, out, err = self._run("--delete-finding", "D01")
         self.assertEqual(code, 1)
@@ -595,6 +600,90 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertFalse(updated.get("tombstoned"))
         added = update_team_finding(PROGRAM, {"fid": "D09", **loose}, family=FAMILY, lane=LANE, root_override=self.root)
         self.assertFalse(added.get("tombstoned"))
+
+
+    # -- review round 3 regressions ----------------------------------------
+
+    def test_unicode_line_separators_in_type_and_actor_do_not_corrupt_log(self) -> None:
+        for fid, separator in (("D01", "\u2028"), ("D02", "\u0085")):
+            patch = self.tmp / f"type-{fid}.json"
+            patch.write_text(json.dumps({"type": f"sep{separator}type", "status": "archive"}), encoding="utf-8")
+            self.assertEqual(self._run("--edit-finding", fid, "--patch-file", str(patch))[0], 0)
+            code, _out, err = self._run("--delete-finding", fid, "--actor", f"board{separator}x")
+            self.assertEqual(code, 0, err)
+        raw = self.tombstone.read_bytes()
+        raw.decode("ascii")  # ASCII-only events
+        self.assertEqual(raw.count(b"\n"), 2)
+        events = [json.loads(line) for line in raw.split(b"\n") if line]
+        self.assertEqual([e["deleted_by"] for e in events], ["board\u2028x", "board\u0085x"])
+        self.assertEqual(events[0]["identity_key"][3], "sep\u2028type")
+        # A following ingest and a second delete still work in this lane.
+        self.assertEqual(self._ingest("After separators", "src/after.js:7"), 0)
+        self.assertEqual(self._ingest("Newest", "src/newest.js:8"), 0)
+        self._archive("D04")
+        self.assertEqual(self._run("--delete-finding", "D04")[0], 0)
+        ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(ledger.check({"file": "src/file1.js", "line": 1, "class_name": "native-module-abuse",
+                                           "type": "sep\u2028type"})[:2], (True, "D01"))
+
+    def test_sidecar_rows_with_raw_separators_are_preserved_byte_for_byte(self) -> None:
+        stream = self.layout.ledgers_root / "findings.jsonl"
+        other = json.dumps({"fid": "D02", "note": "keep\u2028me\u0085too"}, ensure_ascii=False).encode("utf-8")
+        mine = json.dumps({"fid": "D01", "note": "drop\u2029me"}, ensure_ascii=False).encode("utf-8")
+        stream.write_bytes(other + b"\n" + mine + b"\n" + other + b"\n")
+        self._archive("D01")
+        code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"Removed 1 row(s) for D01: {stream}", out)
+        self.assertEqual(stream.read_bytes(), other + b"\n" + other + b"\n")
+
+    def test_lockless_findings_append_during_delete_survives(self) -> None:
+        stream = self.layout.ledgers_root / "findings.jsonl"
+        stream.write_text(json.dumps({"event": "finding_seen", "finding": {"fid": "D01", "title": "x"}}) + "\n",
+                          encoding="utf-8")
+        self._archive("D01")
+        import agents.ledger_tombstones as lt
+        from unittest.mock import patch as mock_patch
+        original = lt.classify_artifacts
+
+        def racing(layout, finding):  # Bounty Core add_finding appends outside the lock
+            with stream.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"event": "finding_seen", "finding": {"fid": "D02", "title": "CONCURRENT"}}) + "\n")
+            return original(layout, finding)
+
+        with mock_patch("agents.ledger_tombstones.classify_artifacts", side_effect=racing):
+            self.assertEqual(self._run("--delete-finding", "D01")[0], 0)
+        rows = [json.loads(line) for line in stream.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([row["finding"]["title"] for row in rows], ["CONCURRENT"])
+
+    def test_finding_updated_rows_keyed_by_identity_are_removed(self) -> None:
+        stream = self.layout.ledgers_root / "findings.jsonl"
+        identity = f"harness-fid:{PROGRAM}:{FAMILY}:{LANE}:D01"
+        stream.write_text(json.dumps({"event": "finding_updated", "identity": identity,
+                                      "patch": {"description": "ZQXTEXT"}, "before": {"description": "old ZQXTEXT"}})
+                          + "\n" + json.dumps({"event": "finding_updated", "identity": identity[:-1] + "2"}) + "\n",
+                          encoding="utf-8")
+        self._archive("D01")
+        code, out, _err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 0)
+        self.assertIn(f"Removed 1 row(s) for D01: {stream}", out)
+        self.assertNotIn("ZQXTEXT", stream.read_text(encoding="utf-8"))
+        self.assertIn(identity[:-1] + "2", stream.read_text(encoding="utf-8"))
+
+    def test_complete_tombstone_tail_without_newline_is_committed_and_terminated(self) -> None:
+        self._delete_d01()
+        data = self.tombstone.read_bytes()
+        self.tombstone.write_bytes(data.rstrip(b"\n"))  # newline lost, event complete
+        ledger = create_team_ledger_from_storage(PROGRAM, storage=self.layout, target_root=self.tmp, agent="team")
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(ledger.import_finding({"fid": "D01", "file": "q.js", "line": 1,
+                                                    "class_name": "xss", "type": "xss"})[:2], (True, "D01"))
+        self._archive("D02")
+        self.assertEqual(self._run("--delete-finding", "D02")[0], 0)
+        lines = self.tombstone.read_bytes().split(b"\n")
+        self.assertEqual([json.loads(line)["fid"] for line in lines if line], ["D01", "D02"])
+        self.assertTrue(self.tombstone.read_bytes().endswith(b"\n"))
 
 
 if __name__ == "__main__":

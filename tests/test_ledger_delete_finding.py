@@ -128,7 +128,9 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         before = self.ledger.read_bytes()
         code, _out, err = self._run("--delete-finding", "D01")
         self.assertEqual(code, 1)
-        self.assertIn("malformed", err)
+        # Bounty Core >= 5f5a66ac refuses first ("invalid JSON"); BBH's own
+        # guard reports "malformed". Either way nothing is rewritten.
+        self.assertTrue("malformed" in err or "invalid JSON" in err, err)
         self.assertEqual(self.ledger.read_bytes(), before)
         self.assertFalse(self.tombstone.exists())
         with self.assertRaises(MalformedLedgerError):

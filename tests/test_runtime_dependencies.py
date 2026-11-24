@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEWED_CORE_SHA = "9db8b23d7405587bc123338ae0aa44d4d51c95a3"
-SUPERSEDED_CORE_SHA = "ce8718b6bfb39fb08533f506bd2bfe627b52e5da"
+REVIEWED_CORE_SHA = "5f5a66ac2e21426d360cccd950984a1a5ffa5de7"
+SUPERSEDED_CORE_SHA = "9db8b23d7405587bc123338ae0aa44d4d51c95a3"
 
 
 class RuntimeDependencyTests(unittest.TestCase):

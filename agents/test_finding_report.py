@@ -59,7 +59,7 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         # The registration tests below exercise that contract, not just the SHA.
         self.assertIn(
             "bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@"
-            "9db8b23d7405587bc123338ae0aa44d4d51c95a3",
+            "5f5a66ac2e21426d360cccd950984a1a5ffa5de7",
             manifest.splitlines(),
         )
         self.assertNotIn("fd66f7ab9069a92c2aae624c85c00d15b6b34c90", manifest)

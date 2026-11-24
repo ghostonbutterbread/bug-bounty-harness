@@ -289,7 +289,9 @@ from `require_safe_running_profile` where the test expects selection or
 unfiltered green run; compare failing IDs against the base instead. Repair in a
 separate task on the owning branch.
 
-## Malformed `ledger.json` is silently replaced by an empty ledger on write
+## Malformed `ledger.json` is silently replaced by an empty ledger on write — resolved
+
+**Resolution:** Bounty Core beta `5f5a66ac` (merge `c943ad3`, reviewed) makes every ledger read fail closed with `LedgerReadError` on unreadable, malformed or unsupported-schema storage before any write, preserving the bytes; BBH now pins that revision.
 
 **Location:** Bounty Core `bounty_core/ledger.py` `_read_payload` /
 `_locked_payload` (pinned revision `9db8b23d`), reached from every exclusive

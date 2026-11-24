@@ -43,17 +43,23 @@ checkout-local interpreter.
   through the canonical `agents.attempts.append_attempt` writer, using the
   selected checkout's interpreter and pinned Bounty Core. Replaces hand-appended
   JSONL and improvised `PYTHONPATH`/system-Python imports.
-- **Inputs:** One JSON object on stdin or `--json` with nonempty `timestamp`
-  (or `--timestamp-now`), `tool`, `target`, `outcome`, `stop_reason`, plus
-  optional Core enrichment fields; destination `--program`, `--lane`, `--run-id`
-  (optional `--family` for custom lanes, `--root` shared base) or an exact
-  `--path`; optional `--agent-id`/`--model-id` attribution.
-- **Outputs:** JSON `{attempt_id, run_id, path}` on stdout; diagnostics on stderr.
+- **Inputs:** One JSON object on stdin or `--json` with nonempty string
+  `timestamp` (or `--timestamp-now`; a null timestamp counts as absent),
+  `tool`, `target`, `outcome`, `stop_reason`, plus optional Core enrichment
+  fields; a JSON `run_id` must equal the destination run or be omitted.
+  Destination `--program`, `--lane` (plain names, not `.`/`..`/paths),
+  `--run-id` (`[A-Za-z0-9][A-Za-z0-9._-]*`), optional `--family` for custom
+  lanes and `--root` shared base; or an exact `--path`. Optional
+  `--agent-id`/`--model-id` attribution.
+- **Outputs:** JSON `{attempt_id, run_id, path}` (absolute path) on stdout;
+  diagnostics on stderr.
 - **Mutates:** Appends one redacted row to
-  `<lane>/attempts/_runs/<run-id>/attempts.jsonl` (or `--path`). Program/lane
-  mode refuses a missing lane instead of creating a program tree; invalid JSON,
-  missing required fields, and option conflicts exit 2 without writing an
-  Attempt. No target traffic.
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl` (or `--path`), creating only
+  that run directory; it never rescaffolds the lane or rewrites
+  `context/target_profile.json`. Program/lane mode refuses a missing lane
+  instead of creating a program tree. Missing/closed/invalid input, missing or
+  non-string required fields, a conflicting `run_id`, path-like names, and
+  option conflicts exit 2 without writing an Attempt. No target traffic.
 - **Example:** `scripts/bbh scripts/append_attempt.py --program example --lane web --run-id xss-search-20261124 --timestamp-now --json '{"tool": "xss-probe", "target": "https://app.example/search?q=REDACTED", "outcome": "inert", "stop_reason": "marker HTML-encoded"}'`
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_append_attempt_cli.py agents/test_attempts.py -q`
   (disposable shared root; fake-runtime `bbh` dispatch with a stale

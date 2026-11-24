@@ -126,7 +126,8 @@ def test_uninitialized_program_lane_is_refused_without_creating_it(tmp_path: Pat
     result = _run(args, tmp_path, stdin=json.dumps(ATTEMPT))
 
     assert result.returncode == 2
-    assert "program lane not found" in result.stderr and "program_init.py" in result.stderr
+    assert "program lane not found" in result.stderr
+    assert "bbh scripts/program_init.py exmaple --lane web" in result.stderr
     assert not (shared / "web_bounty" / "exmaple").exists()
 
 
@@ -144,6 +145,125 @@ def test_exact_path_mode_and_destination_option_errors(tmp_path: Path) -> None:
     missing = _run(["--program", "example", "--lane", "web", "--timestamp-now"], tmp_path, stdin=json.dumps(ATTEMPT))
     assert missing.returncode == 2 and "missing --run-id" in missing.stderr
     assert len(stream.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def _tree(root: Path) -> list[str]:
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*")) if root.exists() else []
+
+
+def test_json_run_id_must_match_destination_run(tmp_path: Path) -> None:
+    shared = _shared(tmp_path)
+    runs = shared / "web_bounty/example/web/attempts/_runs"
+    conflict = _run([*_resolver_args(shared, "run-a"), "--timestamp-now"], tmp_path,
+                    stdin=json.dumps({**ATTEMPT, "run_id": "run-b"}))
+    assert conflict.returncode == 2
+    assert "does not match the destination run 'run-a'" in conflict.stderr
+    assert not runs.exists()
+
+    stream = tmp_path / "lane/attempts/_runs/packet-run/attempts.jsonl"
+    path_conflict = _run(["--path", str(stream), "--timestamp-now"], tmp_path,
+                         stdin=json.dumps({**ATTEMPT, "run_id": "other"}))
+    assert path_conflict.returncode == 2 and "does not match" in path_conflict.stderr
+    assert not stream.exists()
+
+    for run_id in ("run-a", None, ""):
+        ok = _run([*_resolver_args(shared, "run-a"), "--timestamp-now"], tmp_path,
+                  stdin=json.dumps({**ATTEMPT, "run_id": run_id}))
+        assert ok.returncode == 0, ok.stderr
+    rows = [json.loads(line) for line in (runs / "run-a/attempts.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["run_id"] for row in rows] == ["run-a"] * 3
+    assert [path.name for path in runs.iterdir()] == ["run-a"]
+
+
+@pytest.mark.parametrize("flag", ["--program", "--lane"])
+@pytest.mark.parametrize("value", [".", "..", " .. ", "", "a/b", "..\\x"])
+def test_path_like_program_or_lane_is_rejected_before_storage_access(tmp_path: Path, flag, value) -> None:
+    shared = _shared(tmp_path)
+    before = _tree(shared)
+    values = {"--program": "example", "--lane": "web", flag: value}
+    for root_args in (["--root", str(shared)], []):  # explicit root and the HOME default
+        args = ["--program", values["--program"], "--lane", values["--lane"], "--run-id", "run-1", *root_args]
+        result = _run([*args, "--timestamp-now"], tmp_path, stdin=json.dumps(ATTEMPT))
+        assert result.returncode == 2
+        assert f"{flag} must be a plain name" in result.stderr
+    assert _tree(shared) == before
+    assert not (tmp_path / "home").exists()
+
+
+def test_closed_or_empty_stdin_reports_missing_input(tmp_path: Path) -> None:
+    shared = _shared(tmp_path)
+    closed = _run([*_resolver_args(shared), "--timestamp-now"], tmp_path,
+                  command=["sh", "-c", 'exec "$@" <&-', "sh", sys.executable, str(SCRIPT)])
+    empty = _run([*_resolver_args(shared), "--timestamp-now"], tmp_path, stdin="  \n")
+    blank_json = _run([*_resolver_args(shared), "--timestamp-now", "--json", " "], tmp_path)
+    for result in (closed, empty, blank_json):
+        assert result.returncode == 2
+        assert "no attempt JSON; pass --json or a quoted heredoc" in result.stderr
+        assert "Traceback" not in result.stderr and "JSON" not in result.stdout
+    assert not (shared / "web_bounty/example/web/attempts").exists()
+
+
+def test_null_timestamp_is_absent_and_null_or_nonstring_required_fields_are_rejected(tmp_path: Path) -> None:
+    shared = _shared(tmp_path)
+    ok = _run([*_resolver_args(shared), "--timestamp-now"], tmp_path, stdin=json.dumps({**ATTEMPT, "timestamp": None}))
+    assert ok.returncode == 0, ok.stderr
+    assert json.loads(Path(json.loads(ok.stdout)["path"]).read_text(encoding="utf-8"))["timestamp"]
+
+    bad = {**ATTEMPT, "tool": None, "target": 5, "outcome": [], "stop_reason": {}}
+    result = _run([*_resolver_args(shared, "run-bad"), "--timestamp-now"], tmp_path, stdin=json.dumps(bad))
+    assert result.returncode == 2
+    assert "attempt missing required fields: tool, target, outcome, stop_reason" in result.stderr
+    assert "required nonempty string fields" in result.stderr
+    assert not (shared / "web_bounty/example/web/attempts/_runs/run-bad").exists()
+
+
+def test_receipt_path_is_absolute_and_normalized(tmp_path: Path) -> None:
+    result = _run(["--path", "x/../rel/attempts/_runs/run-a/attempts.jsonl", "--timestamp-now"], tmp_path,
+                  stdin=json.dumps(ATTEMPT))
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["path"] == str(tmp_path / "rel/attempts/_runs/run-a/attempts.jsonl")
+    assert receipt["run_id"] == "run-a" and Path(receipt["path"]).is_file()
+
+
+@pytest.mark.parametrize("run_id", ["token=hunter2", "Bearer hunter2", ".hunter2", "user:hunter2@x"])
+def test_secret_looking_run_ids_are_rejected_unechoed(tmp_path: Path, run_id: str) -> None:
+    shared = _shared(tmp_path)
+    by_flag = _run([*_resolver_args(shared, run_id), "--timestamp-now"], tmp_path, stdin=json.dumps(ATTEMPT))
+    by_path = _run(["--path", str(tmp_path / f"lane/attempts/_runs/{run_id}/attempts.jsonl"), "--timestamp-now"],
+                   tmp_path, stdin=json.dumps(ATTEMPT))
+    for result in (by_flag, by_path):
+        assert result.returncode == 2
+        assert "never put secrets in a run ID" in result.stderr
+        assert "hunter2" not in result.stdout + result.stderr
+    assert not (shared / "web_bounty/example/web/attempts").exists()
+    assert not (tmp_path / "lane").exists()
+
+
+def test_recording_does_not_rescaffold_lane_or_rewrite_target_profile(tmp_path: Path) -> None:
+    shared = _shared(tmp_path)
+    lane = shared / "web_bounty/example/web"
+    profile = lane / "context/target_profile.json"
+    profile.write_text('{"sentinel": "operator-owned"}\n', encoding="utf-8")
+    shutil.rmtree(lane / "reports")
+    before = _tree(lane)
+
+    result = _run([*_resolver_args(shared, "run-a"), "--timestamp-now"], tmp_path, stdin=json.dumps(ATTEMPT))
+
+    assert result.returncode == 0, result.stderr
+    assert profile.read_text(encoding="utf-8") == '{"sentinel": "operator-owned"}\n'
+    added = sorted(set(_tree(lane)) - set(before))
+    assert added == ["attempts", "attempts/_runs", "attempts/_runs/run-a", "attempts/_runs/run-a/attempts.jsonl"]
+
+
+def test_missing_custom_lane_does_not_suggest_program_init(tmp_path: Path) -> None:
+    shared = _shared(tmp_path)
+    result = _run(["--program", "example", "--lane", "xss", "--family", "web_bounty", "--run-id", "run-1",
+                   "--root", str(shared), "--timestamp-now"], tmp_path, stdin=json.dumps(ATTEMPT))
+    assert result.returncode == 2
+    assert "program lane not found" in result.stderr and "custom lanes are created by the tool" in result.stderr
+    assert "program_init" not in result.stderr
+    assert not (shared / "web_bounty/example/xss").exists()
 
 
 def _fake_runtime_checkout(tmp_path: Path) -> Path:

@@ -78,11 +78,14 @@ def resolve_attempts_path(
     family: str = WEB_FAMILY,
     lane: str = "recon",
     root_override: str | Path | None = None,
+    create: bool = True,
 ) -> Path:
     """Return the generic run-owned Attempts stream for a resolved storage lane.
 
     Payload family, vulnerability class, target, and parameter remain event
-    fields; the canonical filename is never class-specific.
+    fields; the canonical filename is never class-specific. ``create=False``
+    resolves without scaffolding the lane layout (which also rewrites its
+    ``context/target_profile.json``); the writer creates the run directory.
     """
     normalized_run_id = str(run_id).strip()
     if (
@@ -97,7 +100,7 @@ def resolve_attempts_path(
         family=family,
         lane=lane,
         root_override=root_override,
-        create=True,
+        create=create,
     )
     return layout.lane_root / "attempts" / "_runs" / normalized_run_id / "attempts.jsonl"
 

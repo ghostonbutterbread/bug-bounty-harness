@@ -81,9 +81,11 @@ instead of program/lane/run when a packet hands over the exact stream,
 `ai_reviewed_by` tag. Keep the quoted `'JSON'` heredoc delimiter so the shell
 does not expand `$` or backticks inside payloads. `--timestamp-now` supplies the
 required timestamp at recording time; put an explicit `"timestamp"` in the JSON
-instead when recording later. A missing required field, invalid JSON, or an
-uninitialized program lane is rejected with exit status 2 and no Attempt is
-written. `python -m agents.attempts` is deliberately not a CLI.
+instead when recording later. Run IDs use letters, digits, `.`, `_`, and `-`;
+omit `run_id` from the JSON (or make it equal the destination run). A missing
+or non-string required field, missing or invalid JSON, a conflicting `run_id`,
+or an uninitialized program lane is rejected with exit status 2 and no Attempt
+is written. `python -m agents.attempts` is deliberately not a CLI.
 
 For an inline import or a task-owned Python script, use the **same checkout and
 interpreter** selected by `bbh`. The system Python and a different checkout's

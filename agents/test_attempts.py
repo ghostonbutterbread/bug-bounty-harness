@@ -145,6 +145,17 @@ def test_read_attempt_bucket_queries_all_runs_and_filters_without_exact_run_path
     assert read_attempt_bucket("example", root_override=tmp_path, where={"vuln_class": "lfi"})[0]["run_id"] == "run-001"
 
 
+def test_resolve_attempts_path_without_create_leaves_storage_untouched(tmp_path: Path) -> None:
+    from agents.attempts import resolve_attempts_path
+
+    created = resolve_attempts_path("example", run_id="run-1", lane="web", root_override=tmp_path / "a")
+    resolved = resolve_attempts_path("example", run_id="run-1", lane="web", root_override=tmp_path / "b", create=False)
+
+    assert (tmp_path / "a/web_bounty/example/web/context/target_profile.json").is_file()
+    assert resolved.relative_to(tmp_path / "b") == created.relative_to(tmp_path / "a")
+    assert not (tmp_path / "b").exists()
+
+
 def test_resolve_attempts_path_rejects_path_like_run_id(tmp_path: Path) -> None:
     from agents.attempts import resolve_attempts_path
 

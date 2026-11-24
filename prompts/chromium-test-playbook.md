@@ -92,8 +92,12 @@ Task-owned mode does not resolve inventory accounts or import authentication
 seeds, and does not merge program authorizations. The same `--owner-pid` option on a
 named-profile request enables automatic lease renewal and terminal cleanup.
 Select the actual task-specific supervisor on the browser node—not a short-lived
-request process or an always-running shared daemon. Missing lifecycle identity
-means `unknown` and still requires explicit terminal release.
+request process or an always-running shared daemon. Without `--owner-pid`, a new
+browser is bound to the requesting agent process on the browser node (nearest
+known agent-runtime ancestor) and is stopped after that agent exits. A request
+with no such ancestor (for example a remote one-shot SSH command) has `unknown`
+lifecycle identity and still requires explicit terminal release; `release-run`
+releases every browser recorded for one exact agent/run.
 
 The provisioner protects active owners, reconciles abandoned ownership, and
 transfers a healthy matching browser only after revoking old control. Browser

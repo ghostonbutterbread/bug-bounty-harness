@@ -47,8 +47,11 @@ from agents.verbosity import clamp_verbosity
 from bounty_core.storage import resolve_family_lane  # noqa: E402
 
 
+# The trailing boundary stops a hostname such as www.example.com matching the
+# path www.example.c.
 FILE_HINT_RE = (
     r"(?P<path>[\w./-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
+    r"(?![A-Za-z0-9_])"
     r"(?:[:#](?P<line>\d+))?"
 )
 

@@ -47,7 +47,22 @@ its candidate scope filenames omit `out-of-scope.txt` and `excluded.txt`.
 when it matches an allow. This is separate from ScopeValidator's annotation
 parsing defect and is intentionally not fixed in that bounded parser task.
 
-## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word
+## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word — resolved
+
+**Resolution:** branch `fix/manual-hunter-markdown-parse` appends the trailing
+`(?![A-Za-z0-9_])` boundary and adds
+`TestLooseFallbackFileHint` (hostname note returns no loose finding; dotted
+directories and `jquery.min.js`-style stems still resolve). This matters because
+`_flexible_findings_for_file` sends any manual-hunter `ValueError` (for example
+"missing File") to `_loose_markdown_fallback`. The patterns stay separate: the
+manual-hunter pattern rejects dotted file stems to avoid matching hostnames,
+which would drop the loose importer's existing `vendor/jquery.min.js` support.
+A hostname with a source-like TLD (`example.py`) can still match the loose
+pattern. **Identity change:** the old pattern stopped at the first matching
+extension, so `config.json` matched as `config.js`, `index.html` as `index.h`,
+and `main.cpp` as `main.c`. A raw report imported through the loose fallback
+under such a truncated name gets the full name, and so a new ledger identity,
+on its next re-sync. Reconcile any duplicate by FID; do not hand-edit the ledger.
 
 **Location:** `agents/sync_reports.py:41` (its own copy of the pattern, independent of
 `agents/manual_hunter.py`).
@@ -68,7 +83,43 @@ value instead of being rejected, and `file` feeds finding identity/dedup. Observ
 `(?![A-Za-z0-9_])` after the extension group. Better still, share one pattern between the
 two modules rather than keeping duplicate copies.
 
-**Not fixed here** because it is outside the manual_hunter ingest-parser fix scope.
+Originally deferred from the first manual_hunter ingest-parser fix.
+
+## `manual_hunter.FILE_HINT_RE` truncates leading-dot directories
+
+**Location:** `agents/manual_hunter.py` `FILE_HINT_RE` (unlabelled file inference
+in `parse_finding_text`, shared by manual ingest and `sync_reports`).
+**Evidence:** "Observed in .webpack/renderer/preload.js:4" infers
+`renderer/preload.js`. The `(?<![\w.-])` lookbehind rejects a match starting at
+`.webpack`, so the match starts at the next segment.
+**Impact:** an unlabelled dotted path gets a truncated `file` identity. A fix
+(`(?:\.?[\w-]+/)*`) changes identity for already-imported raw reports on
+re-sync, so it needs its own compatibility decision. It was taken out of the
+manual-hunter Markdown parse fix for that reason.
+
+## `manual_hunter.FIELD_URL_RE` drops parenthesised paths and IPv6 hosts
+
+**Location:** `agents/manual_hunter.py` `FIELD_URL_RE` / `_declared_url`
+(manual-note URL, Endpoint, and Asset values).
+**Evidence:** the token class excludes `()[]`, so
+`https://host/wiki/A_(b)` is cut to `https://host/wiki/A_`, and
+`http://[::1]:8080/x` yields no URL.
+**Impact:** such a declared route is stored truncated or refused as "missing
+File". Parentheses were excluded so that `(in scope)` annotations and Markdown
+links are dropped; a fix must keep those cases.
+
+## `_infer_class` matches keyword tokens inside longer words
+
+**Location:** `agents/manual_hunter.py` `_infer_class` (also used by
+`agents/sync_reports.py` `_loose_markdown_fallback` and `_normalize_candidate`).
+**Evidence:** tokens are plain substrings, so `"rce"` matches `source`,
+`resource`, and `force`; `"shell"` matches `PowerShell`. A note with no class token
+except "the API returns another user's resource" infers `exec-sink-reachability`.
+**Impact:** binary-lane manual notes and every sync_reports import without an
+explicit class can store a specific wrong class (still flagged `class_inferred`
+by manual_hunter). Web/api manual notes no longer use keyword inference. A fix
+needs word boundaries for acronyms while keeping identifier prefixes such as
+`readFileSync`.
 
 ## Runtime dependency test expects a different Bounty Core revision — resolved
 

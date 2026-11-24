@@ -52,7 +52,7 @@ File: src/example.py
 Description: An owned test fixture returned a private marker from another owned record.
 ```
 
-`Class:` is optional but recommended when the vulnerability class is known. For example, add `Class: idor` as a separate line. Without it, the parser infers a class from keywords (possibly `unknown` or a wrong class) and prints a warning. The parser can sometimes infer an unlabelled file or use narrative text as the description, but do not rely on those fallbacks. Do not put credentials, tokens, or unrelated private data in notes. This format only establishes parser acceptance; the evidence gate above still determines whether to ingest.
+`Class:` is optional but recommended when the vulnerability class is known. For example, add `Class: idor` as a separate line. Without it, a short `Vulnerability:` or `Vuln class:` value (for example `Reflected XSS`) is used as the class; a sentence there is refused, and `N/A`/`TBD`/`Unknown` count as absent. With neither, web/api notes store `unknown` and binary lanes infer a class from keywords (possibly wrong); both print a warning. Bold (`**Severity:** High`, `**Severity**: High`) and `- ` list-prefixed labels are accepted. Severity uses the leading level, so `High (CVSS 3.1: 7.1)` is `HIGH`; a value naming two levels stays `UNKNOWN`. On web/api lanes the identity comes from `URL:`, `Endpoint:`, or `File:`. An `Asset:` URL with a path is used only when none of those is present. A hostname or site origin (`Asset: example.com`, `Asset: https://example.com`) is never a route, so add `URL:` or `File:`. The parser can sometimes infer an unlabelled file or use narrative text as the description, but do not rely on those fallbacks. Do not put credentials, tokens, or unrelated private data in notes. This format only establishes parser acceptance; the evidence gate above still determines whether to ingest.
 
 ## Report handoff meaning
 
@@ -103,7 +103,7 @@ Drop markdown notes here. They will be ingested on the next run.
 
 ## Add evidence to an existing finding
 
-Agents may attach a **new, relevant observation** to an existing finding. Before ingest, compare the note's file, line, class, and type/title with the intended finding in the selected program and lane: the active ledger dedupes on those normalized fields, not an explicitly selected FID. A matching sink alone does not establish the identity. If the match could be ambiguous, do not use the flag; resolve the finding identity first. The comment ledger stores the raw note, so omit credentials, tokens, and unrelated sensitive data.
+Agents may attach a **new, relevant observation** to an existing finding. Before ingest, compare the note's file, line, class, and type/title with the intended finding in the selected program and lane: the active ledger dedupes on those normalized fields, not an explicitly selected FID. A matching sink alone does not establish the identity. If the match could be ambiguous, do not use the flag; resolve the finding identity first. Class derivation for report-style notes changed (Vulnerability labels and web `unknown`). When linking evidence to a finding ingested earlier, state that finding's existing class with `Class:` so the note matches it. The comment ledger stores the raw note, so omit credentials, tokens, and unrelated sensitive data.
 
 ```bash
 bbh agents/manual_hunter.py <program> --lane <lane> \

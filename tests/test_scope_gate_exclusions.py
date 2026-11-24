@@ -220,6 +220,8 @@ def test_harness_constraints_refuse_ambiguous_or_unsupported_urls(url):
 @pytest.mark.parametrize("url", [
     "https://api.target.com/orders/1",
     "https://API.TARGET.COM:443/",
+    "HTTPS://API.TARGET.COM/",
+    "HtTp://target.com:80/",
     "http://target.com:80/",
     "https://api.target.com./",
     "https://xn--bcher-kva.target.com/",
@@ -259,3 +261,114 @@ def test_asset_classify_does_not_relate_query_suffix_to_target():
     graph.add_scope_pattern("*.target.com", in_scope=True)
     assert graph.classify_scope("evil.test?x=.target.com") == "unknown"
     assert graph.classify_scope("https://api.target.com/") == "in-scope"
+
+
+def test_asset_unparseable_url_is_out_of_scope_when_exclusions_exist():
+    graph = asset_intelligence.AssetIntelligenceGraph(program=PROGRAM, target="target.com")
+    graph.add_scope_pattern("*.target.com", in_scope=True)
+    graph.add_scope_pattern("admin.target.com", in_scope=False)
+    assert graph.classify_scope("https://user@admin.target.com/") == "out-of-scope"
+    assert graph.classify_scope("https://login.target.com\\@api.target.com/") == "out-of-scope"
+    assert graph.classify_scope("HTTPS://api.target.com/") == "in-scope"
+    # Non-host records keep their label rather than becoming blocked.
+    assert graph.classify_scope("Example Corp, Inc.") == "unknown"
+
+    allow_only = asset_intelligence.AssetIntelligenceGraph(program=PROGRAM, target="target.com")
+    allow_only.add_scope_pattern("*.target.com", in_scope=True)
+    assert allow_only.classify_scope("https://user@admin.target.com/") == "unknown"
+
+
+# --- Fuzz campaign path (run_campaign -> FuzzAgent) -------------------------------
+
+@pytest.fixture
+def fuzz_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import program_config
+    from agents import fuzz_runner
+
+    scopes = tmp_path / "scopes"
+    monkeypatch.setattr(fuzz_runner.ScopeValidator, "SCOPES_BASE", scopes)
+    monkeypatch.setattr(fuzz_runner.ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    monkeypatch.setattr(program_config, "SCOPES_DIR", scopes)
+    monkeypatch.setattr(program_config, "BASE_DIR", tmp_path / "web_bounty")
+
+    class State:
+        CAMPAIGNS_DIR = tmp_path / "campaigns"
+
+    monkeypatch.setattr(fuzz_runner, "CampaignState", State)
+    monkeypatch.setattr(fuzz_runner, "SubagentLogger", None)
+    monkeypatch.setattr(fuzz_runner.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("ffuf subprocess reached"))
+    _write(scopes / PROGRAM, "in-scope.txt", "example.test\n")
+    _write(scopes / PROGRAM, "out-of-scope.txt", "admin.example.test\n")
+    return fuzz_runner
+
+
+def test_fuzz_program_scope_refuses_excluded_target_domain_list_allows(fuzz_env):
+    import io
+
+    import program_config
+
+    domains = program_config._load_in_scope_domains(PROGRAM)
+    assert domains == ["example.test"]
+    constraints = _constraints(domains)
+    target = "https://admin.example.test"
+    # The campaign's domain list alone cannot see the exclusion...
+    assert constraints.check_scope(target) is True
+    # ...so the program's saved scope must refuse it before any request.
+    agent = fuzz_env.FuzzAgent("demo", PROGRAM)
+    result = agent._run_target(campaign={}, constraints=constraints, fuzz_state={},
+                               target=target, max_requests=10, raw_file=io.StringIO())
+    assert result["requests_used"] == 0
+    assert agent.is_in_scope("https://example.test/") is True
+
+
+def test_fuzz_agent_without_program_fails_closed(fuzz_env):
+    with pytest.raises(ValueError, match="program"):
+        fuzz_env.FuzzAgent("demo")
+
+
+def test_run_fuzz_passes_recorded_program_and_refuses_without(monkeypatch):
+    import importlib.util
+    import sys
+    from types import SimpleNamespace
+
+    if importlib.util.find_spec("bac_checks") is None:
+        # External bounty-tools catalog imported by run_campaign; unused by fuzz.
+        monkeypatch.setitem(sys.modules, "bac_checks",
+                            SimpleNamespace(P0_TESTS=[], P1_TESTS=[], P2_TESTS=[]))
+    import run_campaign
+
+    calls = []
+
+    class Agent:
+        def __init__(self, campaign_id, program=""):
+            calls.append((campaign_id, program))
+
+        def run(self, max_requests):
+            return {}
+
+    monkeypatch.setattr(run_campaign, "FuzzAgent", Agent)
+    args = SimpleNamespace(campaign="demo", max_requests=10)
+
+    assert run_campaign.run_fuzz(args, {"program_config": {"program": PROGRAM}}, None) == 0
+    assert calls == [("demo", PROGRAM)]
+    for campaign in ({}, {"program_config": None}, {"program_config": {"program": ""}},
+                     {"program_config": {"program": "../other"}}):
+        assert run_campaign.run_fuzz(args, campaign, None) == 1
+    assert calls == [("demo", PROGRAM)]
+
+
+# --- program_init CLI boundary ----------------------------------------------------
+
+def test_program_init_reports_unreadable_scope_without_traceback(tmp_path, monkeypatch, capsys):
+    from scripts import program_init
+
+    def unreadable(*args, **kwargs):
+        raise ScopeExclusionReadError("could not read exclusion file /synthetic/out-of-scope.txt: denied")
+
+    monkeypatch.setattr(program_init, "initialize_program", unreadable)
+    code = program_init.main([PROGRAM, "--skip-scope", "--artifact-root", str(tmp_path / "artifacts")])
+
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "out-of-scope.txt" in out and "retry" in out

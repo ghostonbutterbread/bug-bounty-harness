@@ -94,13 +94,13 @@ class FuzzAgent:
         self._lock_path = self.campaign_dir / ".ffuf.lock"
         self._lock_path.touch(exist_ok=True)
 
-        # Load scope
+        # Load scope. HarnessConstraints carries no exclusions, so fuzzing
+        # without the program's saved scope would ignore them; refuse instead.
         if ScopeValidator is None:
             raise RuntimeError("Scope validator unavailable; provision dependencies from requirements.txt and retry") from _scope_import_error
-        if program and ScopeValidator is not None:
-            self.scope = ScopeValidator(program)
-        else:
-            self.scope = None
+        if not program:
+            raise ValueError("Fuzz requires the campaign's saved-scope program; re-create the campaign with `run_campaign.py init --program <program>`")
+        self.scope = ScopeValidator(program)
 
         # Setup rate limiter (ffuf handles its own rate; this covers pre-checks)
         self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
@@ -113,9 +113,7 @@ class FuzzAgent:
                 self.log = None
 
     def is_in_scope(self, url: str) -> bool:
-        """Check if URL is in scope. Skip if no scope loaded."""
-        if not self.scope:
-            return True
+        """Check the program's saved scope, including its exclusions."""
         return self.scope.is_in_scope(url)
 
     def run(self, max_requests: int = 500) -> dict:

@@ -105,7 +105,9 @@ if http_code == 429:
 
 ## Integration
 
-- Uses harness_core.HarnessConstraints for scope/rate/budget enforcement
+- Requires the campaign's saved-scope program (`program_config.program`); its
+  ScopeValidator, including exclusions, gates each target before
+  harness_core.HarnessConstraints (domain/rate/budget). No program, no run.
 - Uses harness_core.CampaignState for state persistence
 - Findings stored in campaign["findings"]["potential"] with category="fuzz"
 - Raw ffuf output saved to campaigns/{campaign_id}/fuzz_raw_{timestamp}.txt

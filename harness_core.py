@@ -236,8 +236,10 @@ class HarnessConstraints:
             from scope_validator import _extract_host, _safe_host
         try:
             from urllib.parse import urlsplit
-            if not url.startswith(("http://", "https://")):
+            scheme, separator, rest = url.partition("://")
+            if not separator or scheme.lower() not in ("http", "https"):
                 return False
+            url = f"{scheme.lower()}://{rest}"  # schemes are case-insensitive
             host = _extract_host(url)
             if not host or urlsplit(url).port not in (None, 80, 443):
                 return False

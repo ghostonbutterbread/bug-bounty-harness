@@ -424,6 +424,13 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}")
         return 2
+    except OSError as exc:
+        # Includes ScopeFileReadError; caught by base class so module identity
+        # does not matter. The message names the file and the OS error.
+        print(f"error: {exc}")
+        print("hint: fix the unreadable or malformed file named above "
+              "(re-pull scope with --platform if it is a scope file), then retry")
+        return 2
     if args.json:
         print(json.dumps(result, indent=2))
     else:

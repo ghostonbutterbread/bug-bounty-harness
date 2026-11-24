@@ -110,11 +110,15 @@ class AssetIntelligenceGraph:
     def classify_scope(self, value: str) -> str:
         if not value:
             return "unknown"
+        host = scope_host(value)
+        # Like ScopeValidator, an unparseable URL/host may name any excluded
+        # host. Non-host records (entities, fingerprints) are not affected.
+        if not host and self.out_of_scope_patterns and infer_kind(str(value)) in {"url", "domain"}:
+            return "out-of-scope"
         if any(scope_matches(pattern, value) for pattern in self.out_of_scope_patterns):
             return "out-of-scope"
         if any(scope_matches(pattern, value) for pattern in self.in_scope_patterns):
             return "in-scope"
-        host = scope_host(value)
         target = self.target.lower()
         if host and target and (host == target or host.endswith(f".{target}")):
             return "needs-human-review"
@@ -662,6 +666,9 @@ def scope_host(value: str) -> str:
     raw = str(value or "").strip()
     if raw.startswith("*."):
         raw = raw[2:]
+    scheme, separator, rest = raw.partition("://")
+    if separator:
+        raw = f"{scheme.lower()}://{rest}"  # schemes are case-insensitive
     return _extract_host(raw) or ("" if "://" in raw else _extract_host(f"http://{raw}"))
 
 

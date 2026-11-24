@@ -152,13 +152,23 @@ per-candidate requests.
 (`scope_validator._extract_host` / `subdomain_agent.is_target_host`).
 
 **Resolution:** both use ScopeValidator's `_extract_host`/`_safe_host`.
-`agents/fuzz_runner.py` does call `HarnessConstraints.check_scope`, but only
-after ScopeValidator, which already refused these URLs. `HarnessConstraints`
-keeps its contract (http(s) only, port 80/443, suffix match) and lets a
-scope-module import failure propagate instead of denying silently. Asset labels
-read a bare value as an http authority, so `host:port` keeps its label and
-`evil.test?x=.target.com` labels as `evil.test`. Regression:
-`tests/test_scope_gate_exclusions.py`.
+`HarnessConstraints` keeps its contract (http(s) in any letter case, port
+80/443, suffix match) and lets a scope-module import failure propagate instead
+of denying silently. Asset labels read a bare value as an http authority, so
+`host:port` keeps its label and `evil.test?x=.target.com` labels as
+`evil.test`; an unparseable URL/host labels out-of-scope when exclusions exist.
+
+The real fuzz caller was also ungated: `run_campaign.py run --agent fuzz` built
+`FuzzAgent(campaign)` without a program, so `FuzzAgent.is_in_scope` returned
+True and `HarnessConstraints` (campaign domain list, no exclusions) was the only
+check; `in-scope.txt` `x.com` plus `out-of-scope.txt` `admin.x.com` let
+`https://admin.x.com` through. `run_fuzz` now passes the campaign's recorded
+`program_config.program`, so ScopeValidator and its exclusions gate each target,
+and refuses to run (exit 1, no requests) when no valid program is recorded.
+`FuzzAgent` without a program now raises instead of allowing everything. A
+campaign created without `--program` (and no inferred program) must be
+re-created with `run_campaign.py init --program <program>` before fuzzing.
+Regression: `tests/test_scope_gate_exclusions.py`.
 
 ## Proxy-store private-ancestor fence can never pass under `/tmp`
 
@@ -266,3 +276,45 @@ for a wildcard-only target that ScopeValidator accepts (same on beta `3f72ed81`)
 
 **Impact:** fails closed (lost fuzz coverage, not a scope escape). Decide
 whether `*.` entries should grant subdomains before changing it.
+
+## Asset-intelligence URL-path exclusions are bypassed by path spellings
+
+**Location:** `agents/recon/asset_intelligence.py` `scope_matches` (URL-pattern
+branch), used by `classify_scope`.
+
+**Evidence:** with in-scope `*.x.test` and exclusion `https://x.test/admin`,
+`https://x.test:443/admin`, `https://x.test//admin`, `https://x.test/%61dmin`,
+`http://x.test/admin`, `https://x.test/admin;x` and bare `x.test/admin` are all
+labeled `in-scope` (lexical prefix match on the raw string). ScopeValidator's
+exclusion matching treats these as excluded.
+
+**Impact:** labels only (the module sends no per-candidate requests), but
+`target_intel` can rank an excluded path as in scope. Reuse ScopeValidator's
+URL-pattern exclusion matching in its own task.
+
+## ScopeManager URL allows ignore the port
+
+**Location:** `agents/scope_manager.py` `is_in_scope` (base-URL check).
+
+**Evidence:** with allow `https://app.x.org`, ScopeManager accepts
+`https://app.x.org:8443/` because the base URL is rebuilt from scheme and host
+only; ScopeValidator refuses it (allows do not extend to another port).
+
+**Impact:** the two gates disagree on allows. No production caller uses
+`ScopeManager.is_in_scope` (`scripts/program_init.py` reads only
+`domains`/`urls`), so this is latent.
+
+## ScopeManager mixes canonical and legacy allow files
+
+**Location:** `agents/scope_manager.py` `_load_domains` / `_load_urls` /
+`_candidate_files`.
+
+**Evidence:** ScopeManager unions allows from canonical and legacy
+`in-scope.txt`/`domains.txt`/`scope.txt`; ScopeValidator uses only the first
+present allow file. With canonical `in-scope.txt` plus legacy `domains.txt`
+`legacy.x.io`, ScopeManager accepts `legacy.x.io` and ScopeValidator refuses it.
+
+**Impact:** the gates can disagree on allows; latent, since no production caller
+uses `ScopeManager.is_in_scope`. `program_init` recon seeds also include the
+legacy allows. Decide whether ScopeManager should adopt ScopeValidator's
+allow-file selection.

@@ -1,21 +1,20 @@
-"""Permanent deletion, tombstones, and restore for archived lane findings.
+"""Permanent deletion of archived lane findings, with minimal tombstones.
 
-A finding is deleted only after the operator has archived it (``status`` is
-``archive``). Deletion is a single critical section under the same
-``ledgers/ledger.lock`` and atomic ``ledger.json`` replacement that every
+Archive (``status`` = ``archive``) is the only recoverable state; deleting an
+archived finding is final. Deletion is a single critical section under the
+same ``ledgers/ledger.lock`` and atomic ``ledger.json`` replacement that every
 Bounty Core ledger writer uses, so a concurrent ``--edit-finding`` or import
 either completes before the delete reads the ledger or waits for it.
 
-Each delete appends one ``deleted`` event, carrying the full removed record,
-to ``ledgers/deleted-findings.jsonl``. ``restore`` appends a ``restored``
-event. The latest event for a FID decides whether it is tombstoned; the
-:func:`tombstone_guard` helpers let ledger-insert paths skip tombstoned
-FIDs/identities instead of silently resurrecting them.
+Each delete appends one minimal ``deleted`` event to
+``ledgers/deleted-findings.jsonl``: the FID, the Bounty Core identity key the
+resurrection guard matches on, ``deleted_at`` and ``deleted_by``. No title,
+description, evidence, or report content is kept. :class:`TombstoneGuard` lets
+ledger-insert paths skip a deleted FID/identity instead of re-adding it.
 
 BBH-generated artifacts of the deleted FID (a ``bounty-core-finding-report``
 whose ``generated-checksum`` still matches, or an untouched create-only
-``EVIDENCE.md`` template) move into ``ledgers/_deleted/<FID>/<stamp>/`` with
-their lane-relative paths preserved. Anything else, including human-edited
+``EVIDENCE.md`` template) are unlinked. Anything else, including human-edited
 reports, Bunny reports, PoCs, and symlinks, is left in place and reported.
 """
 
@@ -45,10 +44,8 @@ from bounty_core.indexes import refresh_indexes
 from bounty_core.reports import (
     EVIDENCE_FILENAME,
     EVIDENCE_ONLY,
-    FINALIZED_REPORT_FILENAME,
     FINDING_REPORT_GENERATED_MARKER,
     META_DIRNAME,
-    REPORT_FILENAME,
     _candidate_paths_for_fid,
     _packet_dir,
     ensure_finding_evidence_packet,
@@ -58,8 +55,7 @@ from bounty_core.reports import (
 from bounty_core.storage import StorageLayout, resolve_storage
 
 TOMBSTONE_FILENAME = "deleted-findings.jsonl"
-RETIRED_DIRNAME = "_deleted"
-TOMBSTONE_SCHEMA = "bbh-deleted-finding/1"
+TOMBSTONE_SCHEMA = "bbh-deleted-finding/2"
 ARCHIVE_STATUS = "archive"
 DEFAULT_ACTOR = "manual_hunter"
 
@@ -69,7 +65,7 @@ EXIT_PARTIAL = 3
 
 
 class LedgerDeleteError(ValueError):
-    """A delete/restore was refused; nothing was written."""
+    """A delete was refused; nothing was written."""
 
 
 class MalformedLedgerError(LedgerDeleteError):
@@ -81,7 +77,7 @@ class DeleteResult:
     fid: str
     ledger_path: Path
     tombstone_path: Path
-    retired: list[tuple[Path, Path]] = field(default_factory=list)
+    deleted_files: list[Path] = field(default_factory=list)
     kept: list[tuple[Path, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -160,7 +156,7 @@ def read_tombstone_events(path: Path) -> list[dict[str, Any]]:
 
 
 def active_tombstones(path: Path) -> dict[str, dict[str, Any]]:
-    """Map upper-cased FID -> latest ``deleted`` event, if not since restored."""
+    """Map upper-cased FID -> latest ``deleted`` event (a later ``delete_aborted`` clears it)."""
     latest: dict[str, dict[str, Any]] = {}
     for event in read_tombstone_events(path):
         latest[str(event["fid"]).strip().upper()] = event
@@ -218,14 +214,10 @@ def tombstone_guard_for_layout(layout: StorageLayout) -> TombstoneGuard:
     events = active_tombstones(path)
     guard = TombstoneGuard(fids=set(events), path=path)
     for fid, event in events.items():
-        record = event.get("record") if isinstance(event.get("record"), dict) else {}
         key = event.get("identity_key")
         if isinstance(key, list) and len(key) == 4:
             guard.keys[tuple(key)] = fid
             guard.file_class[(key[0], key[2])] = fid
-        elif record:
-            guard.keys[tuple(_finding_key_for(record))] = fid
-            guard.file_class[_file_class(record)] = fid
     return guard
 
 
@@ -236,8 +228,7 @@ def tombstone_guard(
 
 
 def skip_message(fid: str, source: str) -> str:
-    return (f"Skipped tombstoned finding {fid} ({source}): it was deleted from this lane; "
-            f"use --restore-finding {fid} to bring the original back")
+    return f"Skipped tombstoned finding {fid} ({source}): it was permanently deleted from this lane"
 
 
 # --------------------------------------------------------------------------
@@ -329,9 +320,9 @@ def _is_generated_report(path: Path) -> bool:
 
 
 def classify_artifacts(layout: StorageLayout, finding: dict[str, Any]) -> tuple[list[Path], list[tuple[Path, str]], Path | None]:
-    """Return (retire, keep-with-reason, packet_dir) for one finding's files."""
+    """Return (delete, keep-with-reason, packet_dir) for one finding's files."""
     lane_root = layout.lane_root
-    retire: list[Path] = []
+    delete: list[Path] = []
     keep: list[tuple[Path, str]] = []
     seen: set[str] = set()
 
@@ -356,12 +347,12 @@ def classify_artifacts(layout: StorageLayout, finding: dict[str, Any]) -> tuple[
             return
         if path.name == EVIDENCE_FILENAME:
             if evidence_template is not None and path.read_bytes() == evidence_template:
-                retire.append(path)
+                delete.append(path)
             else:
                 keep.append((path, "evidence edited after creation"))
             return
         if _is_generated_report(path):
-            retire.append(path)
+            delete.append(path)
             return
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             first = handle.readline().strip()
@@ -421,48 +412,18 @@ def classify_artifacts(layout: StorageLayout, finding: dict[str, Any]) -> tuple[
                     keep.append((path, "outside the lane reports root"))
         else:
             consider(path)
-    return retire, keep, packet
+    return delete, keep, packet
 
 
-def _retire(layout: StorageLayout, paths: list[Path], dest_root: Path) -> list[tuple[Path, Path]]:
-    moved: list[tuple[Path, Path]] = []
-    try:
-        for source in paths:
-            relative = Path(os.path.abspath(source)).relative_to(Path(os.path.abspath(layout.lane_root)))
-            target = dest_root / relative
-            _safe_mkdirs(target.parent, layout.lane_root)
-            if target.exists() or target.is_symlink():
-                raise LedgerDeleteError(f"retired artifact target already exists: {target}")
-            os.rename(source, target)
-            moved.append((source, target))
-    except Exception:
-        _unretire(moved)
-        raise
-    return moved
-
-
-def _safe_mkdirs(directory: Path, lane_root: Path) -> None:
-    """Create ``directory`` under ``lane_root`` without traversing any symlink."""
-    root = Path(os.path.abspath(lane_root))
-    relative = Path(os.path.abspath(directory)).relative_to(root)
-    current = root
-    for part in relative.parts:
-        current = current / part
-        if current.is_symlink():
-            raise LedgerDeleteError(f"refusing to retire through a symlinked directory: {current}")
-        if not current.exists():
-            current.mkdir(mode=0o700)
-        elif not current.is_dir():
-            raise LedgerDeleteError(f"retire path component is not a directory: {current}")
-
-
-def _unretire(moved: list[tuple[Path, Path]]) -> None:
-    for source, target in reversed(moved):
-        try:
-            source.parent.mkdir(parents=True, exist_ok=True)
-            os.rename(target, source)
-        except OSError:
-            pass
+def _still_safe_to_unlink(path: Path, lane_root: Path, *, evidence_template: bytes | None) -> bool:
+    """Re-check immediately before unlinking: same classification, no symlinks."""
+    if path.is_symlink() or not path.is_file():
+        return False
+    if not _inside(path, lane_root) or not _no_symlink_between(path, lane_root):
+        return False
+    if path.name == EVIDENCE_FILENAME:
+        return evidence_template is not None and path.read_bytes() == evidence_template
+    return _is_generated_report(path)
 
 
 def _prune_empty_dirs(packet: Path | None) -> None:
@@ -477,7 +438,7 @@ def _prune_empty_dirs(packet: Path | None) -> None:
 
 
 # --------------------------------------------------------------------------
-# Delete / restore
+# Delete
 # --------------------------------------------------------------------------
 
 def _refresh_and_persist(layout: StorageLayout, path: Path, payload: dict[str, Any]) -> None:
@@ -536,47 +497,44 @@ def delete_finding_by_fid(
                 f"refusing to delete {target}: it is the highest FID of its prefix, so the next new finding "
                 "would reuse it; delete it after a newer finding exists in this lane")
 
-        deleted_at = _utc_iso()
-        retire, keep, packet = classify_artifacts(layout, record)
-        stamp = deleted_at.replace("-", "").replace(":", "")
-        dest_root = layout.ledgers_root / RETIRED_DIRNAME / target / stamp
-        moved = _retire(layout, retire, dest_root)
+        delete_paths, keep, packet = classify_artifacts(layout, record)
+        evidence_template = (_pristine_evidence_template(layout, record)
+                             if any(p.name == EVIDENCE_FILENAME for p in delete_paths) else None)
         remaining = findings[:index] + findings[index + 1:]
-        try:
-            _append_event(tombstone, {
-                "schema": TOMBSTONE_SCHEMA,
-                "event": "deleted",
-                "fid": target,
-                "deleted_at": deleted_at,
-                "deleted_by": (deleted_by or "").strip() or DEFAULT_ACTOR,
-                "ledger_path": str(path),
-                "program": layout.program,
-                "family": layout.family,
-                "lane": layout.lane,
-                "identity_key": identity_key(record),
-                "record": record,
-                "artifacts": {
-                    "retired": [{"from": str(src), "to": str(dst)} for src, dst in moved],
-                    "kept": [{"path": str(p), "reason": reason} for p, reason in keep],
-                },
-            })
-        except Exception:
-            _unretire(moved)
-            raise
+        # Tombstone first: if the ledger write then fails, a delete_aborted event
+        # clears it. Files are unlinked only after the ledger commit, because an
+        # unlink cannot be undone.
+        _append_event(tombstone, {
+            "schema": TOMBSTONE_SCHEMA,
+            "event": "deleted",
+            "fid": target,
+            "identity_key": identity_key(record),
+            "deleted_at": _utc_iso(),
+            "deleted_by": (deleted_by or "").strip() or DEFAULT_ACTOR,
+        })
         try:
             payload["findings"] = remaining
             payload["updated_at"] = _timestamp_iso()
             _write_json_atomic(path, payload)
         except Exception:
-            _unretire(moved)
             try:
                 _append_event(tombstone, {"schema": TOMBSTONE_SCHEMA, "event": "delete_aborted",
                                           "fid": target, "at": _utc_iso()})
             except Exception:
                 pass
             raise
-        result.retired = moved
         result.kept = keep
+        for artifact in delete_paths:
+            try:
+                if _still_safe_to_unlink(artifact, layout.lane_root,
+                                         evidence_template=evidence_template if artifact.name == EVIDENCE_FILENAME else None):
+                    artifact.unlink()
+                    result.deleted_files.append(artifact)
+                else:
+                    result.kept.append((artifact, "changed during delete; left in place"))
+            except OSError as exc:
+                result.kept.append((artifact, f"unlink failed: {exc.__class__.__name__}"))
+                result.warnings.append(f"could not delete generated file {artifact}: {exc}")
         _prune_empty_dirs(packet)
         try:
             _refresh_and_persist(layout, path, payload)
@@ -585,94 +543,10 @@ def delete_finding_by_fid(
     return result
 
 
-def restore_finding_by_fid(
-    program: str,
-    fid: str,
-    *,
-    family: str | None = None,
-    lane: str,
-    root_override: str | Path | None = None,
-    restored_by: str | None = None,
-) -> dict[str, Any]:
-    """Re-insert the latest tombstoned record for ``fid``; retired files are moved back when free."""
-    target = str(fid or "").strip()
-    if not target:
-        raise LedgerDeleteError("finding fid is required")
-    layout = _layout(program, family=family, lane=lane, root_override=root_override)
-    path = core_ledger_path(layout.program, lane=layout.lane, family=layout.family, root_override=root_override)
-    tombstone = tombstone_path_for(layout)
-    with _locked_payload(layout.program, exclusive=True, lane=layout.lane, family=layout.family,
-                         root_override=root_override, auto_write=False) as payload:
-        _assert_ledger_well_formed(path)
-        event = active_tombstones(tombstone).get(target.upper())
-        if event is None or not isinstance(event.get("record"), dict):
-            raise LedgerDeleteError(f"no tombstoned finding for fid {target}")
-        record = dict(event["record"])
-        target = str(record.get("fid") or event["fid"]).strip()
-        findings = [item for item in payload.get("findings", []) if isinstance(item, dict)]
-        if any(str(item.get("fid") or "").strip().upper() == target.upper() for item in findings):
-            raise LedgerDeleteError(f"refusing to restore {target}: that FID exists in the ledger")
-        key = tuple(_finding_key_for(record))
-        clash = next((item for item in findings if tuple(_finding_key_for(item)) == key), None)
-        if clash is not None:
-            raise LedgerDeleteError(
-                f"refusing to restore {target}: finding {clash.get('fid')} now has the same identity")
-        moved_back: list[tuple[Path, Path]] = []  # (original, retired) pairs, as _retire records them
-        retired_root = layout.ledgers_root / RETIRED_DIRNAME
-        try:
-            for moved in (event.get("artifacts") or {}).get("retired") or []:
-                src, dst = Path(str(moved.get("from"))), Path(str(moved.get("to")))
-                if not (dst.is_file() and not dst.is_symlink() and _inside(dst, retired_root)
-                        and _no_symlink_between(dst, layout.lane_root)
-                        and _inside(src, layout.lane_root) and not src.exists() and not src.is_symlink()):
-                    continue
-                _safe_mkdirs(src.parent, layout.lane_root)
-                os.rename(dst, src)
-                moved_back.append((src, dst))
-        except Exception:
-            _retire_again(moved_back)
-            raise
-        original_findings = list(payload.get("findings", []))
-        findings.append(record)
-        payload["findings"] = findings
-        payload["updated_at"] = _timestamp_iso()
-        try:
-            _write_json_atomic(path, payload)
-        except Exception:
-            _retire_again(moved_back)
-            raise
-        try:
-            _append_event(tombstone, {"schema": TOMBSTONE_SCHEMA, "event": "restored", "fid": target,
-                                      "restored_at": _utc_iso(),
-                                      "restored_by": (restored_by or "").strip() or DEFAULT_ACTOR,
-                                      "ledger_path": str(path),
-                                      "restored_files": [str(src) for src, _dst in moved_back]})
-        except Exception:
-            # Without the event the FID would stay tombstoned while live: undo the restore.
-            payload["findings"] = original_findings
-            _write_json_atomic(path, payload)
-            _retire_again(moved_back)
-            raise
-        warnings: list[str] = []
-        try:
-            _refresh_and_persist(layout, path, payload)
-        except Exception as exc:  # the restore itself is committed; surface the stale views
-            warnings.append(f"navigation refresh failed after restore: {exc.__class__.__name__}: {exc}")
-    return {**record, "_restored_files": [str(src) for src, _dst in moved_back], "_warnings": warnings}
-
-
-def _retire_again(moved_back: list[tuple[Path, Path]]) -> None:
-    for src, dst in reversed(moved_back):
-        try:
-            os.rename(src, dst)
-        except OSError:
-            pass
-
-
 __all__ = [
     "ARCHIVE_STATUS",
-    "DeleteResult",
     "CorruptTombstoneLogError",
+    "DeleteResult",
     "LedgerDeleteError",
     "MalformedLedgerError",
     "TOMBSTONE_FILENAME",
@@ -681,7 +555,6 @@ __all__ = [
     "classify_artifacts",
     "delete_finding_by_fid",
     "finding_status",
-    "restore_finding_by_fid",
     "skip_message",
     "tombstone_guard",
     "tombstone_guard_for_layout",

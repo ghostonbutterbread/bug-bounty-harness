@@ -36,7 +36,6 @@ from agents.ledger_tombstones import (
     EXIT_REFUSED,
     LedgerDeleteError,
     delete_finding_by_fid,
-    restore_finding_by_fid,
 )
 from agents.report_checker import (
     FindingRecord,
@@ -1221,7 +1220,7 @@ class ManualHunter:
 
         if finding.get("tombstoned"):
             # The ledger wrapper already logged the skip; never link notes to a deleted FID.
-            print(f"Skipped: {existing_fid} was deleted from this lane (restore it with --restore-finding {existing_fid})")
+            print(f"Skipped: {existing_fid} was permanently deleted from this lane")
             return 1
 
         if is_duplicate:
@@ -1339,30 +1338,13 @@ class ManualHunter:
             return EXIT_REFUSED
         print(f"Finding deleted: {result.fid}")
         print(f"Tombstone: {result.tombstone_path}")
-        for source, target in result.retired:
-            print(f"Retired: {source} -> {target}")
+        for path in result.deleted_files:
+            print(f"Deleted file: {path}")
         for path, reason in result.kept:
             print(f"Kept ({reason}): {path}")
         for warning in result.warnings:
             print(f"Warning: {warning}", file=sys.stderr)
         return EXIT_PARTIAL if result.warnings else EXIT_OK
-
-    def restore_finding(self, fid: str, *, actor: str | None = None) -> int:
-        """Re-insert the latest tombstoned record for one FID."""
-        try:
-            record = restore_finding_by_fid(
-                self.program, fid, family=self.family, lane=self.lane,
-                root_override=self.storage_root, restored_by=actor,
-            )
-        except LedgerDeleteError as exc:
-            print(f"[manual_hunter] {exc}", file=sys.stderr)
-            return EXIT_REFUSED
-        print(f"Finding restored: {record['fid']}")
-        for path in record.get("_restored_files") or []:
-            print(f"Restored file: {path}")
-        for warning in record.get("_warnings") or []:
-            print(f"Warning: {warning}", file=sys.stderr)
-        return EXIT_PARTIAL if record.get("_warnings") else EXIT_OK
 
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
         canonical_reports = [
@@ -1583,13 +1565,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--edit-finding", metavar="FID", help="Correct an existing finding by FID using --patch-file JSON.")
     mode.add_argument(
         "--delete-finding", metavar="FID",
-        help="Permanently delete one finding whose status is 'archive'. The removed record is appended to "
-        "ledgers/deleted-findings.jsonl; unedited BBH-generated report/evidence files move to "
-        "ledgers/_deleted/<FID>/; other files are kept and listed. Exit 0 ok, 1 refused, 3 deleted with warnings.",
-    )
-    mode.add_argument(
-        "--restore-finding", metavar="FID",
-        help="Restore the latest deleted record for FID from ledgers/deleted-findings.jsonl (refused if the FID exists).",
+        help="Permanently delete one finding whose status is 'archive' (archive is the recoverable state; "
+        "delete is final). Records a minimal tombstone (FID, identity, time, actor) in "
+        "ledgers/deleted-findings.jsonl so the finding is not re-imported, deletes unedited BBH-generated "
+        "report/evidence files, and lists every file it leaves. Exit 0 ok, 1 refused, 3 deleted with warnings.",
     )
     mode.add_argument(
         "--hunt",
@@ -1628,7 +1607,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "dropped"), default="submitted")
     parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
     parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
-    parser.add_argument("--actor", help="Agent/user label recorded as deleted_by/restored_by (default: manual_hunter).")
+    parser.add_argument("--actor", help="Agent/user label recorded as deleted_by (default: manual_hunter).")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
 
@@ -1685,10 +1664,8 @@ def main(argv: list[str] | None = None) -> int:
         return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
     if args.delete_finding:
         return hunter.delete_finding(args.delete_finding, actor=args.actor)
-    if args.restore_finding:
-        return hunter.restore_finding(args.restore_finding, actor=args.actor)
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission,
-                             args.edit_finding, args.delete_finding, args.restore_finding)):
+                             args.edit_finding, args.delete_finding)):
         if verbosity.verbose:
             print(f"[/ledger] verbosity={verbosity.level}")
             print(f"[/ledger] storage_root={hunter.storage.lane_root}")

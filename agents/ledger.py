@@ -28,7 +28,6 @@ from bounty_core.reports import EVIDENCE_ONLY
 
 from agents.ledger_tombstones import (
     delete_finding_by_fid,
-    restore_finding_by_fid,
     skip_message,
     tombstone_guard,
     tombstone_guard_for_layout,
@@ -314,7 +313,6 @@ __all__ = [
     "TombstoneAwareFindingsLedger",
     "VersionedFindingsLedger",
     "delete_finding_by_fid",
-    "restore_finding_by_fid",
     "tombstone_guard",
     "create_team_ledger",
     "create_team_ledger_from_storage",

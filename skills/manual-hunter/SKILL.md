@@ -137,4 +137,4 @@ The canonical ledger is patched by FID and navigation refreshes without rewritin
 
 ## Delete an archived finding
 
-Only on operator request: archive first (`--edit-finding FID`, `{"status":"archive"}`), then `bbh agents/manual_hunter.py <program> --lane <lane> --delete-finding FID [--actor <label>]`; undo with `--restore-finding FID`. It refuses unarchived/unknown FIDs, a malformed ledger, and a prefix's highest FID; tombstones the record, retires only unedited generated files, lists kept files, and blocks re-import. Contract: `docs/integrations/ledger-delete-finding.md`.
+Archive (`--edit-finding FID`, `{"status":"archive"}`) is the recoverable state; change the status back to recover. Only on operator request, `bbh agents/manual_hunter.py <program> --lane <lane> --delete-finding FID [--actor <label>]` deletes it permanently. It refuses unarchived/unknown FIDs, a malformed ledger, and a prefix's highest FID; deletes only unedited generated files, lists kept files, and leaves a minimal tombstone that blocks re-import. Contract: `docs/integrations/ledger-delete-finding.md`.

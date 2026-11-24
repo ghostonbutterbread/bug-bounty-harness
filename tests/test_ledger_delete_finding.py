@@ -1,11 +1,10 @@
-"""Archived-finding delete, tombstone, resurrection guard, and restore (synthetic storage only)."""
+"""Permanent archived-finding delete, minimal tombstone, and resurrection guard (synthetic storage only)."""
 
 from __future__ import annotations
 
 import fcntl
 import io
 import json
-import os
 import stat
 import subprocess
 import sys
@@ -29,7 +28,6 @@ from agents import me_ledger  # noqa: E402
 from agents.ledger import create_team_ledger_from_storage, update_team_finding  # noqa: E402
 from agents.ledger_tombstones import (  # noqa: E402
     CorruptTombstoneLogError,
-    LedgerDeleteError,
     MalformedLedgerError,
     delete_finding_by_fid,
 )
@@ -90,12 +88,12 @@ class LedgerDeleteFindingTests(unittest.TestCase):
 
     # -- CLI contract ------------------------------------------------------
 
-    def test_help_advertises_delete_and_restore(self) -> None:
+    def test_help_advertises_delete_only(self) -> None:
         result = subprocess.run([sys.executable, "-m", "agents.manual_hunter", "--help"], cwd=REPO_ROOT,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--delete-finding FID", result.stdout)
-        self.assertIn("--restore-finding FID", result.stdout)
+        self.assertNotIn("--restore-finding", result.stdout)  # archive is the recoverable state
 
     def test_delete_refused_unless_archived(self) -> None:
         before = self.ledger.read_bytes()
@@ -116,9 +114,6 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("no finding found for fid D99", err)
         self.assertEqual(self.ledger.read_bytes(), before)
-        code, _out, err = self._run("--restore-finding", "D99")
-        self.assertEqual(code, 1)
-        self.assertIn("no tombstoned finding", err)
 
     def test_highest_fid_is_refused_to_prevent_reuse(self) -> None:
         self._archive("D03")
@@ -140,7 +135,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
 
     # -- successful delete -------------------------------------------------
 
-    def test_delete_removes_only_that_finding_tombstones_and_retires_generated_files(self) -> None:
+    def test_delete_removes_only_that_finding_tombstones_and_deletes_generated_files(self) -> None:
         self._archive("D01")
         self._archive("D02")
         before = self._findings()
@@ -168,25 +163,22 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         lines = self.tombstone.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 1)
         event = json.loads(lines[0])
+        # Minimal tombstone: no recoverable copy of the finding.
+        self.assertEqual(set(event), {"schema", "event", "fid", "identity_key", "deleted_at", "deleted_by"})
         self.assertEqual(event["event"], "deleted")
         self.assertEqual(event["fid"], "D01")
         self.assertEqual(event["deleted_by"], "board:synthetic")
-        self.assertEqual(event["ledger_path"], str(self.ledger))
+        self.assertEqual(event["identity_key"], ["src/file1.js", 1, "native-module-abuse", "placeholder alpha"])
         self.assertRegex(event["deleted_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
-        self.assertEqual(event["record"], before["D01"])
+        self.assertNotIn("Synthetic observation", lines[0])
         self.assertEqual(stat.S_IMODE(self.tombstone.stat().st_mode), 0o600)
 
-        retired = {Path(item["from"]): Path(item["to"]) for item in event["artifacts"]["retired"]}
-        self.assertEqual(set(retired), {report1, evidence1})
-        for source, target in retired.items():
-            self.assertFalse(source.exists())
-            self.assertTrue(target.is_file())
-            self.assertTrue(str(target).startswith(str(self.layout.ledgers_root / "_deleted" / "D01")))
-            self.assertIn(f"Retired: {source} -> {target}", out)
-        kept = {Path(item["path"]): item["reason"] for item in event["artifacts"]["kept"]}
-        self.assertEqual(kept[poc1], "not BBH-generated")
-        self.assertEqual(kept[packet1 / "escape.md"], "symlink (not followed)")
+        for path in (report1, evidence1):
+            self.assertFalse(path.exists())
+            self.assertIn(f"Deleted file: {path}", out)
+        self.assertFalse((self.layout.ledgers_root / "_deleted").exists())
         self.assertIn(f"Kept (not BBH-generated): {poc1}", out)
+        self.assertIn(f"Kept (symlink (not followed)): {packet1 / 'escape.md'}", out)
         self.assertTrue(poc1.is_file())
         self.assertEqual(outside.read_text(encoding="utf-8"), "must survive")
 
@@ -207,12 +199,11 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(f"Kept (generated report edited (checksum mismatch)): {report}", out)
         self.assertIn(f"Kept (evidence edited after creation): {evidence}", out)
-        self.assertNotIn("Retired:", out)
+        self.assertNotIn("Deleted file:", out)
         self.assertIn("Reviewer note.", report.read_text(encoding="utf-8"))
         self.assertIn("Verified detail.", evidence.read_text(encoding="utf-8"))
         event = json.loads(self.tombstone.read_text(encoding="utf-8"))
         self.assertEqual(event["deleted_by"], "manual_hunter")
-        self.assertEqual(event["artifacts"]["retired"], [])
 
     # -- concurrency -------------------------------------------------------
 
@@ -293,7 +284,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         code, out, err = self._run("--from-file", str(note), "--link-duplicate-comment")
         self.assertEqual(code, 1)
         self.assertIn("Skipped tombstoned finding D01", err)
-        self.assertIn("Skipped: D01 was deleted", out)
+        self.assertIn("Skipped: D01 was permanently deleted", out)
         self.assertEqual(self.ledger.read_bytes(), before)
         self.assertFalse((self.layout.ledgers_root / "manual_comments.jsonl").exists())
 
@@ -392,20 +383,35 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertEqual(real.read_text(encoding="utf-8"), "")
         self.assertIn("D02", self._findings())
 
-    def test_symlinked_retire_area_is_refused_without_moving_files(self) -> None:
+    def test_symlinked_packet_directory_is_not_followed(self) -> None:
+        self._archive("D01")
+        packet = Path(self._findings()["D01"]["report_dir"])
+        report = self._write_generated_report("D01")
+        outside = self.tmp / "outside-packet"
+        packet.rename(outside)
+        packet.symlink_to(outside)
+        code, out, err = self._run("--delete-finding", "D01")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Deleted file:", out)
+        self.assertTrue((outside / report.name).is_file())
+        self.assertTrue((outside / "EVIDENCE.md").is_file())
+
+    def test_ledger_write_failure_aborts_without_touching_files(self) -> None:
         self._archive("D01")
         report = self._write_generated_report("D01")
-        outside = self.tmp / "outside-retire"
-        outside.mkdir()
-        (self.layout.ledgers_root / "_deleted").symlink_to(outside)
         before = self.ledger.read_bytes()
-        code, _out, err = self._run("--delete-finding", "D01")
-        self.assertEqual(code, 1)
-        self.assertIn("symlinked directory", err)
-        self.assertTrue(report.is_file())
-        self.assertEqual(list(outside.iterdir()), [])
+        from unittest.mock import patch as mock_patch
+        with mock_patch("agents.ledger_tombstones._write_json_atomic", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                delete_finding_by_fid(PROGRAM, "D01", family=FAMILY, lane=LANE, root_override=self.root)
         self.assertEqual(self.ledger.read_bytes(), before)
-        self.assertFalse(self.tombstone.exists())
+        self.assertTrue(report.is_file())
+        events = [json.loads(line)["event"] for line in self.tombstone.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(events, ["deleted", "delete_aborted"])
+        # The aborted delete does not block the still-live finding, and a retry succeeds.
+        self.assertEqual(self._ingest("Placeholder alpha", "src/file1.js:1"), 1)  # ordinary duplicate
+        self.assertEqual(self._run("--delete-finding", "D01")[0], 0)
+        self.assertFalse(report.exists())
 
     def test_report_pointer_into_another_packet_is_kept(self) -> None:
         self._archive("D01")
@@ -420,7 +426,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         self.assertTrue(other_report.is_file())
         self.assertIn(f"Kept (report_path not owned by this FID): {other_report}", out)
 
-    def test_legacy_lifecycle_report_is_retired(self) -> None:
+    def test_legacy_lifecycle_report_is_deleted(self) -> None:
         self._archive("D01")
         row = self._findings()["D01"]
         legacy = self.layout.reports_root / "findings" / "active" / "D01 - Placeholder alpha.md"
@@ -429,72 +435,7 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         code, out, _err = self._run("--delete-finding", "D01")
         self.assertEqual(code, 0)
         self.assertFalse(legacy.exists())
-        self.assertIn(f"Retired: {legacy} -> ", out)
-
-    # -- restore -----------------------------------------------------------
-
-    def test_restore_reinserts_record_and_files(self) -> None:
-        self._archive("D01")
-        report = self._write_generated_report("D01")
-        report_text = report.read_text(encoding="utf-8")
-        record = self._findings()["D01"]
-        self.assertEqual(self._run("--delete-finding", "D01")[0], 0)
-        self.assertFalse(report.exists())
-
-        code, out, err = self._run("--restore-finding", "D01", "--actor", "operator")
-        self.assertEqual(code, 0, err)
-        self.assertIn("Finding restored: D01", out)
-        self.assertIn(f"Restored file: {report}", out)
-        self.assertEqual(self._findings()["D01"], record)
-        self.assertEqual(report.read_text(encoding="utf-8"), report_text)
-        events = [json.loads(line) for line in self.tombstone.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual([e["event"] for e in events], ["deleted", "restored"])
-        self.assertEqual(events[1]["restored_by"], "operator")
-
-        # Restored identity is live again: a re-ingest is an ordinary duplicate.
-        code, out, _err = self._run("--from-file", str(self.tmp / "Placeholder_alpha.md"))
-        self.assertEqual(code, 1)
-        self.assertIn("Duplicate: D01", out)
-        # Second restore has nothing to restore; FID now exists.
-        code, _out, err = self._run("--restore-finding", "D01")
-        self.assertEqual(code, 1)
-        self.assertIn("no tombstoned finding", err)
-
-    def test_restore_refresh_failure_reports_partial_after_commit(self) -> None:
-        self._delete_d01()
-        from unittest.mock import patch as mock_patch
-        with mock_patch("agents.ledger_tombstones.refresh_report_indexes", side_effect=ValueError("bad packet")):
-            code, out, err = self._run("--restore-finding", "D01")
-        self.assertEqual(code, 3)
-        self.assertIn("Finding restored: D01", out)
-        self.assertIn("navigation refresh failed after restore", err)
-        self.assertIn("D01", self._findings())
-
-    def test_restore_rolls_back_when_ledger_write_fails(self) -> None:
-        self._archive("D01")
-        report = self._write_generated_report("D01")
-        self.assertEqual(self._run("--delete-finding", "D01")[0], 0)
-        before = self.ledger.read_bytes()
-        events_before = self.tombstone.read_text(encoding="utf-8")
-        from unittest.mock import patch as mock_patch
-        with mock_patch("agents.ledger_tombstones._write_json_atomic", side_effect=OSError("disk full")):
-            with self.assertRaises(OSError):
-                from agents.ledger_tombstones import restore_finding_by_fid
-                restore_finding_by_fid(PROGRAM, "D01", family=FAMILY, lane=LANE, root_override=self.root)
-        self.assertEqual(self.ledger.read_bytes(), before)
-        self.assertEqual(self.tombstone.read_text(encoding="utf-8"), events_before)
-        self.assertFalse(report.exists())
-        self.assertEqual(self._run("--restore-finding", "D01")[0], 0)
-        self.assertTrue(report.is_file())
-
-    def test_restore_refused_when_fid_exists(self) -> None:
-        self._delete_d01()
-        payload = json.loads(self.ledger.read_text(encoding="utf-8"))
-        payload["findings"].append({**payload["findings"][0], "fid": "D01", "file": "src/other.js"})
-        self.ledger.write_text(json.dumps(payload), encoding="utf-8")
-        with self.assertRaisesRegex(LedgerDeleteError, "exists"):
-            from agents.ledger_tombstones import restore_finding_by_fid
-            restore_finding_by_fid(PROGRAM, "D01", family=FAMILY, lane=LANE, root_override=self.root)
+        self.assertIn(f"Deleted file: {legacy}", out)
 
 
 if __name__ == "__main__":

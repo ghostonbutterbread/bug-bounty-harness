@@ -2,40 +2,48 @@
 
 - **Branch:** `feat/ledger-delete-finding`
 - **Base / target:** `origin/beta` `3f72ed81` / `beta` (after independent review)
-- **Request:** Ryushe wants archived findings to be deletable: archive first, then
-  delete from the archive. The same path cleans up schema-placeholder findings.
+- **Request (Ryushe):** "add a delete to the bbh ledger (so that way we can archive
+  and from the archive we can delete items)". Follow-up: "archive -> delete
+  deletes it; archive is how we can recover."
 
 ## Intent
 
-Archiving (`--edit-finding FID` with `{"status":"archive"}`) stays the reversible
-first step. `--delete-finding` is the second, deliberate step. It removes the
-record from the lane ledger, but it leaves an auditable, restorable tombstone,
-and the deleted finding cannot quietly come back through later imports.
+Archive (`--edit-finding FID` with `{"status":"archive"}`) is the **only
+recoverable state**. To recover an archived finding, change its status back.
+`--delete-finding` is final:
+
+- the record leaves the lane ledger;
+- the finding's BBH-generated files are deleted;
+- no copy of the finding is kept.
+
+A minimal tombstone remains so that imports, team runs, and report syncs do not
+quietly re-add the deleted finding. The same path cleans up schema-placeholder
+findings.
 
 ## CLI contract
 
 ```text
 bbh agents/manual_hunter.py <program> --family F --lane L [--root ROOT] --delete-finding FID [--actor LABEL]
-bbh agents/manual_hunter.py <program> --family F --lane L [--root ROOT] --restore-finding FID [--actor LABEL]
 ```
 
-Both are mutually exclusive mode flags listed in `--help`, so the Board can
-detect them there.
+`--delete-finding` is a mutually exclusive mode flag listed in `--help`, so the
+Board can detect it there. There is no `--restore-finding`.
 
 | Exit | Meaning |
 |---|---|
-| 0 | deleted (or restored) |
+| 0 | deleted |
 | 1 | refused; nothing written. Message on stderr as `[manual_hunter] …` |
-| 3 | deleted and committed, but the navigation/index refresh failed (`Warning:` on stderr) |
+| 3 | deleted and committed, but a generated file could not be unlinked or the navigation/index refresh failed (`Warning:` on stderr) |
 | 2 | argparse usage error |
 
-A delete is refused when:
+Delete refuses when:
 
 - the FID is unknown;
 - the status is not `archive` (top-level `status`, lower-cased and stripped;
   `current.status` is used only when there is no top-level status);
 - an import is pending on the finding;
 - the ledger is malformed or not a regular file;
+- the tombstone log is corrupt or a symlink;
 - the FID is the **highest FID of its prefix** (see Decisions).
 
 Output lines on success:
@@ -43,7 +51,7 @@ Output lines on success:
 ```text
 Finding deleted: D07
 Tombstone: <lane>/ledgers/deleted-findings.jsonl
-Retired: <original path> -> <lane>/ledgers/_deleted/D07/<YYYYMMDDTHHMMSSZ>/<lane-relative path>
+Deleted file: <path>
 Kept (<reason>): <path>
 ```
 
@@ -55,30 +63,29 @@ Kept (<reason>): <path>
 - `symlink (not followed)`
 - `outside lane or behind a symlink`
 - `outside the lane reports root`
-- `report_path not owned by this FID` / `finalized_report_path not owned by this FID`
 - `directory with non-generated content`
+- `report_path not owned by this FID` / `finalized_report_path not owned by this FID`
 - `packet pointer rejected: …`
-
-Restore prints `Finding restored: FID` and one `Restored file: <path>` line for
-each file it moves back. It exits 3 if the restore committed but the refresh
-failed. If the ledger write or the `restored` event append fails, it rolls back:
-the ledger is rewritten without the record and files return to the retired area.
+- `changed during delete; left in place`
+- `unlink failed: …`
 
 ### Tombstone (`ledgers/deleted-findings.jsonl`, mode 0600, append-only)
 
 ```json
-{"schema":"bbh-deleted-finding/1","event":"deleted","fid":"D07",
- "deleted_at":"2026-11-24T19:00:00Z","deleted_by":"<--actor or manual_hunter>",
- "ledger_path":"<abs ledger.json>","program":"…","family":"…","lane":"…",
- "identity_key":[file,line,class_name,type],
- "record":{…the full removed ledger record…},
- "artifacts":{"retired":[{"from":"…","to":"…"}],"kept":[{"path":"…","reason":"…"}]}}
+{"schema":"bbh-deleted-finding/2","event":"deleted","fid":"D07",
+ "identity_key":["<file>",<line>,"<class_name>","<type>"],
+ "deleted_at":"2026-11-24T19:00:00Z","deleted_by":"<--actor or manual_hunter>"}
 ```
 
-Restore appends `{"event":"restored","fid":…,"restored_at":…,"restored_by":…,"restored_files":[…]}`.
+`identity_key` is Bounty Core's dedupe key (`_finding_key_for`: normalized file,
+line, class, and lower-cased type). The resurrection guard needs it to match.
+If a finding has no `type`, Bounty Core falls back to the title, so that
+normalized label is kept. No description, evidence, report text, or ledger
+paths are stored.
+
 If the ledger write fails after the tombstone append, the delete appends
-`{"event":"delete_aborted"}`. The **latest** event for a FID decides whether
-that FID is tombstoned.
+`{"event":"delete_aborted"}` and leaves every file untouched. The latest event
+for a FID decides whether that FID is tombstoned.
 
 ## Decisions
 
@@ -87,58 +94,46 @@ that FID is tombstoned.
   `_write_json_atomic`, and payload migration, which is the same critical section
   `patch_finding_by_fid` uses. It does not add a parallel writer. Those helpers
   are private upstream; the natural long-term home is a Bounty Core
-  `delete_finding_by_fid`. That is not done here because Bounty Core is a
-  separately pinned repository.
-- **Single critical section.** Under one exclusive lock, the delete runs: validate the raw file →
-  locate → status check → classify artifacts → move generated artifacts →
-  append and fsync the tombstone → atomic ledger write → refresh `indexes/`
-  and report navigation → write the ledger again, because the evidence-only refresh may fill
-  packet pointers. If the tombstone or ledger write fails, the moves are undone.
+  `delete_finding_by_fid`.
+- **Single critical section, unlink last.** Under one exclusive lock, the
+  delete runs: validate the raw ledger and tombstone log → locate → status check
+  → classify artifacts → append and fsync the tombstone → atomic ledger write →
+  unlink generated files → prune an empty `_meta/` and packet directory →
+  refresh `indexes/` and report navigation → write the ledger again.
+  - Files are unlinked only after the ledger commit, because an unlink cannot be
+    undone and must not happen if the ledger write fails.
+  - Each file is re-checked immediately before it is unlinked: still a regular
+    file, no symlinked path component, still generated or the untouched template.
+  - The second ledger write is needed because the evidence-only refresh may fill
+    packet pointers.
 - **Fail closed.** Bounty Core reads an unparseable ledger as empty and writes
-  that back. Delete and restore parse the raw file under the lock first and
-  raise before anything is written. The pre-existing writers still have this
-  defect; it is recorded in `BUGFIXES.md`.
-- **Artifacts are retired (moved), not unlinked.** They go to
-  `ledgers/_deleted/<FID>/<stamp>/`, with each file's lane-relative path preserved.
-  - Generated reports are not always byte-reproducible from the final record.
-    A record edited after generation still has an intact checksum but renders
-    differently. Moving them keeps the delete fully recoverable, and
-    `--restore-finding` puts them back.
-  - The retired area is under `ledgers/`, not `reports/`, because markdown
-    report scanners (`sync_reports`, `report_checker`) walk `reports/` and could
-    re-import a retired file.
-  - Retired files: a `bounty-core-finding-report` whose `generated-checksum`
-    matches (REPORT/FINALIZED or a legacy `reports/findings/<bucket>/FID - *.md`),
-    and an `EVIDENCE.md` that is byte-identical to Bounty Core's create-only
-    template for this record. The template is rendered in scratch storage with
-    the real `ensure_finding_evidence_packet`, not a copied template.
-  - Everything else stays in place and is listed. Symlinks are never followed.
-    Paths outside the lane, or behind a symlinked component, are never touched.
-  - Afterwards, an empty `_meta/` and an empty packet directory are removed.
+  that back. Delete parses the raw file under the lock first and raises before
+  writing anything. The pre-existing writers still have this defect; it is
+  recorded in `BUGFIXES.md`.
+- **Which files are deleted.**
+  - A `bounty-core-finding-report` whose `generated-checksum` matches:
+    `REPORT.md`, `FINALIZED.md`, or a legacy `reports/findings/<bucket>/FID - *.md`.
+    Candidates come from Bounty Core's own per-FID set (`_candidate_paths_for_fid`)
+    plus the packet directory.
+  - An `EVIDENCE.md` that is byte-identical to Bounty Core's create-only template
+    for this record. The template is rendered in scratch storage with the real
+    `ensure_finding_evidence_packet`, not a copied template.
+  - Everything else is left in place and listed. Symlinks, including a symlinked
+    packet directory, are never followed. Paths outside the lane are never touched.
 - **Tombstone log fails closed.** A symlinked log, a non-file log, or any
   unreadable non-empty line raises `CorruptTombstoneLogError` from the guard and
-  from delete. That blocks imports and team reservations in the lane until the
-  log is repaired, rather than silently disabling the guard. A delete also
-  checks the log before appending to it.
-- **Retire paths never traverse symlinks.** Each destination directory component
-  under the lane is created one at a time and refused if it is a symlink, which
-  covers a symlinked `ledgers/_deleted`. Restore requires the retired file to
-  have no symlinked component.
-- **Report pointers must belong to the FID.** A `report_path` or
-  `finalized_report_path` outside Bounty Core's per-FID candidate set
-  (`_candidate_paths_for_fid`) is never moved. It is kept and listed.
+  from delete. That blocks inserts in the lane until the log is repaired, rather
+  than silently disabling the guard.
 - **FID reuse.** Bounty Core's `_next_fid` allocates `max(suffix)+1` from the
   findings list alone. So the delete refuses the highest FID of its prefix,
-  which keeps every deleted FID below the allocation high-water mark. A
-  test covers this: after a delete, the next new finding gets `D04`, not the
-  deleted `D02`. Lifting the restriction needs Bounty Core to honor a
-  persisted high-water mark (see Gaps).
+  which keeps every deleted FID below the allocation high-water mark. The
+  prefix is everything before the trailing digits.
 
 ## Resurrection paths and handling
 
 | Path | Match | Handling |
 |---|---|---|
-| `manual_hunter --from-file/--add/--interactive/--watch` → `import_finding` | key (file, line, class, type) | Wrapper skips it. The CLI prints `Skipped: FID was deleted…` and exits 1, and never links a duplicate comment to a deleted FID. |
+| `manual_hunter --from-file/--add/--interactive/--watch` → `import_finding` | key (file, line, class, type) | Wrapper skips it. The CLI prints `Skipped: FID was permanently deleted from this lane` and exits 1, and never links a duplicate comment to a deleted FID. |
 | `sync_reports` → `import_finding` (a leftover markdown `**FID:**` brings back the old FID) | FID or key | Wrapper skips it; the summary reports `Skipped: N deleted findings`, not "already exists". |
 | `report_checker` / `base_team` promotion / `apk_deep_dive` / `zero_day_team` → `update_team_finding` fallback `ledger_add` (patch misses a deleted FID) | FID or key | Guarded before `ledger_add`. Returns `{"tombstoned": true}` and logs `[ledger] Skipped tombstoned finding …`. |
 | Team sighting/reservation: `base_team.reserve_findings`, `apk_compat`, `zero_day_team`, `apk_deep_dive` → `ledger.check` | key | `TombstoneAwareFindingsLedger.check` (returned by `create_team_ledger`) reports a duplicate with `tombstoned=True`. |
@@ -147,13 +142,11 @@ that FID is tombstoned.
 | `bounty_core.add_finding` / `ledger_add` called directly from outside BBH | identity / key | **Not guarded** (no BBH callers; needs Bounty Core). |
 | `migrate_ledger_payload` FID assignment for FID-less rows | n/a | Not an insert; no change. |
 
-All guards use the latest-event tombstone set and Bounty Core's `_finding_key_for`.
 When a candidate has no line and no type/title, the guard also matches on
 (file, class), the same way Bounty Core's `import_finding`, `reserve_batch`, and
-`ledger_check` match.
-A tombstoned identity is therefore blocked exactly where Bounty Core would
-already have deduplicated it against the live finding. `--restore-finding` is
-the explicit override.
+`ledger_check` match. A tombstoned identity is blocked exactly where Bounty Core
+would have deduplicated it against the live finding. There is no override flag:
+delete is final by design.
 
 ## Evidence
 
@@ -162,22 +155,24 @@ The interpreter is the shared BBH venv plus Bounty Core source at the
 and offline install was impossible because a dependency was not in the uv cache.
 `HOME` and `TMPDIR` pointed at scratch storage for every run.
 
-- New: `tests/test_ledger_delete_finding.py` — **23 passed**.
-- Relevant existing suites, plus the new file and the skill gates, ran in one
-  command — **368 passed, 86 subtests passed**. Suites included:
-  - manual_hunter ×3, me_ledger, ledger_v2 ×2;
-  - base_team ledger/review/runtime/storage;
-  - sync_reports ×2, report_checker ×2;
-  - finding submission/visibility/report;
-  - apk_deep_dive, zero_day_team, apk_team;
-  - ledger skill visibility, skill hygiene, skill command lane safety, bbh launcher.
-- `py_compile` on touched modules and `git diff --check`: clean.
-- An independent review reported 4 important and 5 minor issues, 5 of them
-  reproduced. All were fixed with regression tests, except the guard race window
-  and the stale-tombstone-after-crash case (see Gaps). Non-dict ledger rows are
-  already dropped by Bounty Core's read-time migration, so that point needs no change.
+- `tests/test_ledger_delete_finding.py` — **20 passed**. Coverage includes:
+  - refusals: unarchived, unknown FID, highest FID, malformed ledger;
+  - the minimal tombstone shape (exact keys, no finding text);
+  - generated report and evidence deleted;
+  - human-edited files, a symlink, a symlinked packet directory, and a foreign
+    `report_path` kept;
+  - a legacy lifecycle report deleted;
+  - a lock wait and concurrent patches with no lost update;
+  - a ledger-write failure aborting with no file touched;
+  - manual, team (check/import/batch/update), `update_team_finding`,
+    sync-style, file+class-only and `me_ledger` resurrection skips;
+  - a corrupt or symlinked tombstone log failing closed;
+  - no FID reuse;
+  - `--help` lists `--delete-finding` and not `--restore-finding`.
+- Relevant suites, the exact counts, and the branch-vs-base comparison are in
+  the final handoff for this revision.
 - `tests/skill_size_budget.json`: the `manual-hunter` budget goes from 136 to 140,
-  for a 4-line pointer section. The full contract lives here.
+  for a 4-line pointer section.
 - One existing assertion changed: `agents/test_sync_reports.py` now checks
   `isinstance(hunter.ledger, VersionedFindingsLedger)` rather than the exact
   class name. The test's intent is "a real ledger, not a mock".
@@ -189,15 +184,18 @@ and offline install was impossible because a dependency was not in the uv cache.
   - (b) `_next_fid` should honor a persisted high-water mark, so the newest FID
     can be deleted.
   - (c) Move the tombstone guard into `_reserve_in_payload` /
-    `_ledger_add_in_payload` / `add_finding`, so non-BBH callers are covered
-    and the guard runs inside the same lock.
+    `_ledger_add_in_payload` / `add_finding`, so non-BBH callers are covered and
+    the guard runs inside the same lock.
 - **Guard race window:** the BBH guard reads tombstones just before the core insert
   takes the lock. A delete of exactly that identity, landing in that window,
-  could still be re-added by a concurrent team run. Fix (c) closes this window.
+  could still be re-added by a concurrent team run.
 - **Stale tombstone after a crash:** if the process dies after the tombstone
   append and before the ledger write, and the `delete_aborted` append also fails,
-  the FID stays tombstoned while live. Updates to it are then skipped. Repair
-  by appending a `restored` event by hand.
+  the FID stays tombstoned while live. Repair by appending a `delete_aborted`
+  event by hand.
+- **No override for a genuine rediscovery:** a later, real finding with the
+  exact same identity as a deleted one is skipped. This follows from "delete is
+  final"; an override flag would need its own decision.
 - LLM agents that hand-edit `ledger.json` bypass every code guard. That is
   prompt policy, not this change.
 - Board UI wiring is not part of this branch. It can detect `--delete-finding`

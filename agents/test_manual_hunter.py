@@ -1106,6 +1106,134 @@ class ManualHunterTests(unittest.TestCase):
         self.assertNotIn("**", parsed.finding["title"])
         self.assertNotIn("#", parsed.finding["title"])
 
+    PAPERCUT_NOTE = (
+        "# Reflected XSS in search page via q parameter\n"
+        "**Program:** examplemusic\n"
+        "**Vulnerability:** Reflected XSS\n"
+        "**Asset:** examplecloud.com\n"
+        "**URL:** https://examplecloud.com/search?q=marker\n"
+        "**Severity:** High (CVSS 3.1: 7.1)\n"
+        "**Review Tier:** CONFIRMED\n"
+        "\n## Summary\n"
+        "The search page reflects the q parameter into the HTML body without encoding.\n"
+    )
+
+    def test_from_file_bold_label_report_note_stores_correct_metadata(self) -> None:
+        """Regression (papercut bf0e203f): a heading followed by bold-label lines
+        stored an inferred class, UNKNOWN severity, and a truncated hostname."""
+        note = self.tmp / "web-finding.md"
+        note.write_text(self.PAPERCUT_NOTE, encoding="utf-8")
+        with redirect_stdout(io.StringIO()), patch("sys.stderr", new_callable=io.StringIO) as warning:
+            self.assertEqual(main([self.program, "--lane", "web", "--from-file", str(note)]), 0)
+        self.assertEqual(warning.getvalue(), "")
+        storage = resolve_storage(self.program, family="web_bounty", lane="web", create=False)
+        finding, = json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))["findings"]
+        self.assertEqual(finding["title"], "Reflected XSS in search page via q parameter")
+        self.assertEqual(finding["class_name"], "reflected-xss")
+        self.assertFalse(finding["class_inferred"])
+        self.assertEqual(finding["file"], "https://examplecloud.com/search")
+        self.assertEqual(finding["asset"], "https://examplecloud.com/search")
+        self.assertEqual(finding["severity"], "HIGH")
+        self.assertNotIn("**Vulnerability:**", finding["description"])
+        self.assertIn("**Asset:** examplecloud.com", finding["description"])
+        self.assertIn("reflects the q parameter", finding["description"])
+
+    def test_bold_label_variants_parse_identically(self) -> None:
+        variants = {
+            "list-prefixed": lambda line: "- " + line if line.startswith("**") else line,
+            "colon-outside-bold": lambda line: re.sub(r"^\*\*([^*:]+):\*\*", r"**\1**:", line),
+            "plain": lambda line: line.replace("**", ""),
+        }
+        for name, transform in variants.items():
+            note = "\n".join(transform(line) for line in self.PAPERCUT_NOTE.splitlines())
+            with self.subTest(variant=name), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(note, source_label=name, family="web_bounty", lane="web").finding
+                self.assertEqual(finding["title"], "Reflected XSS in search page via q parameter")
+                self.assertEqual(finding["class_name"], "reflected-xss")
+                self.assertEqual(finding["file"], "https://examplecloud.com/search")
+                self.assertEqual(finding["severity"], "HIGH")
+        for label in ("**Vuln class**: Reflected XSS (CWE-79)", "+ Vulnerability Type: Reflected XSS", "**Class:** `reflected-xss`"):
+            note = self.PAPERCUT_NOTE.replace("**Vulnerability:** Reflected XSS", label)
+            with self.subTest(label=label):
+                finding = parse_finding_text(note, source_label="label", family="web_bounty", lane="web").finding
+                self.assertEqual((finding["class_name"], finding["class_inferred"]), ("reflected-xss", False))
+
+    def test_explicit_class_wins_and_prose_vulnerability_is_refused(self) -> None:
+        stated = self.PAPERCUT_NOTE.replace("**Vulnerability:**", "**Class:** idor\n**Vulnerability:**")
+        finding = parse_finding_text(stated, source_label="both", family="web_bounty", lane="web").finding
+        self.assertEqual(finding["class_name"], "idor")
+        self.assertIn("**Vulnerability:** Reflected XSS", finding["description"])
+
+        prose = self.PAPERCUT_NOTE.replace(
+            "**Vulnerability:** Reflected XSS",
+            "**Vulnerability:** Reflected XSS in the search page leaks the session",
+        )
+        note = self.tmp / "prose-vulnerability.md"
+        note.write_text(prose, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not a class name; add an explicit 'Class: <value>'"):
+            main([self.program, "--lane", "web", "--from-file", str(note)])
+        conflicting = self.PAPERCUT_NOTE + "**Vulnerability:** SSRF\n"
+        with self.assertRaisesRegex(ValueError, "Conflicting Class"):
+            parse_finding_text(conflicting, source_label="conflict", family="web_bounty", lane="web")
+        self.assertFalse(list(self.home.rglob("ledger.json")))
+
+    def test_web_note_without_class_is_unknown_not_keyword_guessed(self) -> None:
+        note = self.PAPERCUT_NOTE.replace("**Vulnerability:** Reflected XSS\n", "") + "Payload: ../ in the resource path.\n"
+        with patch("sys.stderr", new_callable=io.StringIO) as warning:
+            finding = parse_finding_text(note, source_label="no-class", family="web_bounty", lane="web").finding
+        self.assertEqual(finding["class_name"], "unknown")
+        self.assertTrue(finding["class_inferred"])
+        self.assertIn("no 'Class:'", warning.getvalue())
+        self.assertIn("'unknown'", warning.getvalue())
+
+    def test_note_severity_accepts_markup_and_rationale_but_not_guesses(self) -> None:
+        cases = {
+            "High (CVSS 3.1: 7.1)": "HIGH", "**High**": "HIGH", "`Medium`": "MEDIUM",
+            "P2 - High": "HIGH", "Critical.": "CRITICAL", "low \u2014 self-only": "LOW",
+            "Medium/High": "UNKNOWN", "Medium-High": "UNKNOWN", "bogus": "UNKNOWN",
+        }
+        for raw, expected in cases.items():
+            note = f"Class: idor\nSeverity: {raw}\nFile: src/access.py\nDescription: Owned fixture.\n"
+            with self.subTest(raw=raw), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(note, source_label="severity", family="binaries", lane="apk").finding
+                self.assertEqual(finding["severity"], expected)
+                self.assertEqual("not a recognized level" in warning.getvalue(), expected == "UNKNOWN")
+
+    def test_identity_values_drop_inline_markup(self) -> None:
+        finding = parse_finding_text(
+            "**Class:** `idor`\n**File:** `src/app.js:12`\n**Description:** Owned fixture.\n",
+            source_label="markup", family="binaries", lane="apk",
+        ).finding
+        self.assertEqual((finding["class_name"], finding["file"], finding["line"]), ("idor", "src/app.js", 12))
+        for value in (
+            "`https://examplecloud.com/search?q=marker`",
+            "<https://examplecloud.com/search>",
+            "https://examplecloud.com/search (in scope)",
+        ):
+            note = self.PAPERCUT_NOTE.replace("https://examplecloud.com/search?q=marker", value)
+            with self.subTest(url=value):
+                finding = parse_finding_text(note, source_label="url", family="web_bounty", lane="web").finding
+                self.assertEqual(finding["file"], "https://examplecloud.com/search")
+
+    def test_web_asset_url_declares_route_but_bare_hostname_fails_loudly(self) -> None:
+        without_url = self.PAPERCUT_NOTE.replace("**URL:** https://examplecloud.com/search?q=marker\n", "")
+        url_asset = without_url.replace("**Asset:** examplecloud.com", "**Asset:** `https://examplecloud.com/search`")
+        finding = parse_finding_text(url_asset, source_label="asset", family="web_bounty", lane="web").finding
+        self.assertEqual(finding["file"], "https://examplecloud.com/search")
+
+        note = self.tmp / "hostname-only.md"
+        note.write_text(without_url, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"missing File; add 'File: <path>' or 'URL: https://"):
+            main([self.program, "--lane", "web", "--from-file", str(note)])
+        self.assertFalse(list(self.home.rglob("ledger.json")))
+
+    def test_unlabelled_dotted_directory_path_is_not_truncated(self) -> None:
+        finding = parse_finding_text(
+            "Class: native-module-abuse\nDescription: Observed in .webpack/renderer/preload.js:4 with the owned fixture.\n",
+            source_label="dotted", family="binaries", lane="apk",
+        ).finding
+        self.assertEqual((finding["file"], finding["line"]), (".webpack/renderer/preload.js", 4))
+
     def test_inferred_class_is_flagged_and_stated_class_is_not(self) -> None:
         """Regression: a class guessed from keywords was written to the ledger with the
         same confidence as one the operator stated. Text that DENIES a class used to be

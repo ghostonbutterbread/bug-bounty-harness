@@ -1022,6 +1022,22 @@ class TestSyncReports(unittest.TestCase):
         self.assertFalse((home / "Shared" / "binaries" / program).exists())
 
 
+class TestLooseFallbackFileHint(unittest.TestCase):
+    def test_hostname_is_not_truncated_into_a_source_file(self):
+        """Regression: the loose fallback stored www.example.com as www.example.c."""
+        from agents.sync_reports import _loose_markdown_fallback
+
+        note = "# Reflected XSS on search\n**Asset:** examplecloud.com\nThe page reflects q.\n"
+        self.assertIsNone(_loose_markdown_fallback(note, Path("note.md")))
+        for text, expected in (
+            ("Observed in .webpack/renderer/preload.js:4.", (".webpack/renderer/preload.js", 4)),
+            ("Bundle vendor/jquery.min.js was loaded.", ("vendor/jquery.min.js", 0)),
+        ):
+            with self.subTest(text=text):
+                finding = _loose_markdown_fallback("# Synthetic\n" + text + "\n", Path("note.md"))
+                assert finding is not None
+                self.assertEqual((finding["file"], finding["line"]), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

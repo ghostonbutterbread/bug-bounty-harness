@@ -47,7 +47,18 @@ its candidate scope filenames omit `out-of-scope.txt` and `excluded.txt`.
 when it matches an allow. This is separate from ScopeValidator's annotation
 parsing defect and is intentionally not fixed in that bounded parser task.
 
-## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word
+## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word — resolved
+
+**Resolution:** branch `fix/manual-hunter-markdown-parse` appends the trailing
+`(?![A-Za-z0-9_])` boundary and adds
+`TestLooseFallbackFileHint` (hostname note returns no loose finding; dotted
+directories and `jquery.min.js`-style stems still resolve). This matters because
+`_flexible_findings_for_file` sends any manual-hunter `ValueError` (for example
+"missing File") to `_loose_markdown_fallback`. The patterns stay separate: the
+manual-hunter pattern rejects dotted file stems to avoid matching hostnames,
+which would drop the loose importer's existing `vendor/jquery.min.js` support.
+A hostname with a source-like TLD (`example.py`) can still match the loose
+pattern.
 
 **Location:** `agents/sync_reports.py:41` (its own copy of the pattern, independent of
 `agents/manual_hunter.py`).
@@ -68,7 +79,20 @@ value instead of being rejected, and `file` feeds finding identity/dedup. Observ
 `(?![A-Za-z0-9_])` after the extension group. Better still, share one pattern between the
 two modules rather than keeping duplicate copies.
 
-**Not fixed here** because it is outside the manual_hunter ingest-parser fix scope.
+Originally deferred from the first manual_hunter ingest-parser fix.
+
+## `_infer_class` matches keyword tokens inside longer words
+
+**Location:** `agents/manual_hunter.py` `_infer_class` (also used by
+`agents/sync_reports.py` `_loose_markdown_fallback` and `_normalize_candidate`).
+**Evidence:** tokens are plain substrings, so `"rce"` matches `source`,
+`resource`, and `force`; `"shell"` matches `PowerShell`. A note with no class token
+except "the API returns another user's resource" infers `exec-sink-reachability`.
+**Impact:** binary-lane manual notes and every sync_reports import without an
+explicit class can store a specific wrong class (still flagged `class_inferred`
+by manual_hunter). Web/api manual notes no longer use keyword inference. A fix
+needs word boundaries for acronyms while keeping identifier prefixes such as
+`readFileSync`.
 
 ## Runtime dependency test expects a different Bounty Core revision — resolved
 

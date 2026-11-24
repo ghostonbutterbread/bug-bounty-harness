@@ -111,6 +111,16 @@ FIELD_ALIASES = {
     "review_tier": "review_tier",
     "status": "review_tier",
 }
+# Labels agents use to state the vulnerability class in report-style notes. They
+# supply the class only when no explicit Class field exists, so a stated class is
+# never replaced by keyword inference.
+VULN_CLASS_LABELS = {
+    "vulnerability",
+    "vulnerability class",
+    "vulnerability type",
+    "vuln class",
+    "vuln type",
+}
 MULTILINE_FIELDS = {
     "description",
     "impact",
@@ -129,11 +139,12 @@ FIELD_RE = re.compile(
 # is authoritative and remains able to carry more unusual filenames.
 FILE_HINT_RE = re.compile(
     r"(?<![\w.-])"
-    r"(?P<path>(?:[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
+    r"(?P<path>(?:\.?[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
     r"(?![A-Za-z0-9_])"
     r"(?:[:#](?P<line>\d+))?"
 )
 CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_$.]*\([^()\n]{0,160}\))")
+FIELD_URL_RE = re.compile(r"https?://[^\s<>\"'`()\[\]]+", re.IGNORECASE)
 
 
 def _utc_now() -> datetime:
@@ -512,6 +523,45 @@ def _normalize_severity(value: Any) -> str:
     return normalize_severity(value)
 
 
+def _plain_value(value: Any) -> str:
+    """Remove Markdown bold, inline-code, and autolink wrappers from a scalar value."""
+    text = _normalize_text(value)
+    changed = True
+    while changed:
+        changed = False
+        for start, end in (("**", "**"), ("`", "`"), ("<", ">")):
+            if len(text) > len(start) + len(end) and text.startswith(start) and text.endswith(end):
+                text = text[len(start):-len(end)].strip()
+                changed = True
+    return text
+
+
+def _declared_url(value: Any) -> str:
+    """Return the single http(s) URL a URL/Endpoint/Asset field declares, else ''."""
+    text = _plain_value(value)
+    urls = {match.group().rstrip(".,;:") for match in FIELD_URL_RE.finditer(text)}
+    return next(iter(urls)) if len(urls) == 1 else ""
+
+
+def _note_severity(value: Any) -> str:
+    """Normalize a note severity, accepting a leading level such as 'High (CVSS 7.1)'."""
+    raw = _normalize_text(value)
+    text = re.sub(r"[*`]", "", raw).strip()
+    severity = _normalize_severity(text)
+    if severity == "UNKNOWN" and text:
+        # A dash separates a rationale only when spaced: 'Medium-High' stays unknown.
+        lead = re.match(r"([A-Za-z]+\d?)(?:$|\s*[(\[,;:.|]|\s+[-\u2013\u2014])", text)
+        if lead:
+            severity = _normalize_severity(lead.group(1))
+    if severity == "UNKNOWN" and text and text.upper() != "UNKNOWN":
+        print(
+            f"warning: Severity {raw!r} is not a recognized level; stored UNKNOWN. "
+            "Use EXCEPTIONAL, CRITICAL, HIGH, MEDIUM, LOW, INFO, or P0-P5.",
+            file=sys.stderr,
+        )
+    return severity
+
+
 def _normalize_class(value: Any) -> str:
     text = _normalize_text(value).lower().replace("_", "-").replace(" ", "-")
     return text
@@ -673,6 +723,7 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
     """Extract class declarations outside fences; return consumed line indexes."""
     found: str | None = None
     consumed: set[int] = set()
+    stated: list[tuple[int, str]] = []
     awaiting = False
     fenced = _fenced_lines(text)
 
@@ -683,8 +734,8 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
         value = re.sub(r"^[-*+]\s+", "", value)
         if value.startswith("**") and value.endswith("**") and len(value) >= 4:
             value = value[2:-2].strip()
-        if heading_value and re.fullmatch(r"`[\w][\w./+-]*`", value):
-            value = value[1:-1]
+        if re.fullmatch(r"`[^`]+`", value):
+            value = value[1:-1].strip()
         if not value:
             return
         pattern = r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*)*" if marked else r"[\w][\w./+-]*"
@@ -715,7 +766,7 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
             # Broaden only class declarations; other fields retain their parser contract.
             field_line = re.sub(r"^(\s*)(?:\+|\d{1,9}[.)])\s+", r"\1- ", line)
             alternate = FIELD_RE.match(field_line)
-            if alternate and alternate.group("label").strip().lower().replace("-", " ") in {"class", "discovered during class pass"}:
+            if alternate and alternate.group("label").strip().lower().replace("-", " ") in {"class", "discovered during class pass", *VULN_CLASS_LABELS}:
                 field = alternate
         if awaiting:
             if not line.strip():
@@ -729,15 +780,30 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
                 continue
         if field:
             label = field.group("label").strip().lower().replace("-", " ")
-            if label in {"class", "discovered during class pass"}:
+            if label in {"class", "discovered during class pass"} or label in VULN_CLASS_LABELS:
                 value = field.group("value").strip()
                 if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", field_line):
                     value = value[2:].lstrip()
                 elif value.endswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*[^*]", field_line):
                     value = value[:-2].rstrip()
+                if label in VULN_CLASS_LABELS:
+                    if index >= decision_start:
+                        stated.append((index, value))
+                    continue
                 if index >= decision_start:
                     add(value)
                 consumed.add(index)
+    if found is None:
+        # A stated vulnerability is the class only when it reads as a class name;
+        # a title-like sentence is refused rather than guessed from keywords.
+        for index, value in stated:
+            value = re.sub(r"\s*\([^()]*\)\s*$", "", _plain_value(value))
+            if value and not re.fullmatch(r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*){0,3}", value):
+                raise ClassConflictError(
+                    f"Vulnerability value {value!r} is not a class name; add an explicit 'Class: <value>' field."
+                )
+            add(value)
+            consumed.add(index)
     return found, consumed
 
 
@@ -938,12 +1004,16 @@ def parse_finding_text(
         if match:
             label = match.group("label").strip().lower().replace("-", " ")
             key = FIELD_ALIASES.get(label)
-            if key:
-                value = match.group("value").strip()
-                # In **Label:** value, the label's closing bold marker is
-                # captured as part of the value; leave value formatting intact.
-                if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", line):
-                    value = value[2:].lstrip()
+            value = match.group("value").strip()
+            # In **Label:** value, the label's closing bold marker is
+            # captured as part of the value; leave value formatting intact.
+            if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", line):
+                value = value[2:].lstrip()
+            if label == "asset":
+                # A URL-valued Asset can declare the web route; the line stays
+                # narrative context because a bare hostname is not an identity.
+                parsed.setdefault("asset", value)
+            elif key:
                 if key == "review_tier":
                     value = _tier_field_value(value)
                     candidate = _infer_review_tier({"review_tier": value}) if value else None
@@ -982,17 +1052,31 @@ def parse_finding_text(
             if file_hint.group("line") and not parsed.get("line"):
                 parsed["line"] = file_hint.group("line")
 
-    file_value = _normalize_text(parsed.get("file"))
+    file_value = _plain_value(parsed.get("file"))
     file_path, inline_line = _split_file_reference(file_value)
-    if family == "web_bounty" and lane in {"web", "api"}:
-        route = finding_web_route(parsed)
+    web_lane = family == "web_bounty" and lane in {"web", "api"}
+    if web_lane:
+        declared = next(
+            (url for url in (_declared_url(parsed.get(key)) for key in ("url", "endpoint", "asset")) if url),
+            "",
+        )
+        route = finding_web_route({**parsed, "url": declared, "endpoint": "", "file": file_value})
         if route:
             file_path = route
-    line_number = _safe_int(parsed.get("line")) or inline_line
+    line_number = _safe_int(_plain_value(parsed.get("line"))) or inline_line
 
     class_name = _normalize_class(parsed.get("class_name"))
     class_inferred = not class_name
-    if class_inferred:
+    if class_inferred and web_lane:
+        # The keyword table names source-hunt classes; on a web finding it guesses
+        # a specific wrong class (for example dom-xss for reflected XSS).
+        class_name = "unknown"
+        print(
+            "warning: no 'Class:' in note; class_name set to 'unknown' for this web finding. "
+            "State 'Class: <x>' in the note, or correct it later with --edit-finding.",
+            file=sys.stderr,
+        )
+    elif class_inferred:
         class_name = _infer_class("\n".join(line for i, line in enumerate(text.splitlines()) if i not in fenced))
         print(
             f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
@@ -1007,7 +1091,10 @@ def parse_finding_text(
 
     description = _normalize_text(parsed.get("description"))
     if not file_path:
-        raise ValueError("finding note is missing File")
+        hint = "add 'File: <path>'"
+        if web_lane:
+            hint += " or 'URL: https://<host>/<path>' (a bare hostname is not a route identity)"
+        raise ValueError(f"finding note is missing File; {hint}")
     if not description:
         raise ValueError("finding note is missing Description")
 
@@ -1018,7 +1105,7 @@ def parse_finding_text(
         or _derive_title(description, first_line_only=True)
     )
     finding_type = _normalize_text(parsed.get("type")) or title
-    severity = _normalize_severity(parsed.get("severity"))
+    severity = _note_severity(parsed.get("severity"))
     sink = _infer_sink(parsed)
     exploitability = _normalize_text(parsed.get("exploitability"))
     blocked_reason = _precondition_text(parsed.get("blocked_reason"))

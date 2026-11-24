@@ -52,7 +52,7 @@ File: src/example.py
 Description: An owned test fixture returned a private marker from another owned record.
 ```
 
-`Class:` is optional but recommended when the vulnerability class is known. For example, add `Class: idor` as a separate line. Without it, the parser infers a class from keywords (possibly `unknown` or a wrong class) and prints a warning. The parser can sometimes infer an unlabelled file or use narrative text as the description, but do not rely on those fallbacks. Do not put credentials, tokens, or unrelated private data in notes. This format only establishes parser acceptance; the evidence gate above still determines whether to ingest.
+`Class:` is optional but recommended when the vulnerability class is known. For example, add `Class: idor` as a separate line. Without it, a short `Vulnerability:` or `Vuln class:` value (for example `Reflected XSS`) is used as the class; a sentence there is refused. With neither, web/api notes store `unknown` and binary lanes infer a class from keywords (possibly wrong); both print a warning. Bold (`**Severity:** High`, `**Severity**: High`) and `- ` list-prefixed labels are accepted. Severity uses the leading level, so `High (CVSS 3.1: 7.1)` is `HIGH`. On web/api lanes, `URL:`, `Endpoint:`, or a URL-valued `Asset:` supplies the route; a bare hostname such as `Asset: example.com` is not a route, so add `URL:` or `File:`. The parser can sometimes infer an unlabelled file or use narrative text as the description, but do not rely on those fallbacks. Do not put credentials, tokens, or unrelated private data in notes. This format only establishes parser acceptance; the evidence gate above still determines whether to ingest.
 
 ## Report handoff meaning
 

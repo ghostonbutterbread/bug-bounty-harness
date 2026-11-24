@@ -1,6 +1,6 @@
 # Scope gate exclusions integration dossier
 
-- **Status:** review-ready
+- **Status:** review loop 1 applied; narrow re-review pending
 - **Owner:** Hermes (delegated bugfix subagent)
 - **Branch:** `fix/scope-gate-exclusions`
 - **Worktree:** `/home/ryushe/worktrees/bbh-fix-scope-gate-exclusions`
@@ -9,8 +9,9 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/scope-gate-exclusions`
-- **Latest immutable recovery checkpoint:** `bfaf8851105c98706c1e3800556904409382ad11`
-- **Feature implementation commit(s):** `bfaf8851105c98706c1e3800556904409382ad11`
+- **Latest immutable recovery checkpoint:** `7bba01fe` (loop-1 fixes; origin/beta
+  `243a97bd` merged at `a0263a3f`)
+- **Feature implementation commit(s):** `bfaf8851105c98706c1e3800556904409382ad11`, `7bba01fe`
 - **Inspiration / canonical references:** BUGFIXES.md entries "ScopeManager does
   not load explicit exclusions", "urlparse accepts a backslash-userinfo host that
   Go tooling rejects", "Suffix scope checks outside the subdomain agent use
@@ -36,9 +37,20 @@ than adding another parser. Allow semantics of each gate stay unchanged.
 - `asset_intelligence.scope_matches`/`classify_scope`: labels via new
   `scope_host` (strict parser; bare values read as an http authority; `*.`
   values by base). Labels only; no requests.
-- Non-claims: no change to request containment, redirects, `domains`/`urls`
-  seeding in `scripts/program_init.py`, ScopeManager URL-allow port handling, or
-  HarnessConstraints wildcard entries (recorded in BUGFIXES.md).
+- Loop 1 (`7bba01fe`): `run_campaign.run_fuzz` passes the campaign's recorded
+  `program_config.program` to `FuzzAgent`, so ScopeValidator (with exclusions)
+  gates every fuzz target; no valid program → exit 1 before building the agent;
+  `FuzzAgent` without a program raises `ValueError` instead of allowing all.
+  HarnessConstraints and asset labels compare schemes case-insensitively.
+  Unparseable URL/domain-shaped asset values are labelled out-of-scope when
+  exclusions exist (entity names/fingerprints keep prior labels).
+  `program_init.main` reports unreadable scope files (`OSError`) as `error:` +
+  hint, exit 2.
+- Non-claims: no change to request containment, redirects, or `domains`/`urls`
+  seeding in `scripts/program_init.py`. Open BUGFIXES.md entries: asset-label
+  URL-path exclusion spellings (labels only); ScopeManager URL allows ignore the
+  port; ScopeManager mixes canonical and legacy allow files; HarnessConstraints
+  `*.` entries never match.
 
 ## Evidence and review
 
@@ -52,7 +64,14 @@ than adding another parser. Allow semantics of each gate stay unchanged.
   identical: all 264 are `tests/test_recon_ry_start_ports.py`
   `KeyError: 'scope_validator'`, a pre-existing test-isolation defect recorded
   in BUGFIXES.md (the file alone passes 608).
-- Independent review: pending (parent-assigned).
+- Loop 1 tests: `tests/test_scope_gate_exclusions.py` 114 passed (6 fail on
+  pre-loop tip `a0263a3f`); 21-module selection base `243a97bd` 264 failed /
+  1755 passed, branch 264 failed / 1869 passed, identical failure sets.
+- Independent review of `2e49e44a`: BLOCK (documentation only: false
+  fuzz_runner claim hid the no-program fuzz path). Loop 1 applied in `7bba01fe`;
+  narrow re-review of `a0263a3f..7bba01fe` pending.
+- Expected conflict: blocked sibling t_4e62917b redesigns the same
+  `run_campaign.py`/`fuzz_runner.py` path.
 - Merge/ancestry evidence: base `643411a8` is the fetched origin/beta tip at
   commit time.
 
@@ -64,11 +83,11 @@ than adding another parser. Allow semantics of each gate stay unchanged.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/scope-gate-exclusions`
-- **Latest immutable recovery checkpoint:** `bfaf8851105c98706c1e3800556904409382ad11` (implementation, tests,
-  BUGFIXES.md). The branch tip is a later dossier-only commit.
-- **Feature implementation commit(s):** `bfaf8851105c98706c1e3800556904409382ad11`
-- **Exact resume point:** independent review, then merge into a clean beta
-  worktree and rerun the scope selection.
+- **Latest immutable recovery checkpoint:** `7bba01fe` (loop-1 fixes and tests).
+  The branch tip is a later dossier-only commit.
+- **Feature implementation commit(s):** `bfaf8851105c98706c1e3800556904409382ad11`, `7bba01fe`
+- **Exact resume point:** narrow re-review of `a0263a3f..7bba01fe`, then merge
+  into a clean beta worktree and rerun the scope selection.
 - **Working-tree state at handoff:** clean.
 
 ## Decision gates
@@ -80,3 +99,4 @@ than adding another parser. Allow semantics of each gate stay unchanged.
 ## Decision record
 
 - 2026-11-24 — created; review-ready.
+- 2026-11-24 — independent review BLOCK (docs); loop 1 `7bba01fe` applied.

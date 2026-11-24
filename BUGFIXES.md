@@ -59,12 +59,13 @@ manual-hunter pattern rejects dotted file stems to avoid matching hostnames,
 which would drop the loose importer's existing `vendor/jquery.min.js` support.
 A hostname with a source-like TLD (`example.py`) can still match the loose
 pattern. **Identity change:** the old pattern stopped at the first matching
-extension, so `config.json` matched as `config.js`, `index.html` as `index.h`,
-and `main.cpp` as `main.c`. A raw report imported through the loose fallback
-under such a truncated name gets the full name, and so a new ledger identity,
-on its next re-sync. Reconcile any duplicate by FID; do not hand-edit the ledger.
+extension. Plain names (`config.json`, `index.html`, `main.cpp`) were already
+resolved by manual_hunter's own pattern first, but multi-dot names reaching the
+loose fallback (for example `vendor/app.config.json` stored as
+`vendor/app.config.js`) get the full name, and so a new ledger identity, on
+their next re-sync. Reconcile any duplicate by FID; do not hand-edit the ledger.
 
-**Location:** `agents/sync_reports.py:41` (its own copy of the pattern, independent of
+**Location:** `agents/sync_reports.py:52` (its own copy of the pattern, independent of
 `agents/manual_hunter.py`).
 
 **Evidence:** the alternation includes bare `c`/`h`/`go`/`rs` with no trailing boundary, so

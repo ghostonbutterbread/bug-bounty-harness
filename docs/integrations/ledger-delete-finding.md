@@ -99,10 +99,20 @@ latest event for a FID decides whether that FID is tombstoned. Each event is
 one `os.write` ending in a newline, fsynced, and the ledger write comes after
 it.
 
-- **Cut-off final line:** an unterminated final line is a crash mid-append
-  that never committed. Readers ignore it, and the next delete truncates it
-  under the lock before appending. Any other unreadable line still fails
-  closed.
+- **ASCII-only events, split on `\n` only.** Events are written with
+  `ensure_ascii=True`, so a type, title, or `--actor` containing U+2028,
+  U+2029, U+0085, `\v`, `\f`, or `\x1c`–`\x1e` cannot break a line. Every
+  JSONL file this feature reads or rewrites (the tombstone log,
+  `manual_comments.jsonl`, `findings.jsonl`) is split on the `\n` byte only,
+  never with `str.splitlines()`. That matters because other writers may emit
+  those characters raw. Sidecar rows that are kept are preserved byte-for-byte.
+- **Final line without a newline:**
+  - If it parses as a complete event, it is committed (only the newline was
+    lost). The next delete adds the missing `\n` under the lock before
+    appending.
+  - If it does not parse, it is a crash mid-append that never committed.
+    Readers ignore it, and the next delete truncates it.
+  - Any other unreadable line still fails closed.
 - **Leftover tombstones:** a tombstone whose FID is live in the ledger again
   never matches. That covers a crash between the append and the ledger write,
   or a lost `delete_aborted`. Team updates and sightings for that live finding
@@ -136,15 +146,30 @@ it.
     - `ledgers/findings.jsonl`: Bounty Core `finding_seen`/`finding_updated`
       events and raw team rows.
 
-  Rows match on `fid`/`harness_fid` or a nested `finding.fid`. Both files are
+  Rows match on `fid`/`harness_fid`, a nested `finding.fid`, or Bounty Core's
+  `identity` (`harness-fid:<program>:<family>:<lane>:<FID>`, built with Bounty
+  Core's own `_core_identity`). The last covers the `finding_updated` rows that
+  `bounty_core.update_finding` writes with patch/before text. Both files are
   parsed and planned before the commit; a damaged or symlinked sidecar refuses
   the delete, and nothing is changed. Failing closed was chosen over "keep and
   report" because it guarantees the text is actually removed, and because the
   rewrite never drops rows it cannot parse. After the commit, each file is
   replaced atomically: a temp file in the same directory, original mode kept,
   fsync, then `os.replace` and a directory fsync, with no symlinks.
-  `DuplicateCommentStore.append` now holds the lane `ledger.lock`, so a
-  concurrent comment cannot be lost by the rewrite.
+  - **Re-plan before replace.** Each sidecar is re-read and re-planned from
+    its current bytes immediately before the replace, and checked once more
+    after the temp file is written. A row appended since planning therefore
+    survives. Bounty Core's `add_finding` appends some rows after releasing
+    the lock.
+  - **In-flight appends.** An unparseable unterminated final line is treated
+    as an append in flight and kept as-is. A damaged committed line still
+    refuses.
+  - **Comment appends.** `DuplicateCommentStore.append` holds the lane
+    `ledger.lock`, so a concurrent comment cannot be lost by the rewrite.
+    Under that lock it also re-checks that the target FID is still in the
+    ledger and not tombstoned. If either check fails it skips the append and
+    prints `Not linked: <reason>; the note was not stored`, so a duplicate
+    note cannot be re-attached to a just-deleted finding.
 - **Not removed (narrative that may mention the FID):** `notes/` (timeline,
   hypotheses, handoffs), `attempts/`, `reports/chained/` chain write-ups,
   `ledgers/traces/`, `ledgers/shared_brain/`, coverage stores, MapStore/leads,
@@ -211,7 +236,18 @@ The interpreter is the shared BBH venv plus Bounty Core source at the
 and offline install was impossible because a dependency was not in the uv cache.
 `HOME` and `TMPDIR` pointed at scratch storage for every run.
 
-- `tests/test_ledger_delete_finding.py` — **31 passed** after review round 2.
+- `tests/test_ledger_delete_finding.py` — **37 passed** after review round 3.
+  Round 3 added 6 tests:
+  - U+2028/U+0085 in type and `--actor`, followed by an ingest and a second
+    delete;
+  - sidecar rows with raw separators preserved byte-for-byte;
+  - a lockless `findings.jsonl` append during the delete survives;
+  - `finding_updated` rows removed by identity;
+  - a comment append skipped for a deleted or missing FID;
+  - a complete tail without a newline counted as committed and terminated.
+
+  The round-2 test now covers both the in-flight tail and a damaged committed
+  line. 31 tests passed after round 2.
   The round added 11 regression tests:
   - sidecar rows removed with mode kept;
   - a malformed or symlinked sidecar refused before commit;
@@ -255,9 +291,11 @@ and offline install was impossible because a dependency was not in the uv cache.
   - (c) Move the tombstone guard into `_reserve_in_payload` /
     `_ledger_add_in_payload` / `add_finding`, so non-BBH callers are covered and
     the guard runs inside the same lock.
-- **Guard race window:** the BBH guard reads tombstones just before the core insert
-  takes the lock. A delete of exactly that identity, landing in that window,
-  could still be re-added by a concurrent team run.
+- **Guard race window (reviewer item E, documented, no code change):** the BBH
+  guard reads tombstones just before the core insert takes the lock. A delete
+  of exactly that identity, landing in that window, could still be re-added by
+  a concurrent team run. Moving the guard into Bounty Core's insert functions
+  closes it.
 - **Leftover tombstone after a crash:** handled. A tombstone for a live FID never
   matches. It still blocks a *different* new finding with the same identity
   until that FID is deleted for real.
@@ -265,9 +303,12 @@ and offline install was impossible because a dependency was not in the uv cache.
   are ignored. Concurrent deletes on two hosts can lose a tombstone when sync
   resolves the conflict, and then that finding could be re-imported. The Board
   runs delete on one host.
-- **Sidecars outside the lock:** Bounty Core's `findings.jsonl` appends at
-  `ledger.py:1832` (`add_finding` without a lock) are not serialized with the
-  rewrite. There are no BBH callers.
+- **Lockless `findings.jsonl` append (upstream, also in `BUGFIXES.md`):**
+  Bounty Core's `add_finding` EVIDENCE_ONLY branch (`ledger.py:1831-1832`)
+  appends after releasing the lock. The re-plan narrows the window to the read
+  just before `os.replace`, but a row appended in that sub-millisecond window
+  can still be lost. Bounty Core should append under the lock. There are no BBH
+  callers today.
 - **No override for a genuine rediscovery:** a later, real finding with the
   exact same identity as a deleted one is skipped. This follows from "delete is
   final"; an override flag would need its own decision.

@@ -210,3 +210,18 @@ finding in that lane. `manual_hunter.py --delete-finding` checks the raw file
 under the lock and fails closed (`agents/ledger_tombstones.py`), but the other
 writers do not. Fix in Bounty Core (raise on an unparseable existing ledger),
 then bump the BBH pin; tracked separately from the ledger-delete feature.
+
+## Bounty Core appends `findings.jsonl` rows outside the ledger lock
+
+**Location:** Bounty Core `bounty_core/ledger.py` `add_finding`, EVIDENCE_ONLY
+branch (`ledger.py:1831-1832` at pin `9db8b23d`): `_append_jsonl_event` runs
+after `_locked_payload` has been released.
+**Evidence:** reviewer repro `e.py` (section B), on synthetic storage. A row
+appended during `manual_hunter --delete-finding` was dropped by the sidecar
+rewrite before the rewrite started re-reading the file just ahead of
+`os.replace`.
+**Impact:** BBH now re-plans from the file's current bytes immediately before
+the replace (`agents/ledger_tombstones.py` `_apply_sidecar_scrub`), which leaves
+only a sub-millisecond read-to-rename window. A row appended in that window
+can still be lost. Fix upstream by appending under the ledger lock; there are
+no BBH callers of this path today.

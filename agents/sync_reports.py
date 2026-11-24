@@ -717,6 +717,7 @@ def main(argv: list[str] | None = None) -> int:
 
     imported_fids: list[str] = []
     skipped_fids: list[str] = []
+    tombstoned_fids: list[str] = []
     review_tier_errors: list[Path] = []
     class_conflicts: list[Path] = []
     fid_collisions: list[tuple[Path, str]] = []
@@ -752,6 +753,10 @@ def main(argv: list[str] | None = None) -> int:
                 fid_collisions.append((report_path, str(exc)))
                 print(f"[sync_reports] skipped {report_path}: {exc}", file=sys.stderr)
                 continue
+            if is_duplicate and finding.get("tombstoned"):
+                # Deleted from this lane; the ledger wrapper logged the skip.
+                tombstoned_fids.append(existing_fid or "?")
+                continue
             if is_duplicate:
                 skipped_fids.append(existing_fid or "?")
                 print(f"{existing_fid} already exists, skipped")
@@ -772,6 +777,8 @@ def main(argv: list[str] | None = None) -> int:
     print(_format_summary_count("Imported", len(imported_fids), "new findings", imported_fids))
     duplicate_summary = [f"{fid} already in ledger" for fid in skipped_fids]
     print(_format_summary_count("Skipped", len(skipped_fids), "duplicates", duplicate_summary))
+    if tombstoned_fids:
+        print(_format_summary_count("Skipped", len(tombstoned_fids), "deleted findings", tombstoned_fids))
     if review_tier_errors:
         print(f"  Review-tier decisions required: {len(review_tier_errors)}")
     if class_conflicts:

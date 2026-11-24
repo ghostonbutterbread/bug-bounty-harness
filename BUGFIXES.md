@@ -267,3 +267,33 @@ the replace (`agents/ledger_tombstones.py` `_apply_sidecar_scrub`), which leaves
 only a sub-millisecond read-to-rename window. A row appended in that window
 can still be lost. Fix upstream by appending under the ledger lock; there are
 no BBH callers of this path today.
+
+## Bounty Core storage normalizers accept `.` and `..` program/lane names
+
+**Location:** Bounty Core `bounty_core/storage.py` `normalize_program` and
+`normalize_lane` (pinned `9db8b23`), reached through `resolve_storage` and BBH's
+`agents.storage_resolver` / `agents.attempts.resolve_attempts_path`.
+**Evidence:** both normalizers keep `.` in their allowed set, so
+`normalize_program("..") == normalize_lane(" .. ") == ".."`. In a disposable
+root, `resolve_storage("..", lane="web", create=True)` scaffolded
+`<root>/web/{reports,ledgers,context,...}` and `<root>/shared` beside
+`web_bounty/`; `resolve_storage("example", lane="..", create=True)` scaffolded
+lane directories directly inside `web_bounty/example/`.
+**Impact:** any BBH caller passing an unchecked program or lane can scaffold or
+write outside the program tree (for example `~/Shared/shared`). The
+`scripts/append_attempt.py` CLI now rejects empty, `.`, `..`, and path-like
+values before resolving, but other callers remain exposed. Repair in Bounty Core
+(reject dot-segment names in both normalizers) with a BBH pin bump; do not
+patch around it per caller.
+
+## `append_attempt` counts null required fields as present
+
+**Location:** `agents/attempts.py`, `append_attempt` required-field check.
+**Evidence:** `str(None).strip()` is `"None"`, so `{"tool": None, ...}` passes the
+BBH check; Bounty Core then rejects the alias with
+`event missing required fields: producer`, naming the Core field rather than
+the BBH one. Non-string values such as `5` or `[]` pass both checks and are
+stored. The shell CLI rejects null and non-string required fields itself.
+**Impact:** Python callers get a confusing error for null fields and can store
+non-string required fields (schema drift). Decide in a separate task whether
+the library should require nonempty strings for the five fields.

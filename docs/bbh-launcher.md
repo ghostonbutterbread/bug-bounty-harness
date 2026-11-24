@@ -13,6 +13,7 @@ lane-safe.
 ## Commands
 
 ```bash
+bbh scripts/append_attempt.py --program <program> --lane <lane> --run-id <run-id> --timestamp-now --json '<attempt-json-object>'
 bbh agents/manual_hunter.py <program> --lane <lane> ...
 bbh agents/me_ledger.py <arguments>
 bbh agents/url_ingest.py <arguments>
@@ -20,6 +21,12 @@ bbh scripts/recon_bus.py <arguments>
 bbh scripts/tool_run.py <arguments>
 bbh scripts/safety_incident.py --program <program> --lane <lane> --profile <absolute-path-to-context/target_profile.json> record --producer <producer> --run-id <run-id> --category <category> --severity <unknown|low|medium|high|critical> --action <action> --subject <subject> --impact <impact> --containment <containment> [--no-notify]
 ```
+
+The Attempts command appends one deliberate-test record through the canonical
+`agents.attempts.append_attempt` writer of this checkout; see
+[`attempt-recording-contract.md`](attempt-recording-contract.md) for the stdin
+heredoc form and field contract. Use it instead of a system-Python import,
+a hand-built `PYTHONPATH`, or a hand-appended JSONL line.
 
 The safety incident command forwards to pinned Bounty Core. Record promptly
 after stopping/containing an unsafe action, with factual, non-secret fields;

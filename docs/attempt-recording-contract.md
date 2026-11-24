@@ -59,12 +59,39 @@ equivalent or no longer provide information.
 ## Required writer and stable fields
 
 BBH agents must use the compatibility writer rather than appending JSONL
-manually:
+manually.
+
+From a shell, record one Attempt with the indexed command. `bbh` runs it with
+the selected checkout's interpreter and Bounty Core, so it needs no
+`PYTHONPATH`, `cd`, or virtualenv activation:
+
+```bash
+bbh scripts/append_attempt.py --program <program> --lane <lane> --run-id <run-id> --timestamp-now <<'JSON'
+{"tool": "lfi-tester", "target": "https://app.example/download?file=REDACTED",
+ "outcome": "blocked", "stop_reason": "normalizer removed traversal separators",
+ "vuln_class": "lfi", "payload_family": "traversal-encoding", "input_location": "query:file"}
+JSON
+```
+
+It reads one JSON object from stdin (or `--json`), writes to the existing
+program lane's `<lane>/attempts/_runs/<run-id>/attempts.jsonl`, and prints the
+stored `attempt_id`, `run_id`, and `path`. Use `--path <attempts.jsonl>`
+instead of program/lane/run when a packet hands over the exact stream,
+`--family` for a custom lane, and `--agent-id`/`--model-id` for the optional
+`ai_reviewed_by` tag. Keep the quoted `'JSON'` heredoc delimiter so the shell
+does not expand `$` or backticks inside payloads. `--timestamp-now` supplies the
+required timestamp at recording time; put an explicit `"timestamp"` in the JSON
+instead when recording later. Run IDs use letters, digits, `.`, `_`, and `-`;
+omit `run_id` from the JSON (or make it equal the destination run). A missing
+or non-string required field, missing or invalid JSON, a conflicting `run_id`,
+or an uninitialized program lane is rejected with exit status 2 and no Attempt
+is written. `python -m agents.attempts` is deliberately not a CLI.
 
 For an inline import or a task-owned Python script, use the **same checkout and
 interpreter** selected by `bbh`. The system Python and a different checkout's
-virtualenv may import an older or missing Bounty Core. Check the writer without
-writing an Attempt:
+virtualenv may import an older or missing Bounty Core; `agents.attempts` then
+fails with an `ImportError` naming the interpreter, the loaded `bounty_core`,
+and these remedies. Check the writer without writing an Attempt:
 
 ```bash
 ( cd "$(bbh --root)" && .venv/bin/python -c 'from agents.attempts import append_attempt; print("attempts-ready")' )

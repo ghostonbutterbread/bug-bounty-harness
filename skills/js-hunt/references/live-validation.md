@@ -10,13 +10,15 @@ paused with a wake condition. Offline mode skips this stage.
 Before the first live action, read program scope and load
 `general-security-testing-policy` and `live-testing-policy`; transport follows
 `browser-session-policy` and `proxy-routing-policy` (task browser and
-task-MITM). The gate applies per surface, not per lead or payload, so do not
-re-run it between probes on the same surface.
+task-MITM). A surface is one host plus one feature or flow. Gate it once, not
+again per lead or payload on that same surface, but re-gate when the host,
+account, ownership, or effect class changes: a gate passed for a read does not
+cover a state change.
 
 A lead whose host is out of scope, that needs a non-owned account or resource,
-or that program rules bar is **blocked** with that reason; it does not turn the
-rest of the hunt offline. If no usable scope exists at all, finish the hunt in
-offline mode and say why.
+or that program rules bar is **out of scope** with that reason; it does not turn
+the rest of the hunt offline. If no usable scope exists at all, finish the hunt
+in offline mode and say why.
 
 ## Build the queue
 
@@ -65,6 +67,11 @@ Before the hunt ends, give every selected lead a disposition and update its
   `/findings`;
 - **enforcement established** for the tested control only: record what was
   shown, and leave untested siblings open;
+- **not reachable**: the code path is dead, unroutable, or the lead was refuted
+  for the tested representation; name what was shown, and leave untested
+  representations open;
+- **out of scope**: the host, account, or effect is outside what the program
+  allows; record the reason and do not test it;
 - **needs_recheck**: name the exact account, role, fixture, browser, or scope
   prerequisite (operator-only items surface through `/leads --needs-you`);
 - **active**: a safe next action remains but time or budget ran out; record the

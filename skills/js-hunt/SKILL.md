@@ -27,14 +27,16 @@ class-specific payloads and proof belong to the owning skills.
 
 ## Connect the code with the application
 
-Use `live-map` and the task browser/proxy to understand the relevant feature,
-actual request and loaded assets, then trace the corresponding code; a
-source-derived action or consumer can in turn guide the next browser
-observation. Use `technology-research` when a stack detail changes the
-question. Correlate the page, flow and asset; code alone does not establish
-current reachability or server enforcement. A strong lead need not wait for a
-complete map or inventory. Explicitly offline work stays offline; offline workers
-never send target requests. Collection-only requests remain collection-only.
+In the default mode, the parent uses `live-map` and the task browser/proxy to
+understand the relevant feature, actual request and loaded assets, then trace
+the corresponding code; a source-derived action or consumer can in turn guide
+the next browser observation. This observation is part of the live stage, so it
+follows the same scope and live-testing gates, and review workers never do it.
+Use `technology-research` when a stack detail changes the question. Correlate
+the page, flow and asset; code alone does not establish current reachability or
+server enforcement. A strong lead need not wait for a complete map or
+inventory. Explicitly offline work stays offline; offline workers never send
+target requests. Collection-only requests remain collection-only.
 
 ## Start and Focus
 

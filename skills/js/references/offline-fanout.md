@@ -8,10 +8,11 @@ adds a later live-validation stage; this reference never runs it, and its
 workers never send target requests.
 
 The purpose is broad offline depth: review existing local packets with native
-subagents, synthesize in the parent model, and hand only selected hypotheses to
-separately authorized live testing later. There is no repository-specific JavaScript team runner. The
-active parent reads inventory artifacts and directly dispatches bounded worker
-tasks through its native delegation capability.
+subagents, synthesize in the parent model, and hand the selected hypotheses to
+the live-validation stage that follows in the default mode. There is no
+repository-specific JavaScript team runner. The active parent reads inventory
+artifacts and directly dispatches bounded worker tasks through its native
+delegation capability.
 
 ## Principles
 

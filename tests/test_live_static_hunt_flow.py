@@ -54,13 +54,18 @@ def test_js_hunt_defaults_to_live_validation_and_keeps_review_workers_offline():
     claims_ci(hunt, "defaults to online", "references/live-validation.md",
            "give each a disposition", "--offline", "no target traffic",
            "no network collection", "offline workers never send target requests",
+           "review workers never do it",
            "live validators run after it as a separate stage",
-           "never share review-worker slots")
+           "never share review-worker slots",
+           "leave each lead open with its next discriminator",
+           "stop after `/js-pull`")
     claims_ci(live, "general-security-testing-policy", "live-testing-policy",
-           "task browser", "task-MITM", "per surface, not per lead",
+           "task browser", "task-MITM", "re-gate when the host",
+           "a gate passed for a read does not cover a state change",
            "bbh agents/leads.py create", "hypothesis-ledger",
            "drive the feature", "analyze-endpoint",
-           "finding linked", "enforcement established", "needs_recheck",
+           "finding linked", "enforcement established", "not reachable",
+           "out of scope", "needs_recheck",
            "next discriminator and wake condition", "count for each disposition", "not yet live-validated")
     fanout = read_norm(ROOT / "skills/js/references/offline-fanout.md")
     claims_ci(fanout, "workers never send target requests",

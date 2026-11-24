@@ -10,7 +10,9 @@
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/scope-gate-exclusions`
 - **Latest immutable recovery checkpoint:** `71104206fedf11ab818f6e96bab3349b3aa56e9a`
-  (loop-2 fixes; origin/beta `243a97bd` merged at `a0263a3f`, unchanged since)
+  (loop-2 fixes). origin/beta `243a97bd` merged at `a0263a3f`; origin/beta
+  `b3c6aced` merged at `6f192797` (append-only BUGFIXES.md conflict, both sides
+  kept; no scope/fuzz files changed; focused set 417 passed on the merged tree)
 - **Feature implementation commit(s):** `bfaf8851105c98706c1e3800556904409382ad11`,
   `7bba01fe11a45e5c2d0ac8491feae7c54e7778f3`, `71104206fedf11ab818f6e96bab3349b3aa56e9a`
 - **Inspiration / canonical references:** BUGFIXES.md entries "ScopeManager does

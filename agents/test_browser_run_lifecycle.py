@@ -160,6 +160,44 @@ def test_explicit_owner_pid_is_never_replaced_by_derivation(monkeypatch, tmp_pat
     assert meta["owner"] == process_identity(os.getpid()) and "owner_source" not in meta
 
 
+@pytest.mark.parametrize("prior_source,expected", [
+    ("agent-ancestor", "already-running"),   # inferred default: explicit owner replaces it
+    (None, "owner-process-mismatch"),        # prior explicit owner: unchanged lock
+])
+def test_explicit_owner_replaces_only_an_inferred_owner(monkeypatch, tmp_path, capsys, prior_source, expected):
+    from agents.test_browser_lease_recovery import args as lease_args
+    m = provisioner(monkeypatch, tmp_path)
+    prior = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        prior_identity = process_identity(prior.pid)
+        c, row = record(m, tmp_path, None)
+        m.save_metadata(c, "old", {"owner": prior_identity, "ttl": 30,
+                                   **({"owner_source": prior_source} if prior_source else {})})
+        assert m.lifecycle_state(c, row) == "active"
+        for name, value in (("sweep_rows", lambda *a: ([], [])), ("cleanup_unused", lambda *a: []),
+                            ("admission", lambda *_: {"status": "admitted"}),
+                            ("automatic_instance", lambda *_a, **_k: ""),
+                            ("healthy", lambda _row: True), ("matching_proxy", lambda *_: True),
+                            ("unit_active", lambda _unit: True)):
+            monkeypatch.setattr(m, name, value)
+        monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("same-run explicit owner must not restart"))
+        request = lease_args()
+        request.agent_id, request.run_id = row["agent_id"], row["run_id"]   # explicit owner: this process
+        with pytest.raises(SystemExit):
+            m.start(request)
+        result = json.loads(capsys.readouterr().out)
+        meta = m.metadata(c, row)
+        if expected == "already-running":
+            assert result["status"] == "already-running"
+            assert meta["owner"] == process_identity(os.getpid()) and "owner_source" not in meta
+        else:
+            assert (result["status"], result["reason"]) == ("locked", expected)
+            assert meta["owner"] == prior_identity
+    finally:
+        prior.kill()
+        prior.wait()
+
+
 # --- run end: terminal derived owner is reclaimed by maintain -------------------------
 
 def exited_process_identity():
@@ -327,6 +365,8 @@ def mixed_rows(monkeypatch, tmp_path):
     add_row(m, "a3", "agent-a", "run-2", "browser-a3")                 # same agent, other run
     add_row(m, "b1", "agent-b", "run-1", "browser-b1.service")         # other agent, same run label
     add_row(m, "a4", "agent-a", "run-1", "browser-a4", state="stopped")
+    add_row(m, "a5", "agent-a", "run-1", "browser-a5", state="starting")   # reported, never stopped
+    add_row(m, "b2", "agent-b", "run-1", "browser-b2", state="starting")   # other owner: not reported
     fenced = []
     monkeypatch.setattr(m, "fenced_stop_release", lambda c, lease_id, agent_id, **kw:
                         fenced.append((lease_id, agent_id, kw)) or True)
@@ -340,6 +380,8 @@ def test_release_run_dry_run_selects_exact_run_and_touches_nothing(mixed_rows, c
     assert [(b["lease_id"], b["unit"], b["result"]) for b in result["browsers"]] == [
         ("a1", "browser-a1.service", "selected"), ("a2", "browser-a2.service", "selected")]
     assert result["kept_running"] == 2 and result["released"] == []
+    assert result["starting"] == [{"browser_id": "a5-browser", "lease_id": "a5",
+                                   "unit": "browser-a5.service", "result": "starting-not-stopped"}]
 
 
 def test_release_run_apply_stops_only_the_exact_recorded_run(mixed_rows, capsys):
@@ -349,6 +391,9 @@ def test_release_run_apply_stops_only_the_exact_recorded_run(mixed_rows, capsys)
     assert fenced == [("a1", "agent-a", {"disposition": "completed", "health": "healthy"}),
                       ("a2", "agent-a", {"disposition": "completed", "health": "healthy"})]
     assert result["released"] == ["a1-browser", "a2-browser"] and result["kept_running"] == 2
+    assert [s["lease_id"] for s in result["starting"]] == ["a5"]
+    assert dict(m.db().execute("select lease_id, state from browsers where lease_id in ('a5','b2')").fetchall()) \
+        == {"a5": "starting", "b2": "starting"}
 
 
 def test_release_run_reports_incomplete_without_skipping_siblings(mixed_rows, monkeypatch, capsys):

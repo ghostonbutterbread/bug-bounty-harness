@@ -3662,10 +3662,15 @@ def start(args):
     if row and row["state"] == "running":
         state = lifecycle_state(c, row)
         same = row["agent_id"] == args.agent_id and row["run_id"] == args.run_id
+        # An inferred agent-ancestor owner is a default, not an explicit claim:
+        # an explicit --owner-pid may replace it exactly as it adopts onto an
+        # ownerless browser. Only a conflicting explicit owner locks.
+        inferred_owner = metadata(c, row).get("owner_source") == "agent-ancestor"
         if (
             same
             and owner
             and state == "active"
+            and not inferred_owner
             and metadata(c, row).get("owner") not in (None, owner)
         ):
             emit({"status": "locked", "reason": "owner-process-mismatch"}, 2)
@@ -3687,8 +3692,9 @@ def start(args):
             if activity and activity.get("frozen"):
                 emit({"status": "recovery-blocked", "reason": "control-frozen", **safe(row)}, 2)
             meta = metadata(c, row)
-            if owner and meta.get("owner") is None:
+            if owner and (meta.get("owner") is None or inferred_owner):
                 meta["owner"] = owner
+                meta.pop("owner_source", None)
                 save_metadata(c, row["lease_id"], meta)
             emit({"status": "already-running", **safe(row), "task_proxy": proxy_metadata(proxy_row(c, args)), "owner_state": state,
                   "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
@@ -4501,10 +4507,17 @@ def release_run(args):
         entries.append(entry)
     incomplete = any(entry["result"] == "cleanup-incomplete" for entry in entries)
     task = proxy_row(c, args)
+    # A startup in progress or interrupted before registration is reported, never
+    # stopped here: its unit/root identity is not yet proven (see task-proxy-recover).
+    starting = [{"browser_id": r["browser_id"], "lease_id": r["lease_id"],
+                 "unit": service_unit_name(r["unit"]), "result": "starting-not-stopped"}
+                for r in c.execute("SELECT * FROM browsers WHERE state='starting' AND agent_id=? AND run_id=? "
+                                   "ORDER BY created", (args.agent_id, args.run_id))]
     emit({
         "status": "cleanup-incomplete" if incomplete else "ok",
         "mode": "apply" if args.apply else "dry-run",
         "browsers": entries,
+        "starting": starting,
         "released": [e["browser_id"] for e in entries if e["result"] == "released"],
         "kept_running": len(rows) - len(selected),
         "task_proxy": proxy_metadata(task),

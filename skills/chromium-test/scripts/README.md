@@ -526,15 +526,25 @@ Do not use this command to bypass a refusal with a different account/slot.
   browser's outstanding team grant still protects it).
   Requests with no such ancestor (for example a one-shot SSH command from
   another host) stay ownerless, and existing ownerless rows are never adopted
-  or retired by age. Explicit `--owner-pid` keeps its stricter reuse/proxy
-  semantics; the derived owner is not applied to the task MITM listener.
+  or retired by age. The derived owner is a default, not a claim: a later
+  same-agent/run request with an explicit `--owner-pid` replaces it (as it
+  adopts onto an ownerless browser) instead of returning
+  `owner-process-mismatch`; only a conflicting *explicit* owner locks. The
+  derived owner is not applied to the task MITM listener.
+  **Residual:** this fixes the leak when the owning agent process *exits*. It
+  does not stop a browser whose agent is still alive but idle (an interactive
+  session left open in tmux, or a long-lived Hermes host/gateway process): the
+  watcher keeps renewing it exactly as before. Release those explicitly
+  (`release` or `release-run`).
 - **Run-scoped release:** `release-run --agent-id <agent> --run-id <run>
   --disposition completed --profile-health healthy [--apply]` releases every
   running browser recorded for that exact agent/run (dry-run by default). It
   selects by the manager's recorded identity, never by comparing systemd unit
   names; each stop re-proves the canonical lease, unit invocation, terminal root
   and closed CDP. The receipt lists selected units as `<name>.service` and the
-  `kept_running` count; finish the task MITM separately with
+  `kept_running` count, and reports (never stops) this run's `starting` rows,
+  whose startup is in progress or was interrupted before identity was proven;
+  finish the task MITM separately with
   `task-proxy-finish`. Do not hand-roll `systemctl list-units` keep/stop
   comparisons: manager rows store bare unit names, and a missing `.service`
   suffix once stopped live browsers that were meant to be kept.

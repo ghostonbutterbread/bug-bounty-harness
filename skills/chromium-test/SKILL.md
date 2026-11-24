@@ -236,10 +236,12 @@ not this request command, a remote process, or a shared daemon. Without it, a
 newly started browser is bound to the requesting agent process on the browser
 node (nearest `claude`/`codex`/`hermes`/`pi`/`omp`/… ancestor): if that agent
 exits without `release`, the provisioner stops the browser through its normal
-verified path. A bounded `awaiting-input` hold still protects it until expiry.
-Remote one-shot requests with no agent ancestor stay ownerless. Legacy,
-untracked and manual-mode records remain conservative; missing telemetry is
-not evidence of idleness.
+verified path. This includes headed and `--driving-mode manual` handoff
+browsers: only an unexpired `awaiting-input` hold (at most 3600 seconds) keeps
+one alive after its agent exits, so set the hold **before** exiting or handing
+off to a human, or pass a longer-lived `--owner-pid`. Remote one-shot requests
+with no agent ancestor stay ownerless. Legacy ownerless records remain
+conservative; missing telemetry is not evidence of idleness.
 
 A reclaimable healthy matching headless profile may transfer without restarting
 Chromium after its configured inactivity window. The provisioner fences old
@@ -671,7 +673,9 @@ path is not yet known; do not use a different path to bypass a named lease.
    has no `--ephemeral-profile` option. A lease remains locked
    while work awaits input: renew it with `--work-state awaiting-input`.
    A same-task operator handoff is not terminal; keep the existing lease and
-   browser until resume or a terminal disposition. Only terminal completion,
+   browser until resume or a terminal disposition. Set the `awaiting-input`
+   hold before the handing-off agent exits: a browser bound to that agent stops
+   once the agent is gone and no hold is active. Only terminal completion,
    transfer to another owner, or cancellation may call `release` with both
    `--disposition` and a non-secret `--profile-health` for the next agent.
 1. Request the engagement browser through the provisioner. When the final

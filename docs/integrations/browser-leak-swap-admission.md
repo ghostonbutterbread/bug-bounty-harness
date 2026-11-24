@@ -58,9 +58,21 @@ mix on the live node is not verified.
    activity-tracked team grants still protect it.
    - No ancestor match (e.g. a one-shot SSH request from Ghost) or unreadable
      `/proc` → owner stays `None`, i.e. exactly the previous behavior.
-   - Explicit `--owner-pid` is unchanged and wins; the derived owner is **not**
-     used for the owner-process-mismatch lock, the task-MITM listener owner, or
-     adoption of an already-running ownerless row.
+   - Explicit `--owner-pid` wins. A derived owner never triggers the
+     owner-process-mismatch lock: a same-agent/run request with an explicit
+     `--owner-pid` replaces it (dropping `owner_source`) under the node lock,
+     exactly as an explicit owner adopts onto an ownerless browser; only a
+     conflicting explicit owner still locks. The derived owner is not used for
+     the task-MITM listener owner, and derivation never adopts an
+     already-running ownerless row.
+   - Headed / `--driving-mode manual` handoff browsers are bound too: after the
+     agent exits, only an unexpired `awaiting-input` hold (max 3600 s) keeps
+     them alive, so the hold must be set before exit/handoff.
+   - **Residual (not fixed):** a browser whose owning agent is alive but idle —
+     an interactive session left open in tmux, or a long-lived Hermes
+     host/gateway process — keeps being renewed exactly as before. The leak is
+     fixed only when the owning agent process exits; idle live agents still
+     need explicit `release`/`release-run`.
 2. **Swap-aware admission** (`admission`, `memory_pressure`). RAM below its
    minimum always rejects. If only free swap is below its minimum, admit when
    `MemAvailable >= min_ram + (min_swap - SwapFree)` and memory PSI is healthy
@@ -74,8 +86,10 @@ mix on the live node is not verified.
    rows by exact recorded `(agent_id, run_id)`, never by unit name; every stop
    re-proves the canonical lease, unit invocation, terminal root and closed CDP
    via `fenced_stop_release`. Receipt: per-browser result, unit as
-   `<name>.service`, `kept_running` count, task-proxy metadata and a
-   `task-proxy-finish` pointer. Exit 2 with `cleanup-incomplete` if any exact
+   `<name>.service`, `kept_running` count, this run's `starting` rows (reported
+   as `starting-not-stopped`, never stopped: identity is not yet proven),
+   task-proxy metadata and a `task-proxy-finish` pointer. Exit 2 with
+   `cleanup-incomplete` if any exact
    stop is unverified; siblings are still attempted.
 4. Guidance updated in `skills/chromium-test/SKILL.md`, `scripts/README.md` and
    `prompts/chromium-test-playbook.md` (automatic owner, `release-run`, swap
@@ -87,9 +101,11 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
 ## Papercut disposition
 
 - **PC-20260901-181544-9b2b73ff** (leaked Chrome exhausts swap): fixed-on-branch
-  for new leaks (agent-ancestor owner + existing verified terminal stop;
-  `release-run` as the run-ID-keyed reaper). Existing leaked/ownerless processes
-  on Hoster are not touched and still need exact operator proof per t_297ebf3e.
+  for new leaks **when the owning agent process exits** (agent-ancestor owner +
+  existing verified terminal stop; `release-run` as the run-ID-keyed reaper).
+  Not fixed for idle live agents (see residual). Existing leaked/ownerless
+  processes on Hoster are not touched and still need exact operator proof per
+  t_297ebf3e.
 - **PC-20260918-222033-c990c35b** (swap exhausted, RAM plentiful): fixed-on-branch
   (automatic RAM-covered swap gate under healthy PSI). Not previously fixed:
   727961e6 is documentation-only and depends on agents reading and acting on it.
@@ -123,7 +139,14 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
     base `3f72ed81` **3 failed** (ownerless start, swap-exhausted rejection,
     no run-keyed release); branch **3 passed**.
   - `git diff --cached --check` clean.
-- Independent review: not yet performed — the parent owns review/integration.
+- Review-fix loop (after APPROVE-WITH-NITS on `6bbde711`): new module now
+  **35 passed**; the two new/extended regressions fail on `6bbde711` (3 failed:
+  inferred-owner mismatch lock, two `starting`-row report assertions) and pass
+  on the fix. Same 58-module sweep re-run on the fix: **1013 passed / 58
+  failed / 66 skipped**, failing test IDs identical to base `3f72ed81`
+  (baseline receipts reused: unchanged base tree, interpreter and method).
+- Independent review: APPROVE-WITH-NITS on `6bbde711` (parent-run); nits
+  addressed in the review-fix commit; re-review owned by the parent.
 - Replay/cohort/fixture evidence: temporary SQLite registries, fake `/proc`
   trees, a real short-lived child process for terminal identity, mocked systemd.
   No live target traffic, no Hoster mutation.
@@ -140,8 +163,11 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
 - **Deferred:** task-MITM listeners still need explicit `task-proxy-finish` (or
   explicit `--owner-pid`) — the derived owner was deliberately not applied to the
   proxy because proxy reuse requires owner equality across same-run requests.
-- **Deferred:** Hermes gateway (long-lived shared daemon) as the ancestor makes
-  the derived owner long-lived; behavior equals the previous ownerless contract.
+- **Not fixed (residual):** idle *live* agents. An interactive agent left open
+  in tmux, or a Hermes host/gateway process (long-lived shared daemon) as the
+  ancestor, keeps its browser renewed indefinitely — same as the previous
+  ownerless contract. Mitigation is explicit `release`/`release-run`; an
+  activity-based policy for live owners would need a separate decision.
 - **Activation:** Hoster activation/projection is a separate step after beta
   integration; verify the selected runtime checkout, not just beta.
 

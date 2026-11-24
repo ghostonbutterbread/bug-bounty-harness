@@ -8,9 +8,9 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
-- **Latest immutable recovery checkpoint:** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
-- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
-  (the branch tip adds a later dossier-only handoff commit)
+- **Latest immutable recovery checkpoint:** `639930af0a12e58b7cd884722e8fd0ca12c17ec5`
+- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`,
+  review fixes `639930af0a12e58b7cd884722e8fd0ca12c17ec5` (the branch tip adds a later dossier-only handoff commit)
 - **Inspiration / canonical references:** papercuts PC-20260901-181544-9b2b73ff,
   PC-20260918-222033-c990c35b, PC-20261020-021756-adc41ee2; Kanban t_297ebf3e and
   children (t_a465b37a, t_f9938cf9, t_414d3d60, t_b3dda7dc, t_3ca526e0); prior beta
@@ -174,10 +174,12 @@ Non-claims: no change to historical ownerless rows, task-MITM proxy ownership,
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-leak-swap-admission`
-- **Latest immutable recovery checkpoint:** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`
-- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`;
-  the branch tip is a later dossier-only commit — verify it separately.
-- **Exact resume point:** independent review of `3f72ed81..fix/browser-leak-swap-admission`
+- **Latest immutable recovery checkpoint:** `639930af0a12e58b7cd884722e8fd0ca12c17ec5`
+- **Feature implementation commit(s):** `d4b7d1d50c01acb7cc11f46a5497a24682d5612e`,
+  `639930af0a12e58b7cd884722e8fd0ca12c17ec5`; the branch tip is a later dossier-only commit — verify it separately.
+- **Exact resume point:** parent re-review of `6bbde711..fix/browser-leak-swap-admission`
+  (review fixes), then integration of `3f72ed81..fix/browser-leak-swap-admission`.
+  origin/beta has since advanced to `243a97bd`; both sides append to `BUGFIXES.md`.
 - **Working-tree state at handoff:** clean
 
 ## Decision gates

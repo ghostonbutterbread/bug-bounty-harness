@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from bounty_core.ledger import patch_finding_by_fid  # noqa: E402
+from bounty_core.ledger import LedgerReadError, patch_finding_by_fid  # noqa: E402
 from bounty_core.reports import render_finding_report  # noqa: E402
 from bounty_core.storage import resolve_storage  # noqa: E402
 
@@ -128,10 +128,12 @@ class LedgerDeleteFindingTests(unittest.TestCase):
         before = self.ledger.read_bytes()
         code, _out, err = self._run("--delete-finding", "D01")
         self.assertEqual(code, 1)
-        self.assertIn("malformed", err)
+        # Bounty Core >= 5f5a66ac refuses first ("invalid JSON"); BBH's own
+        # guard reports "malformed". Either way nothing is rewritten.
+        self.assertTrue("malformed" in err or "invalid JSON" in err, err)
         self.assertEqual(self.ledger.read_bytes(), before)
         self.assertFalse(self.tombstone.exists())
-        with self.assertRaises(MalformedLedgerError):
+        with self.assertRaises((MalformedLedgerError, LedgerReadError)):
             delete_finding_by_fid(PROGRAM, "D01", family=FAMILY, lane=LANE, root_override=self.root)
 
     # -- successful delete -------------------------------------------------

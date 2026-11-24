@@ -327,7 +327,7 @@ def skip_message(fid: str, source: str) -> str:
 # --------------------------------------------------------------------------
 
 def _assert_ledger_well_formed(path: Path) -> None:
-    """Fail closed: Bounty Core reads a malformed ledger as empty and writes it back."""
+    """Fail closed on a malformed ledger (Bounty Core before 5f5a66ac rewrote it as empty)."""
     if not path.exists():
         return
     if path.is_symlink() or not path.is_file():

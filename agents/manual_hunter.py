@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -121,6 +122,7 @@ VULN_CLASS_LABELS = {
     "vuln class",
     "vuln type",
 }
+VULN_PLACEHOLDERS = {"n/a", "na", "tbd", "unknown", "none", "-", "\u2013", "\u2014", "?"}
 MULTILINE_FIELDS = {
     "description",
     "impact",
@@ -139,7 +141,7 @@ FIELD_RE = re.compile(
 # is authoritative and remains able to carry more unusual filenames.
 FILE_HINT_RE = re.compile(
     r"(?<![\w.-])"
-    r"(?P<path>(?:\.?[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
+    r"(?P<path>(?:[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
     r"(?![A-Za-z0-9_])"
     r"(?:[:#](?P<line>\d+))?"
 )
@@ -550,9 +552,13 @@ def _note_severity(value: Any) -> str:
     severity = _normalize_severity(text)
     if severity == "UNKNOWN" and text:
         # A dash separates a rationale only when spaced: 'Medium-High' stays unknown.
-        lead = re.match(r"([A-Za-z]+\d?)(?:$|\s*[(\[,;:.|]|\s+[-\u2013\u2014])", text)
+        lead = re.match(r"([A-Za-z]+\d?)(?:$|\s*[(\[,;:.]|\s+[-\u2013\u2014])", text)
         if lead:
             severity = _normalize_severity(lead.group(1))
+            # 'High - Medium' names two levels; keep it unknown rather than pick one.
+            others = {_normalize_severity(word) for word in re.findall(r"[A-Za-z]+\d?", text[lead.end():])}
+            if others - {"UNKNOWN", severity}:
+                severity = "UNKNOWN"
     if severity == "UNKNOWN" and text and text.upper() != "UNKNOWN":
         print(
             f"warning: Severity {raw!r} is not a recognized level; stored UNKNOWN. "
@@ -719,13 +725,21 @@ def _fenced_lines(text: str) -> set[int]:
     return result
 
 
-def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, set[int]]:
-    """Extract class declarations outside fences; return consumed line indexes."""
+def _explicit_class(
+    text: str, *, decision_start: int = 0, report_labels: bool = False,
+) -> tuple[str | None, set[int]]:
+    """Extract class declarations outside fences; return consumed line indexes.
+
+    ``report_labels`` (manual note ingest only) also reads Vulnerability labels
+    and inline-code values. sync_reports leaves it off so re-syncing an imported
+    report keeps the class identity it was stored under.
+    """
     found: str | None = None
     consumed: set[int] = set()
     stated: list[tuple[int, str]] = []
     awaiting = False
     fenced = _fenced_lines(text)
+    class_labels = {"class", "discovered during class pass", *(VULN_CLASS_LABELS if report_labels else ())}
 
     def add(value: str, *, heading_value: bool = False) -> None:
         nonlocal found
@@ -734,8 +748,10 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
         value = re.sub(r"^[-*+]\s+", "", value)
         if value.startswith("**") and value.endswith("**") and len(value) >= 4:
             value = value[2:-2].strip()
-        if re.fullmatch(r"`[^`]+`", value):
+        if report_labels and re.fullmatch(r"`[^`]+`", value):
             value = value[1:-1].strip()
+        elif heading_value and re.fullmatch(r"`[\w][\w./+-]*`", value):
+            value = value[1:-1]
         if not value:
             return
         pattern = r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*)*" if marked else r"[\w][\w./+-]*"
@@ -766,7 +782,7 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
             # Broaden only class declarations; other fields retain their parser contract.
             field_line = re.sub(r"^(\s*)(?:\+|\d{1,9}[.)])\s+", r"\1- ", line)
             alternate = FIELD_RE.match(field_line)
-            if alternate and alternate.group("label").strip().lower().replace("-", " ") in {"class", "discovered during class pass", *VULN_CLASS_LABELS}:
+            if alternate and alternate.group("label").strip().lower().replace("-", " ") in class_labels:
                 field = alternate
         if awaiting:
             if not line.strip():
@@ -780,7 +796,7 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
                 continue
         if field:
             label = field.group("label").strip().lower().replace("-", " ")
-            if label in {"class", "discovered during class pass"} or label in VULN_CLASS_LABELS:
+            if label in class_labels:
                 value = field.group("value").strip()
                 if value.startswith("**") and re.match(r"^\s*(?:[-*]\s+)?\*\*[^*]+:\s*\*\*", field_line):
                     value = value[2:].lstrip()
@@ -798,6 +814,8 @@ def _explicit_class(text: str, *, decision_start: int = 0) -> tuple[str | None, 
         # a title-like sentence is refused rather than guessed from keywords.
         for index, value in stated:
             value = re.sub(r"\s*\([^()]*\)\s*$", "", _plain_value(value))
+            if value.lower().rstrip(".") in VULN_PLACEHOLDERS:
+                continue  # A placeholder states no class; leave it as narrative.
             if value and not re.fullmatch(r"[\w][\w./+-]*(?:\s+[\w][\w./+-]*){0,3}", value):
                 raise ClassConflictError(
                     f"Vulnerability value {value!r} is not a class name; add an explicit 'Class: <value>' field."
@@ -971,16 +989,30 @@ class DuplicateCommentStore:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+class MissingNoteFieldError(ValueError):
+    """A note lacks a field required to identify or describe the finding."""
+
+
 def parse_finding_text(
     raw_text: str, *, source_label: str, family: str, lane: str,
     source_path: Path | None = None, class_decision_start: int = 0,
+    manual_note: bool = False,
 ) -> ParsedFinding:
-    """Parse and validate a note without initializing storage or a ledger."""
+    """Parse and validate a note without initializing storage or a ledger.
+
+    ``manual_note`` enables the report-style note handling used by manual
+    ingest: Vulnerability class labels, markup-free identity values, declared
+    web routes, leading-level severity, and ``unknown`` for unclassified web
+    notes. sync_reports leaves it off so already-imported reports keep their
+    stored identity on re-sync.
+    """
     text = raw_text.replace("\r\n", "\n").strip("\n")
     if not text.strip():
-        raise ValueError("finding note is empty")
+        raise MissingNoteFieldError("finding note is empty")
 
-    explicit_class, consumed = _explicit_class(text, decision_start=class_decision_start)
+    explicit_class, consumed = _explicit_class(
+        text, decision_start=class_decision_start, report_labels=manual_note,
+    )
     parsed: dict[str, str] = {"class_name": explicit_class} if explicit_class is not None else {}
     narrative_lines: list[str] = []
     current_key: str | None = None
@@ -1045,6 +1077,8 @@ def parse_finding_text(
     if _normalize_text(parsed.get("review_tier")):
         _infer_review_tier({"review_tier": parsed["review_tier"]})
 
+    # An Asset may stand in for the route only when the note names no identity.
+    identity_declared = any(_normalize_text(parsed.get(key)) for key in ("url", "endpoint", "file"))
     if not parsed.get("file"):
         file_hint = FILE_HINT_RE.search(text)
         if file_hint:
@@ -1052,22 +1086,28 @@ def parse_finding_text(
             if file_hint.group("line") and not parsed.get("line"):
                 parsed["line"] = file_hint.group("line")
 
-    file_value = _plain_value(parsed.get("file"))
+    plain = _plain_value if manual_note else _normalize_text
+    file_value = plain(parsed.get("file"))
     file_path, inline_line = _split_file_reference(file_value)
     web_lane = family == "web_bounty" and lane in {"web", "api"}
-    if web_lane:
-        declared = next(
-            (url for url in (_declared_url(parsed.get(key)) for key in ("url", "endpoint", "asset")) if url),
-            "",
-        )
+    if web_lane and manual_note:
+        declared = _declared_url(parsed.get("url")) or _declared_url(parsed.get("endpoint"))
+        asset_url = "" if identity_declared else _declared_url(parsed.get("asset"))
+        # An origin-only Asset names the in-scope site, not the affected route.
+        if asset_url and "*" not in asset_url and urlsplit(asset_url).path not in {"", "/"}:
+            declared = asset_url
         route = finding_web_route({**parsed, "url": declared, "endpoint": "", "file": file_value})
         if route:
             file_path = route
-    line_number = _safe_int(_plain_value(parsed.get("line"))) or inline_line
+    elif web_lane:
+        route = finding_web_route(parsed)
+        if route:
+            file_path = route
+    line_number = _safe_int(plain(parsed.get("line"))) or inline_line
 
     class_name = _normalize_class(parsed.get("class_name"))
     class_inferred = not class_name
-    if class_inferred and web_lane:
+    if class_inferred and web_lane and manual_note:
         # The keyword table names source-hunt classes; on a web finding it guesses
         # a specific wrong class (for example dom-xss for reflected XSS).
         class_name = "unknown"
@@ -1093,10 +1133,10 @@ def parse_finding_text(
     if not file_path:
         hint = "add 'File: <path>'"
         if web_lane:
-            hint += " or 'URL: https://<host>/<path>' (a bare hostname is not a route identity)"
-        raise ValueError(f"finding note is missing File; {hint}")
+            hint += " or 'URL: https://<host>/<path>' (a hostname or site origin is not a route identity)"
+        raise MissingNoteFieldError(f"finding note is missing File; {hint}")
     if not description:
-        raise ValueError("finding note is missing Description")
+        raise MissingNoteFieldError("finding note is missing Description")
 
     title = (
         _normalize_text(parsed.get("title"))
@@ -1105,7 +1145,7 @@ def parse_finding_text(
         or _derive_title(description, first_line_only=True)
     )
     finding_type = _normalize_text(parsed.get("type")) or title
-    severity = _note_severity(parsed.get("severity"))
+    severity = (_note_severity if manual_note else _normalize_severity)(parsed.get("severity"))
     sink = _infer_sink(parsed)
     exploitability = _normalize_text(parsed.get("exploitability"))
     blocked_reason = _precondition_text(parsed.get("blocked_reason"))
@@ -1140,7 +1180,7 @@ def parse_finding_text(
         chain_requirements = blocked_reason or exploitability
 
     if category == "novel" and not _normalize_text(parsed.get("source")):
-        raise ValueError("novel finding is missing Source")
+        raise MissingNoteFieldError("novel finding is missing Source")
 
     review_notes = _normalize_text(parsed.get("review_notes"))
     if not review_notes:
@@ -1284,11 +1324,12 @@ class ManualHunter:
 
     def parse_text(
         self, raw_text: str, *, source_label: str, source_path: Path | None = None,
-        class_decision_start: int = 0,
+        class_decision_start: int = 0, manual_note: bool = False,
     ) -> ParsedFinding:
         return parse_finding_text(
             raw_text, source_label=source_label, source_path=source_path,
             family=self.family, lane=self.lane, class_decision_start=class_decision_start,
+            manual_note=manual_note,
         )
 
     def ingest(self, parsed: ParsedFinding, *, link_duplicate_comment: bool = False) -> int:
@@ -1451,7 +1492,7 @@ class ManualHunter:
 
     def ingest_file(self, note_path: Path, *, link_duplicate_comment: bool = False) -> int:
         raw_text = note_path.read_text(encoding="utf-8", errors="replace")
-        parsed = self.parse_text(raw_text, source_label=str(note_path), source_path=note_path)
+        parsed = self.parse_text(raw_text, source_label=str(note_path), source_path=note_path, manual_note=True)
         return self.ingest(parsed, link_duplicate_comment=link_duplicate_comment)
 
     def interactive(self, *, link_duplicate_comment: bool = False) -> int:
@@ -1480,7 +1521,7 @@ class ManualHunter:
             f"Exploitability: {exploitability}",
             f"Description: {description}",
         ]
-        parsed = self.parse_text("\n".join(lines), source_label="interactive")
+        parsed = self.parse_text("\n".join(lines), source_label="interactive", manual_note=True)
         return self.ingest(parsed, link_duplicate_comment=link_duplicate_comment)
 
     def watch(self, *, poll_interval: float = 2.0, link_duplicate_comment: bool = False) -> int:
@@ -1675,7 +1716,7 @@ def main(argv: list[str] | None = None) -> int:
         note = parse_finding_text(
             note_path.read_text(encoding="utf-8", errors="replace"),
             source_label=str(note_path), source_path=note_path,
-            family=family, lane=lane,
+            family=family, lane=lane, manual_note=True,
         )
     hunter = ManualHunter(
         args.program,
@@ -1694,7 +1735,7 @@ def main(argv: list[str] | None = None) -> int:
             link_duplicate_comment=args.link_duplicate_comment,
         )
     if args.add is not None:
-        parsed = hunter.parse_text(args.add, source_label="--add")
+        parsed = hunter.parse_text(args.add, source_label="--add", manual_note=True)
         return hunter.ingest(parsed, link_duplicate_comment=args.link_duplicate_comment)
     if note is not None:
         return hunter.ingest(note, link_duplicate_comment=args.link_duplicate_comment)
@@ -1726,6 +1767,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except ClassConflictError as exc:
+    except (ClassConflictError, MissingNoteFieldError) as exc:
         print(f"[manual_hunter] {exc}", file=sys.stderr)
         raise SystemExit(1)

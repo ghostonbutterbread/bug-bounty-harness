@@ -1147,7 +1147,7 @@ class ManualHunterTests(unittest.TestCase):
         for name, transform in variants.items():
             note = "\n".join(transform(line) for line in self.PAPERCUT_NOTE.splitlines())
             with self.subTest(variant=name), patch("sys.stderr", new_callable=io.StringIO):
-                finding = parse_finding_text(note, source_label=name, family="web_bounty", lane="web").finding
+                finding = parse_finding_text(note, source_label=name, family="web_bounty", lane="web", manual_note=True).finding
                 self.assertEqual(finding["title"], "Reflected XSS in search page via q parameter")
                 self.assertEqual(finding["class_name"], "reflected-xss")
                 self.assertEqual(finding["file"], "https://examplecloud.com/search")
@@ -1155,12 +1155,12 @@ class ManualHunterTests(unittest.TestCase):
         for label in ("**Vuln class**: Reflected XSS (CWE-79)", "+ Vulnerability Type: Reflected XSS", "**Class:** `reflected-xss`"):
             note = self.PAPERCUT_NOTE.replace("**Vulnerability:** Reflected XSS", label)
             with self.subTest(label=label):
-                finding = parse_finding_text(note, source_label="label", family="web_bounty", lane="web").finding
+                finding = parse_finding_text(note, source_label="label", family="web_bounty", lane="web", manual_note=True).finding
                 self.assertEqual((finding["class_name"], finding["class_inferred"]), ("reflected-xss", False))
 
     def test_explicit_class_wins_and_prose_vulnerability_is_refused(self) -> None:
         stated = self.PAPERCUT_NOTE.replace("**Vulnerability:**", "**Class:** idor\n**Vulnerability:**")
-        finding = parse_finding_text(stated, source_label="both", family="web_bounty", lane="web").finding
+        finding = parse_finding_text(stated, source_label="both", family="web_bounty", lane="web", manual_note=True).finding
         self.assertEqual(finding["class_name"], "idor")
         self.assertIn("**Vulnerability:** Reflected XSS", finding["description"])
 
@@ -1174,13 +1174,13 @@ class ManualHunterTests(unittest.TestCase):
             main([self.program, "--lane", "web", "--from-file", str(note)])
         conflicting = self.PAPERCUT_NOTE + "**Vulnerability:** SSRF\n"
         with self.assertRaisesRegex(ValueError, "Conflicting Class"):
-            parse_finding_text(conflicting, source_label="conflict", family="web_bounty", lane="web")
+            parse_finding_text(conflicting, source_label="conflict", family="web_bounty", lane="web", manual_note=True)
         self.assertFalse(list(self.home.rglob("ledger.json")))
 
     def test_web_note_without_class_is_unknown_not_keyword_guessed(self) -> None:
         note = self.PAPERCUT_NOTE.replace("**Vulnerability:** Reflected XSS\n", "") + "Payload: ../ in the resource path.\n"
         with patch("sys.stderr", new_callable=io.StringIO) as warning:
-            finding = parse_finding_text(note, source_label="no-class", family="web_bounty", lane="web").finding
+            finding = parse_finding_text(note, source_label="no-class", family="web_bounty", lane="web", manual_note=True).finding
         self.assertEqual(finding["class_name"], "unknown")
         self.assertTrue(finding["class_inferred"])
         self.assertIn("no 'Class:'", warning.getvalue())
@@ -1195,14 +1195,14 @@ class ManualHunterTests(unittest.TestCase):
         for raw, expected in cases.items():
             note = f"Class: idor\nSeverity: {raw}\nFile: src/access.py\nDescription: Owned fixture.\n"
             with self.subTest(raw=raw), patch("sys.stderr", new_callable=io.StringIO) as warning:
-                finding = parse_finding_text(note, source_label="severity", family="binaries", lane="apk").finding
+                finding = parse_finding_text(note, source_label="severity", family="binaries", lane="apk", manual_note=True).finding
                 self.assertEqual(finding["severity"], expected)
                 self.assertEqual("not a recognized level" in warning.getvalue(), expected == "UNKNOWN")
 
     def test_identity_values_drop_inline_markup(self) -> None:
         finding = parse_finding_text(
             "**Class:** `idor`\n**File:** `src/app.js:12`\n**Description:** Owned fixture.\n",
-            source_label="markup", family="binaries", lane="apk",
+            source_label="markup", family="binaries", lane="apk", manual_note=True,
         ).finding
         self.assertEqual((finding["class_name"], finding["file"], finding["line"]), ("idor", "src/app.js", 12))
         for value in (
@@ -1212,13 +1212,13 @@ class ManualHunterTests(unittest.TestCase):
         ):
             note = self.PAPERCUT_NOTE.replace("https://examplecloud.com/search?q=marker", value)
             with self.subTest(url=value):
-                finding = parse_finding_text(note, source_label="url", family="web_bounty", lane="web").finding
+                finding = parse_finding_text(note, source_label="url", family="web_bounty", lane="web", manual_note=True).finding
                 self.assertEqual(finding["file"], "https://examplecloud.com/search")
 
     def test_web_asset_url_declares_route_but_bare_hostname_fails_loudly(self) -> None:
         without_url = self.PAPERCUT_NOTE.replace("**URL:** https://examplecloud.com/search?q=marker\n", "")
         url_asset = without_url.replace("**Asset:** examplecloud.com", "**Asset:** `https://examplecloud.com/search`")
-        finding = parse_finding_text(url_asset, source_label="asset", family="web_bounty", lane="web").finding
+        finding = parse_finding_text(url_asset, source_label="asset", family="web_bounty", lane="web", manual_note=True).finding
         self.assertEqual(finding["file"], "https://examplecloud.com/search")
 
         note = self.tmp / "hostname-only.md"
@@ -1227,12 +1227,71 @@ class ManualHunterTests(unittest.TestCase):
             main([self.program, "--lane", "web", "--from-file", str(note)])
         self.assertFalse(list(self.home.rglob("ledger.json")))
 
-    def test_unlabelled_dotted_directory_path_is_not_truncated(self) -> None:
-        finding = parse_finding_text(
-            "Class: native-module-abuse\nDescription: Observed in .webpack/renderer/preload.js:4 with the owned fixture.\n",
-            source_label="dotted", family="binaries", lane="apk",
-        ).finding
-        self.assertEqual((finding["file"], finding["line"]), (".webpack/renderer/preload.js", 4))
+    def _web_ingest(self, name: str, text: str) -> int:
+        note = self.tmp / name
+        note.write_text("Class: idor\nReview Tier: CONFIRMED\n" + text + "Description: Owned fixture record returned.\n", encoding="utf-8")
+        with redirect_stdout(io.StringIO()) as out, patch("sys.stderr", new_callable=io.StringIO):
+            rc = main([self.program, "--lane", "web", "--from-file", str(note)])
+        self.assertNotIn("Duplicate", out.getvalue())
+        return rc
+
+    def _web_rows(self) -> list[dict]:
+        storage = resolve_storage(self.program, family="web_bounty", lane="web", create=False)
+        return json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))["findings"]
+
+    def test_explicit_route_file_wins_over_origin_asset(self) -> None:
+        """Review B1(a): an origin Asset must not collapse distinct routes onto '/'."""
+        for route in ("https://app.example.com/api/a/1", "https://app.example.com/api/b/1"):
+            self.assertEqual(self._web_ingest(route.rsplit("/", 2)[-2] + ".md", f"File: {route}\nAsset: https://app.example.com\n"), 0)
+        self.assertEqual([row["file"] for row in self._web_rows()],
+                         ["https://app.example.com/api/a/1", "https://app.example.com/api/b/1"])
+
+    def test_explicit_source_file_wins_over_asset_url(self) -> None:
+        """Review B1(b): a declared source path keeps its identity beside an Asset URL."""
+        self.assertEqual(self._web_ingest("source.md", "File: static/js/app.js:42\nAsset: https://app.example.com/search\n"), 0)
+        row, = self._web_rows()
+        self.assertEqual((row["file"], row["line"]), ("static/js/app.js", 42))
+
+    def test_path_only_endpoint_with_origin_asset_is_refused(self) -> None:
+        """Review B1(c): no origin+path composition; refuse as base did."""
+        for text in (
+            "Endpoint: GET /api/orders/{id}\nAsset: https://app.example.com\n",
+            "Asset: https://app.example.com\n",
+            "Asset: https://app.example.com/*\n",
+        ):
+            note = self.tmp / "endpoint.md"
+            note.write_text("Class: idor\n" + text + "Description: Owned fixture record returned.\n", encoding="utf-8")
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "missing File"):
+                main([self.program, "--lane", "web", "--from-file", str(note)])
+        self.assertFalse(list(self.home.rglob("ledger.json")))
+
+    def test_placeholder_vulnerability_is_absent_not_a_class(self) -> None:
+        for value in ("N/A", "TBD", "Unknown", "none", "-"):
+            note = self.PAPERCUT_NOTE.replace("**Vulnerability:** Reflected XSS", f"**Vulnerability:** {value}")
+            with self.subTest(value=value), patch("sys.stderr", new_callable=io.StringIO) as warning:
+                finding = parse_finding_text(note, source_label="placeholder", family="web_bounty", lane="web", manual_note=True).finding
+                self.assertEqual((finding["class_name"], finding["class_inferred"]), ("unknown", True))
+                self.assertIn("no 'Class:'", warning.getvalue())
+
+    def test_two_named_severity_levels_stay_unknown(self) -> None:
+        for raw in ("High | Medium", "High - Medium", "Critical (maybe high)"):
+            note = f"Class: idor\nSeverity: {raw}\nFile: src/access.py\nDescription: Owned fixture.\n"
+            with self.subTest(raw=raw), patch("sys.stderr", new_callable=io.StringIO):
+                finding = parse_finding_text(note, source_label="severity", family="binaries", lane="apk", manual_note=True).finding
+                self.assertEqual(finding["severity"], "UNKNOWN")
+
+    def test_direct_cli_missing_file_is_one_line_without_traceback(self) -> None:
+        note = self.tmp / "hostname.md"
+        note.write_text("Class: idor\nAsset: examplecloud.com\nDescription: Owned fixture.\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "-m", "agents.manual_hunter", self.program, "--lane", "web", "--root", str(self.tmp / "cli-root"), "--from-file", str(note)],
+            text=True, capture_output=True, env=os.environ.copy(), check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.strip().splitlines(),
+                         ["[manual_hunter] finding note is missing File; add 'File: <path>' or 'URL: https://<host>/<path>' "
+                          "(a hostname or site origin is not a route identity)"])
+        self.assertFalse(list((self.tmp / "cli-root").rglob("ledger.json")))
 
     def test_inferred_class_is_flagged_and_stated_class_is_not(self) -> None:
         """Regression: a class guessed from keywords was written to the ledger with the

@@ -76,6 +76,38 @@ class TestSyncReports(unittest.TestCase):
         row = json.loads(next((self.tmp / "storage-root").rglob("ledger.json")).read_text())["findings"][0]
         self.assertEqual((row["class_name"], row["file"], row["severity"], row["source"]), ("idor", "src/a.py", "HIGH", "origin"))
 
+    def _sync_twice(self) -> tuple[list[int], list[dict]]:
+        codes = []
+        with patch.dict(os.environ, {"HOME": str(self.tmp / "home")}):
+            for _ in range(2):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    codes.append(sync_reports_main(
+                        "synthetic_program", lane="apk", source_dir=str(self.source_dir),
+                        storage_root=self.tmp / "storage-root",
+                    ))
+        ledger = next((self.tmp / "storage-root").rglob("ledger.json"))
+        return codes, json.loads(ledger.read_text())["findings"]
+
+    def test_resync_keeps_base_class_identity_for_manual_note_labels(self):
+        """Review B2: manual-note class labels must not re-key raw reports on re-sync."""
+        self.report_path.write_text(
+            "## [CONFIRMED] Finding\nFile: src/render.js\n**Vulnerability:** Reflected XSS\n"
+            "**Severity:** High (CVSS 3.1: 7.1)\n### Description\nThe page writes q into innerHTML.\n"
+        )
+        codes, rows = self._sync_twice()
+        self.assertEqual(codes, [0, 0])
+        self.assertEqual([(row["file"], row["class_name"]) for row in rows], [("src/render.js", "dom-xss")])
+
+    def test_sentence_vulnerability_label_does_not_fail_sync(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] Finding\nFile: src/render.js\n"
+            "**Vulnerability:** Reflected XSS in the search page leaks the session\n"
+            "### Description\nThe page writes q into innerHTML.\n"
+        )
+        codes, rows = self._sync_twice()
+        self.assertEqual(codes, [0, 0])
+        self.assertEqual(len(rows), 1)
+
     def test_single_finding_class_ignores_report_prelude(self):
         self.report_path.write_text(
             "Class: prelude-class\nClass: another-prelude-class\nSource: prelude source\n\n"

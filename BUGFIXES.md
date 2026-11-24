@@ -116,6 +116,27 @@ identically before the scope normalization change.
 gates. Not exploitable through the current corpus, but the gate should agree
 with whatever actually issues the request. Needs its own task.
 
+## Suffix scope checks outside the subdomain agent use unparsed hosts
+
+**Location:** `harness_core.py` `HarnessConstraints.is_in_scope` / `enforce`;
+`agents/recon/asset_intelligence.py` `host_from_value` / `scope_matches`.
+
+**Evidence:** found while auditing PC-20261030-002207-67d5e107 on beta
+`3f72ed81` (the subdomain agent itself is fixed; see
+`tests/test_subdomain_suffix_scope_matrix.py`). `HarnessConstraints` suffix-matches
+`urlparse(url).netloc`, so `https://evil.test\.target.com/` is in scope for
+`target.com`, while `requests`/urllib3 2.7 prepare it as
+`https://evil.test/%5C.target.com/`. No in-repo `enforce()` caller was found
+(docstring example only). `scope_matches('*.target.com', v)` splits non-URL
+values only on `/` and `:`, so `evil.test?x=.target.com` and
+`evil.test#.target.com` are labeled in-scope; that module sends no
+per-candidate requests.
+
+**Impact:** conditional. An external caller that gates `requests` traffic with
+`enforce()` can reach another authority. Asset-graph records can carry a wrong
+`in-scope` label. Fix each under its own task by reusing the parsed-host check
+(`scope_validator._extract_host` / `subdomain_agent.is_target_host`).
+
 ## Proxy-store private-ancestor fence can never pass under `/tmp`
 
 **Location:** `skills/chromium-test/scripts/proxy_store.py:60-78`,

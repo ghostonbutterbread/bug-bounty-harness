@@ -143,10 +143,10 @@ sinks as chain leads with their missing link and reopening condition.
    report shape. Preserve the residual question and exact stop boundary.
 
 For a route cluster or `/hybrid`/`/hunter-loop` run, investigate source-to-sink
-paths from either end before increasing payload volume. An inventory or static
-sink label is a lead, not a taint trace or browser proof. Do not mark a route
-complete from raw HTTP when browser routing, challenge behavior, or framework
-rendering matters.
+paths from either end before broad payload sweeps; tracing first does not defer
+a ladder against an identified control. An inventory or static sink label is a
+lead, not a taint trace or browser proof. Do not mark a route complete from raw
+HTTP when browser routing, challenge behavior, or framework rendering matters.
 
 When a JS corpus is the chosen XSS discovery lens, review **both** named input
 locations/fields and render sites in that corpus (`source_sites` and

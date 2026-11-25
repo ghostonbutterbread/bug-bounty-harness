@@ -1,5 +1,21 @@
 # Known defects awaiting their own task
 
+## Legacy-row CDP probe runs inside the lease write transaction
+
+**Location:** `skills/chromium-test/scripts/browser_profile_lease.py`,
+`retired_pre_domain` (called from `cmd_acquire`).
+**Evidence:** independent review of `fix/browser-recovery-extension-stale-rows`
+(5c443d43): the up-to-2-second loopback HTTP probe of a pre-auth-domain row's
+recorded CDP endpoint runs while the lease database holds its immediate write
+transaction. A port that accepts but never answers holds the write lock for the
+probe timeout; concurrent writers give up after SQLite's default busy timeout.
+**Impact and follow-up:** rare stalls/`database is locked` under contention.
+Probe candidate endpoints before `BEGIN IMMEDIATE` and re-check row identity
+inside the transaction, or shorten the probe. Related pre-existing gap: `start()`
+never takes `node_lock` although `automatic_instance` documents "Select under the
+node lock"; exclusion currently relies on the lease database and Chrome's
+single-instance lock.
+
 ## Legacy unfenced task-proxy finish can affect a newer generation
 
 **Location:** `skills/chromium-test/scripts/browser_provisioner.py`,

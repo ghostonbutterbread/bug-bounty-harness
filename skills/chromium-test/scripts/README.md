@@ -549,7 +549,10 @@ Do not use this command to bypass a refusal with a different account/slot.
   proxy/CA and cleanup are unchanged. Receipts and the private launch recipe
   carry `load_extensions` (resolved path, manifest SHA-256, name/version/
   manifest_version when parseable); `start` fails closed if the launcher record
-  does not confirm the set, a running browser with a different set is
+  does not echo the set back. That echo means the launcher accepted the flags,
+  not that Chrome loaded each extension (a bad manifest or a branded binary
+  passed via `--chrome-binary`/`CHROMIUM_TEST_CHROME` is skipped silently);
+  verify a `chrome-extension://<id>` target over CDP before relying on it. A running browser with a different set is
   `locked/extension-mismatch`, live transfer requires an equal set, and `resume`
   replays it. Headless uses `--headless=new`, which loads extensions (verified
   offline with Chrome for Testing 148, the Playwright build Hoster uses);
@@ -631,7 +634,7 @@ Do not use this command to bypass a refusal with a different account/slot.
   exists; the lock is not removed (Chromium unlinks an orphaned same-host lock).
   A manager row whose record lacks `instance_key` (a start interrupted before
   registration, or a missing record) belongs to the slot its profile path names
-  when that path is exactly `<program>/web/browser-instances/<domain>/<account>/<slot>`;
+  when that path ends exactly in `web/browser-instances/<domain>/<account>/<slot>`;
   it is no longer mistaken for the unkeyed legacy profile. Other unannotated
   rows stay legacy. Missing launch receipts are permitted only under those
   independent checks; an observable live root or ambiguous lock fails closed.

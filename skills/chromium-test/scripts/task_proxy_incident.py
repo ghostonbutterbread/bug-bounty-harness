@@ -48,6 +48,47 @@ def _safe_environment():
              'BROWSER_PROVISIONER_STATE') if key in os.environ}
 
 
+# pidfd_open(2) is syscall 434 on the Linux architectures that provide it.
+# Keep an explicit allowlist: on an unknown machine, 434 may be an unrelated
+# syscall, so fail closed rather than guess.
+_PIDFD_OPEN_NR = {'x86_64': 434, 'aarch64': 434}
+
+
+def _pidfd_open(pid):
+    """Return a pidfd bound to pid, or raise Blocked if one cannot be obtained.
+
+    os.pidfd_open is absent from interpreters built without it (notably some
+    python-build-standalone/uv CPythons) even when the running kernel supports
+    the syscall. Fall back to the raw syscall so the caller fence stays active:
+    whether this process can be fenced must not depend on how the interpreter
+    was compiled. A kernel that genuinely lacks the syscall still fails closed.
+    """
+    if hasattr(os, 'pidfd_open'):
+        return os.pidfd_open(pid)
+    # ctypes truncates an out-of-range pid instead of raising, so 2**32+N would
+    # silently return a pidfd for process N. os.pidfd_open raises; match that.
+    if type(pid) is not int or not 0 < pid <= 2 ** 31 - 1:
+        raise Blocked('caller identity unavailable: invalid pid')
+    number = _PIDFD_OPEN_NR.get(os.uname().machine) if sys.platform == 'linux' else None
+    if number is None:
+        raise Blocked('caller identity unavailable: no known pidfd_open for this platform')
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        syscall = libc.syscall
+    except AttributeError as exc:  # a build where dlopen(NULL) resolves nothing
+        raise Blocked('caller identity unavailable: no syscall symbol') from exc
+    syscall.restype = ctypes.c_long  # glibc declares long syscall(long, ...)
+    syscall.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_uint)
+    ctypes.set_errno(0)
+    fd = syscall(number, pid, 0)
+    if fd < 0:
+        # Preserve the cause: ENOSYS, seccomp EPERM and ESRCH are different
+        # operational problems and the native branch distinguishes them.
+        raise Blocked('caller identity unavailable: pidfd_open failed, errno %d'
+                      % ctypes.get_errno())
+    return fd
+
+
 def bounded_observation(state, args, timeout=15):
     """Run the observation in an exec-isolated, supervised process group.
 
@@ -67,9 +108,7 @@ def bounded_observation(state, args, timeout=15):
         raise Blocked('observation request too large')
     # A pidfd remains bound to this exact caller even if a later fork keeps a
     # duplicate of the control pipe open.
-    if not hasattr(os, 'pidfd_open'):
-        raise Blocked('caller identity unavailable')
-    parent_fd = os.pidfd_open(os.getpid())
+    parent_fd = _pidfd_open(os.getpid())
     try:
         proc = subprocess.Popen([sys.executable, '-I', str(Path(__file__).resolve()), '--_supervise', str(parent_fd)],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,

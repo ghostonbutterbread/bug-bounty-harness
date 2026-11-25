@@ -108,6 +108,13 @@ the actual ownership. Supported commands, bounded awaiting-input semantics, and
 recovery limits are owned by
 [`scripts/README.md`](../skills/chromium-test/scripts/README.md#browser_provisionerpy).
 
+Two request options matter often: an `account-unavailable` profile whose last
+release was unhealthy is repaired by repeating the same request with
+`--recover-profile` (release afterwards with the health you observed, never
+`healthy` just to clear the gate), and an in-scope unpacked browser extension is
+loaded with `--load-extension <absolute dir containing manifest.json>`
+(repeatable; headed or `--headless`). Both keep normal admission and cleanup.
+
 ## Port Selection
 
 The launcher owns CDP port selection:

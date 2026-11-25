@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from browser_lifecycle import (StartupDiagnostics, agent_supervisor_identity, node_lock, owner_state,
                                private_json, process_identity)
-from chromium_test import resolve_mitm_ca_cert
+from chromium_test import resolve_mitm_ca_cert, validate_extension_dirs
 from mitm_chromium_profile import DEFAULT_CA_CERT, remove_matching_ca
 from proxy_store import (
     DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX, DEFAULT_STORE,
@@ -2166,6 +2166,15 @@ def rollback_failed_browser_proxy(c, task, created, profile):
     return rollback_proxy(c, task)
 
 
+def requested_extensions(args):
+    return list(getattr(args, "load_extension", None) or [])
+
+
+def recorded_extensions(info):
+    """Resolved unpacked-extension paths a browser was launched with."""
+    return [entry.get("path") for entry in info.get("load_extensions") or () if isinstance(entry, dict)]
+
+
 def safe(row):
     info = record_info(row)
     result = {key: row[key] for key in (
@@ -2176,6 +2185,8 @@ def safe(row):
                   instance_key=info.get("instance_key", ""),
                   account_color=info.get("account_color"),
                   driving_mode=info.get("driving_mode", "legacy"))
+    if info.get("load_extensions"):
+        result["load_extensions"] = info["load_extensions"]
     activity = activity_snapshot(row) if row["state"] == "running" else None
     if activity and not activity.get("unavailable"):
         result["last_activity"] = activity["last_activity"]
@@ -2214,8 +2225,10 @@ def release_lease(c, lease_id, agent, disp="cancelled", health: str | None = "he
                     lease_id=lease_id, path=canonical['profile_dir'])):
             return False
         if health is None:
-            # A prelaunch failure did not repair or touch the profile. Preserve
-            # the health that canonical acquisition used for this exact slot.
+            # A failed start cannot have repaired the profile (it never became
+            # an owned, registered browser). Preserve the health canonical
+            # acquisition used for this exact slot, so a failed recovery stays
+            # gated instead of being recorded healthy.
             previous = leases.execute(
                 "SELECT profile_health FROM browser_profile_leases WHERE program=? AND account_alias=? "
                 "AND auth_domain=? AND instance_key=? AND status='released' ORDER BY released_at DESC LIMIT 1",
@@ -2308,7 +2321,9 @@ def stop_receipt(row):
     proof = {"cdp_url": info.get("cdp_url"), "unit_invocation": info.get("unit_invocation")}
     private_json(
         row["launch_file"],
-        {**{key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_selection", "instance_id", "pane_id", "account_color", "driving_mode", "launch_recipe", "replaces_browser_id", "resumed_state_lost")}, "stop_proof": proof},
+        {**{key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_selection", "instance_id", "pane_id", "account_color", "driving_mode", "launch_recipe", "replaces_browser_id", "resumed_state_lost")},
+         **({"load_extensions": info["load_extensions"]} if info.get("load_extensions") else {}),
+         "stop_proof": proof},
     )
 
 
@@ -2415,6 +2430,28 @@ def retire(c, row, health="healthy"):
     return fenced_stop_release(c, row['lease_id'], row['agent_id'], health=health)
 
 
+INSTANCE_KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+
+
+def row_instance_key(row):
+    """Profile slot of a manager row, including an unannotated interrupted start.
+
+    The manager writes instance_key into the record only after registration,
+    so a failed or interrupted start keeps just the raw launcher record (or
+    none). Keyed slots are only ever created at
+    .../web/browser-instances/<domain>/<account>/<key>; that exact layout names
+    the slot. Anything else, including pre-instance history, stays legacy ('').
+    """
+    info = record_info(row)
+    if "instance_key" in info:
+        return info.get("instance_key") or ""
+    parts = Path(str(row["profile_dir"])).parts
+    if (len(parts) >= 5 and parts[-5:-1] == ("web", "browser-instances", row["auth_domain"], row["account"])
+            and INSTANCE_KEY_PATTERN.fullmatch(parts[-1])):
+        return parts[-1]
+    return ""
+
+
 def selected_browser(c, program, alias, domain, key):
     rows = c.execute(
         "SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=? ORDER BY created DESC",
@@ -2422,7 +2459,7 @@ def selected_browser(c, program, alias, domain, key):
     ).fetchall()
     # Existing legacy manifests may use pre-domain paths. Do not migrate or
     # silently abandon them simply because the canonical path has changed.
-    return next((row for row in rows if record_info(row).get("instance_key", "") == key), None)
+    return next((row for row in rows if row_instance_key(row) == key), None)
 
 
 def quiescent_legacy(c, rows, legacy):
@@ -2431,10 +2468,17 @@ def quiescent_legacy(c, rows, legacy):
     import browser_profile_lease as profiles
     identity = profiles.physical_profile(path)
     if not identity or any(profiles.physical_profile(r['profile_dir']) != identity or r['state'] != 'stopped' or
-           unit_active(r['unit']) or not stopped(r) for r in rows if record_info(r).get('instance_key', '') == ''):
+           unit_active(r['unit']) or not stopped(r) for r in rows if row_instance_key(r) == ''):
         return False
-    if os.path.lexists(Path(path) / 'SingletonLock'):
-        return False  # Missing receipt cannot authenticate a stale lock owner.
+    lock = Path(path) / 'SingletonLock'
+    # Chromium leaves SingletonLock -> "<host>-<pid>" behind when its root dies.
+    # Only a lock naming a recorded root of this exact physical profile, whose
+    # identity is terminal and whose PID no longer exists, is provably stale.
+    # Anything else (unknown target, live or reused PID) still blocks.
+    if os.path.lexists(lock) and not any(
+            profiles.physical_profile(r['profile_dir']) == identity and stale_singleton_lock(lock, r)
+            for r in [legacy, *rows]):
+        return False
     needle = os.fsencode(path)
     for proc in Path('/proc').glob('[0-9]*/cmdline'):
         try:
@@ -2507,7 +2551,7 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
     ).fetchall()
     latest = {}
     for row in rows:
-        latest.setdefault(record_info(row).get("instance_key", ""), row)
+        latest.setdefault(row_instance_key(row), row)
     legacy = latest.get("")
     shared = shared_profile_rows(c, legacy['profile_dir'], args.program) if legacy else []
     if legacy:
@@ -2550,7 +2594,7 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
         # projections. Reconcile every such row before opening concurrency;
         # only the selected lease may still be running. A stopped historical
         # row needs its own inactive unit and terminal recorded root/CDP.
-        unkeyed = [r for r in rows if record_info(r).get('instance_key', '') == '']
+        unkeyed = [r for r in rows if row_instance_key(r) == '']
         identity = profiles.physical_profile(legacy['profile_dir'])
         if (shared is None or not identity or any(profiles.physical_profile(r['profile_dir']) != identity or
                 (r['lease_id'] != legacy['lease_id'] and
@@ -3272,6 +3316,8 @@ def resume(args):
             cmd += ["--" + name.replace("_", "-"), str(recipe[name])]
     if recipe.get("instance_selection") == "automatic":
         cmd += ["--resume-automatic-instance"]
+    for extension in recipe.get("load_extensions", []):
+        cmd += ["--load-extension", extension]
     if recipe["proxy"] == "external":
         cmd += ["--proxy-server", recipe["proxy_server"],
                 "--mitm-ca-cert", recipe["mitm_ca_cert"]]
@@ -3636,7 +3682,8 @@ def start(args):
         if recipe["proxy"] != args.proxy or recipe["proxy_ownership"] != args.proxy_ownership or \
                 recipe["proxy_cert_mode"] != ("none" if args.proxy == "none" else args.proxy_cert_mode) or \
                 recipe["driving_mode"] != (args.driving_mode or "agent-driven") or \
-                recipe["headless"] != bool(args.headless) or recipe["graphics_backend"] != args.graphics_backend:
+                recipe["headless"] != bool(args.headless) or recipe["graphics_backend"] != args.graphics_backend or \
+                recipe.get("load_extensions", []) != requested_extensions(args):
             emit({"status": "recovery-blocked", "reason": "expected-launch-options-changed"}, 2)
         if (args.url != "about:blank" or args.purpose != recipe["purpose"] or
                 any(getattr(args, key) != recipe[key] for key in (
@@ -3686,6 +3733,11 @@ def start(args):
                 if (was_headless != bool(getattr(args, "headless", False))
                         or (strict_kasm and not info.get("kasmvnc"))):
                     emit({"status": "locked", "reason": "display-mode-mismatch", **safe(row)}, 2)
+            # Extensions are fixed at Chromium start; never report a running
+            # browser as satisfying a request for a different extension set.
+            if recorded_extensions(info) != requested_extensions(args):
+                emit({"status": "locked", "reason": "extension-mismatch", **safe(row),
+                      "next": "release this browser, then request again with the intended --load-extension set"}, 2)
             if not request_proxy_owner_matches(c, args, owner) or not matching_proxy(c, args, row):
                 emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured; release it first"}, 2)
             activity = activity_snapshot(row)
@@ -3727,6 +3779,7 @@ def start(args):
             and any(flag.startswith("--headless") for flag in info.get("command", []))
             and getattr(args, "headless", False)
             and getattr(args, "driving_mode", None) != "manual"
+            and recorded_extensions(info) == requested_extensions(args)
         )
         if compatible and info.get("control_mode") == "pipe-fenced" and healthy(row):
             from browser_control import rotate_control
@@ -3925,6 +3978,9 @@ def start(args):
     ):
         if not request_proxy_owner_matches(c, args, owner) or not matching_proxy(c, args, row):
             emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured"}, 2)
+        if recorded_extensions(record_info(row)) != requested_extensions(args):
+            emit({"status": "locked", "reason": "extension-mismatch", **safe(row),
+                  "next": "release this browser, then request again with the intended --load-extension set"}, 2)
         emit({"status": "already-running", **safe(row), "task_proxy": proxy_metadata(proxy_row(c, args))})
     task = None
     created = False
@@ -3959,7 +4015,7 @@ def start(args):
         emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
     if replacing and str(prof) != replacing["profile_dir"]:
-        if not release_lease(c, lid, args.agent_id):
+        if not release_lease(c, lid, args.agent_id, health=None):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "recovery-blocked", "reason": "acquired-profile-changed"}, 2)
     bid = str(uuid.uuid4())
@@ -4022,6 +4078,8 @@ def start(args):
         cmd += ["--headless"]
     if getattr(args, "graphics_backend", "auto") != "auto":
         cmd += ["--graphics-backend", args.graphics_backend]
+    for extension in requested_extensions(args):
+        cmd += ["--load-extension", extension]
     if task:
         cmd += ["--proxy-server", proxy_metadata(task)["proxy_server"],
                 "--mitm-ca-cert", proxy_metadata(task)["ca_cert"]]
@@ -4085,7 +4143,7 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        if not release_lease(c, lid, args.agent_id):
+        if not release_lease(c, lid, args.agent_id, health=None):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": (p.stderr or p.stdout).strip()}, 2)
     diagnostics.mark("publication")
@@ -4104,7 +4162,7 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        if not release_lease(c, lid, args.agent_id):
+        if not release_lease(c, lid, args.agent_id, health=None):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {
@@ -4120,9 +4178,17 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        if not release_lease(c, lid, args.agent_id):
+        if not release_lease(c, lid, args.agent_id, health=None):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit({"status": "launch-failed", "detail": "task proxy or imported CA not verified by launcher"}, 2)
+    if recorded_extensions(info) != requested_extensions(args):
+        if not failed_launch(c, lid, unit):
+            emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
+        if not rollback_failed_browser_proxy(c, task, created, prof):
+            emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
+        if not release_lease(c, lid, args.agent_id, health=None):
+            emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
+        emit({"status": "launch-failed", "detail": "requested unpacked extensions not confirmed by launcher"}, 2)
     diagnostics.mark("registration")
     reg = lease(
         args,
@@ -4142,7 +4208,7 @@ def start(args):
             emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
         if not rollback_failed_browser_proxy(c, task, created, prof):
             emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
-        if not release_lease(c, lid, args.agent_id):
+        if not release_lease(c, lid, args.agent_id, health=None):
             emit({'status': 'cleanup-incomplete', 'reason': 'lease-release-not-verified'}, 2)
         emit(
             {"status": "launch-failed", "detail": "could not register owned browser"}, 2
@@ -4181,6 +4247,7 @@ def start(args):
             "graphics_backend": args.graphics_backend,
             "driving_mode": args.driving_mode or "agent-driven",
             "owner_pid": args.owner_pid, "legacy_profile": bool(args.legacy_profile),
+            **({"load_extensions": requested_extensions(args)} if requested_extensions(args) else {}),
         }
     if replacing:
         info["replaces_browser_id"] = replacing["browser_id"]
@@ -4974,6 +5041,8 @@ def request(args):
             cmd += ["--kasmvnc-web-port", str(args.kasmvnc_web_port)]
         if getattr(args, "recover_profile", False):
             cmd += ["--recover-profile"]
+        for extension in getattr(args, "load_extension", None) or ():
+            cmd += ["--load-extension", extension]
         if getattr(args, "expected_replaces_browser_id", None):
             cmd += ["--expected-replaces-browser-id", args.expected_replaces_browser_id]
         if getattr(args, "resume_automatic_instance", False):
@@ -5067,7 +5136,8 @@ def main():
     s.add_argument(
         "--recover-profile",
         action="store_true",
-        help="Lease an unavailable but eligible profile only to repair or re-authenticate it; release healthy before ordinary reuse.",
+        help="Lease an unavailable but eligible profile only to repair or re-authenticate it (adopts your own unlaunched "
+             "recover-profile lease for this exact account/run); release with the observed health.",
     )
     r0 = sub.add_parser("request")
     r0.add_argument("program", nargs="?")
@@ -5097,7 +5167,8 @@ def main():
     r0.add_argument(
         "--recover-profile",
         action="store_true",
-        help="Lease an unavailable but eligible profile only to repair or re-authenticate it; release healthy before ordinary reuse.",
+        help="Lease an unavailable but eligible profile only to repair or re-authenticate it (adopts your own unlaunched "
+             "recover-profile lease for this exact account/run); release with the observed health.",
     )
     t = sub.add_parser("touch")
     t.add_argument("--lease-id", required=True)
@@ -5181,6 +5252,9 @@ def main():
         parser.add_argument("--headless", action="store_true")
         parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
                             help="auto probes headed NVK/Vulkan and otherwise uses ANGLE/GL; external leaves flags to the selected executable.")
+        parser.add_argument("--load-extension", action="append", default=[], metavar="DIR",
+                            help="Absolute unpacked extension directory containing manifest.json; repeatable. "
+                                 "Loads only these extensions (headed or new headless); no other Chrome flags are accepted.")
     t.add_argument("--awaiting-seconds", type=int, default=1800)
     sub.add_parser("maintain")
     watcher = sub.add_parser("watch")
@@ -5204,6 +5278,11 @@ def main():
             p.error("ttl must be at least 30 seconds")
         if not args.task_owned and (not args.program or not args.account):
             p.error("program and account required unless --task-owned")
+        try:
+            args._load_extensions = validate_extension_dirs(args.load_extension)
+        except ValueError as exc:
+            p.error(str(exc))
+        args.load_extension = [entry["path"] for entry in args._load_extensions]
     if args.cmd == "maintain":
         maintain(args)
     if args.cmd == "watch":

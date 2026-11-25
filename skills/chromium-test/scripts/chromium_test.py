@@ -692,6 +692,61 @@ def resolve_mitm_ca_cert(configured: str, proxy_server: str | None) -> Path:
     return configured_path
 
 
+def validate_extension_dirs(paths: Iterable[str] | None) -> list[dict[str, Any]]:
+    """Validate unpacked extension directories for Chromium's --load-extension.
+
+    Each entry must be an absolute path to an existing directory containing a
+    manifest.json file. Returns resolved paths (Chromium derives an unpacked
+    extension's ID from its resolved path) with non-secret manifest metadata,
+    in request order without duplicates. Raises ValueError with a caller-
+    correctable message; no arbitrary Chrome flag is accepted here.
+    """
+    import hashlib
+
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in paths or ():
+        if not isinstance(raw, str) or not raw or not os.path.isabs(raw):
+            raise ValueError(f"--load-extension needs an absolute directory path, got {raw!r}")
+        resolved = os.path.realpath(raw)
+        if "," in raw or "," in resolved:
+            raise ValueError(f"--load-extension path must not contain a comma (Chromium splits on commas): {raw}")
+        if not os.path.isdir(resolved):
+            raise ValueError(f"--load-extension directory does not exist: {raw}")
+        manifest = Path(resolved) / "manifest.json"
+        if not manifest.is_file():
+            raise ValueError(f"--load-extension directory has no manifest.json: {raw}")
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        data = manifest.read_bytes()
+        entry: dict[str, Any] = {"path": resolved, "manifest_sha256": hashlib.sha256(data).hexdigest()}
+        try:
+            parsed = json.loads(data.decode("utf-8-sig"))
+        except (UnicodeDecodeError, ValueError):
+            parsed = None  # Chromium's manifest parser is more lenient; record no metadata.
+        if isinstance(parsed, dict):
+            for key in ("name", "version", "manifest_version"):
+                if isinstance(parsed.get(key), (str, int)) and not isinstance(parsed.get(key), bool):
+                    entry[key] = parsed[key]
+        entries.append(entry)
+    return entries
+
+
+def branded_chrome_ignores_extensions(binary: str) -> bool:
+    """Branded Google Chrome (137+) ignores --load-extension; Chromium/CfT do not.
+
+    Only a positively identified branded build refuses; an unknown or failing
+    version probe (for example a wrapper) is left to the caller's verification.
+    """
+    try:
+        probe = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    match = re.match(r"\s*Google Chrome (\d+)\.", probe.stdout or "")
+    return bool(match) and int(match.group(1)) >= 137
+
+
 def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> list[str]:
     chrome = find_chrome_binary(args.chrome_binary)
     command = [
@@ -710,6 +765,13 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
         "--safebrowsing-disable-auto-update",
         "--new-window",
     ]
+    extensions = [entry["path"] for entry in getattr(args, "_load_extensions", None) or ()]
+    if extensions:
+        # --disable-extensions would also block command-line extensions; the
+        # -except form keeps every extension other than these directories off.
+        joined = ",".join(extensions)
+        position = command.index("--disable-extensions")
+        command[position:position + 1] = [f"--disable-extensions-except={joined}", f"--load-extension={joined}"]
     # A headed X display alone does not enable Chrome WebGL. Apply a consistent
     # default to plain binaries and shell launchers alike. Custom graphics
     # wrappers opt out explicitly instead of relying on filename/content guesses.
@@ -939,6 +1001,14 @@ def parse_args() -> argparse.Namespace:
         help="Launch Chromium in headless mode for scripted smoke tests.",
     )
     parser.add_argument(
+        "--load-extension",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help=("Absolute unpacked extension directory containing manifest.json; repeatable. "
+              "Replaces --disable-extensions with --disable-extensions-except for these directories."),
+    )
+    parser.add_argument(
         "--isolated-home",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -966,6 +1036,10 @@ def main() -> int:
         return 0 if result["status"] in {"deleted", "not-found"} else 2
 
     assert_browser_launch_authorization(args)
+    try:
+        args._load_extensions = validate_extension_dirs(args.load_extension)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     runtime = current_runtime()
     runtime_route = load_runtime_route(runtime)
     port = pick_port(args.port)
@@ -1068,6 +1142,16 @@ def main() -> int:
         args.url = None
     command = build_command(args, port, profile_dir)
     args.url = target_url
+    # Probe only an automatically selected binary (e.g. the google-chrome
+    # fallback when Playwright Chromium is absent); explicit binaries and
+    # environment wrappers are operator choices and are not executed here.
+    auto_binary = not getattr(args, "chrome_binary", None) and not os.environ.get("CHROMIUM_TEST_CHROME")
+    if (args._load_extensions and not args.dry_run and auto_binary
+            and branded_chrome_ignores_extensions(command[0])):
+        raise SystemExit("--load-extension is ignored by branded Google Chrome 137+; use Playwright "
+                         "Chromium or Chrome for Testing (the launcher's default when installed)")
+    # Only new headless (the full browser) loads extensions; old headless and
+    # chrome-headless-shell do not. This launcher always selects new headless.
     if args.headless and "--headless=new" not in command:
         command.insert(1, "--headless=new")
     if args.control_socket:
@@ -1115,6 +1199,8 @@ def main() -> int:
         "display_backend": args.display_backend,
         "dry_run": args.dry_run,
     }
+    if args._load_extensions:
+        result["load_extensions"] = args._load_extensions
 
     kasmvnc_session: dict[str, Any] | None = None
     kasmvnc_state_dir = profile_dir / "kasmvnc"

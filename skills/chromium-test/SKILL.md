@@ -681,8 +681,7 @@ path is not yet known; do not use a different path to bypass a named lease.
      <program> <account> --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url <url>
    ```
-   For a run-scoped profile instead of a named account (no program/account
-   positionals), request:
+   For a run-scoped profile (no program/account positionals), request:
    ```bash
    bbh skills/chromium-test/scripts/browser_provisioner.py request \
      --task-owned --agent-id <agent-id> --run-id <run-id> \
@@ -711,8 +710,7 @@ path is not yet known; do not use a different path to bypass a named lease.
    records refuse. `state_lost: true` indicates a missing task-owned profile;
    never infer authentication from an existing one. Always perform the site's
    browser-native auth check before target work. See
-   [cleanup and resume](scripts/README.md#browser_provisionerpy).
-   On `started` or
+   [cleanup and resume](scripts/README.md#browser_provisionerpy). On `started` or
    `already-running`, use the browser's owner-recorded control path and returned
    `task_proxy` metadata. The provisioner starts the task MITM and passes its
    exact proxy URL and CA to the launcher before Chrome starts.
@@ -745,7 +743,9 @@ path is not yet known; do not use a different path to bypass a named lease.
    ```
    Use `handoff` only for a terminal transfer to another owner, not a same-task
    operator pause; use `cancelled` when that is the actual outcome. Choose health
-   from the observed profile state, not by default.
+   from the observed profile state, never to clear a gate: repair an unhealthy
+   `account-unavailable` profile via the same request plus `--recover-profile`;
+   load unpacked extensions with `--load-extension <abs dir>` (scripts README).
    At run end or after losing lease IDs, use `release-run --agent-id --run-id`
    (dry-run, then `--apply`); never hand-roll `systemctl list-units` comparisons.
    Verify the recorded root and CDP endpoint close; persistent account profiles remain.

@@ -11,6 +11,17 @@ import tempfile
 import time
 import unittest
 
+# os.pidfd_open is absent from interpreters built without it (notably some
+# python-build-standalone/uv builds). The code under test then fails closed with
+# Blocked('caller identity unavailable'), so these tests cannot establish
+# anything about caller fencing on such an interpreter. Skip loudly rather than
+# reporting a regression that does not exist.
+requires_pidfd = unittest.skipUnless(
+    hasattr(os, 'pidfd_open'),
+    'requires os.pidfd_open; this interpreter was built without it, so '
+    'task-proxy caller fencing cannot be exercised',
+)
+
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 
 
@@ -95,6 +106,7 @@ else:
             finally:
                 os.close(fd)
 
+    @requires_pidfd
     def test_worker_does_not_inherit_private_descriptor(self):
         worker, _ = self.pids
         links = []
@@ -109,6 +121,7 @@ else:
         self.assertNotIn(b'PRIVATE_ENV_CANARY=', environment)
         self.assertNotIn(b'private-fixture-canary', environment)
 
+    @requires_pidfd
     def test_supervisor_death_does_not_guarantee_descendant_cleanup(self):
         # This is an explicit limitation, not a live-admission guarantee.
         import select
@@ -123,6 +136,7 @@ else:
         finally:
             os.close(supervisor_fd)
 
+    @requires_pidfd
     def test_watchdog_stops_hanging_systemctl_and_releases_lock(self):
         out, err = self.parent.communicate(timeout=5)
         self.assertEqual(self.parent.returncode, 0, err)
@@ -134,6 +148,7 @@ else:
         with open(self.state.with_suffix('.lock'), 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    @requires_pidfd
     def test_parent_death_is_detected_when_another_child_holds_the_pipe(self):
         import select
         self.parent.kill()
@@ -144,6 +159,7 @@ else:
         with open(self.state.with_suffix('.lock'), 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    @requires_pidfd
     def test_parent_sigkill_stops_worker_and_hanging_systemctl_and_releases_lock(self):
         import select
         self.parent.kill()
@@ -189,6 +205,7 @@ os.execve(sys.executable, [sys.executable, '-I', sys.argv[2], '--_worker'],
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, b'recorded')
 
+    @requires_pidfd
     def test_direct_supervisor_preserves_pidfd_above_lowered_soft_limit(self):
         import shutil
         with tempfile.TemporaryDirectory() as root:
@@ -223,6 +240,7 @@ os.execve(sys.executable, [sys.executable, '-I', sys.argv[1], '--_supervise', '3
                     proc.kill()
                 proc.communicate(timeout=5)
 
+    @requires_pidfd
     def test_direct_supervisor_completes_with_pidfd_above_select_limit(self):
         import shutil
         with tempfile.TemporaryDirectory() as root:
@@ -258,6 +276,7 @@ os.execve(sys.executable, [sys.executable, '-I', sys.argv[1], '--_supervise', '1
                     proc.kill()
                 proc.communicate(timeout=5)
 
+    @requires_pidfd
     def test_bounded_observation_completes_with_high_stdout_fd(self):
         with tempfile.TemporaryDirectory() as root:
             script = Path(root) / 'incident.py'
@@ -300,6 +319,7 @@ assert m.bounded_observation(Path(sys.argv[2])/'state',Namespace(),3)=='recorded
             with self.assertRaises(incident.Blocked):
                 incident.bounded_observation(Path(root) / 'state', Namespace(), 3)
 
+    @requires_pidfd
     def test_output_poll_errors_do_not_accept_valid_worker_response(self):
         import importlib.util
         import select
@@ -331,6 +351,7 @@ assert m.bounded_observation(Path(sys.argv[2])/'state',Namespace(),3)=='recorded
                         incident.bounded_observation(Path(root) / 'state', Namespace(), 3)
                 self.assertTrue(observed and observed[0][1] & select.POLLIN, observed)
 
+    @requires_pidfd
     def test_output_hangup_with_buffered_success_is_accepted(self):
         import importlib.util
         import select
@@ -361,6 +382,7 @@ assert m.bounded_observation(Path(sys.argv[2])/'state',Namespace(),3)=='recorded
             self.assertEqual(result, 'recorded')
             self.assertTrue(observed and observed[0][1] & select.POLLIN, observed)
 
+    @requires_pidfd
     def test_high_pidfd_supervisor_stops_worker_when_control_pipe_hangs_up(self):
         import resource
         import select
@@ -471,6 +493,7 @@ os.listdir = _denied_listdir
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, b'recorded')
 
+    @requires_pidfd
     def test_supervisor_restores_sigchld_when_caller_ignores_it(self):
         with tempfile.TemporaryDirectory() as root:
             script = Path(root) / 'incident.py'

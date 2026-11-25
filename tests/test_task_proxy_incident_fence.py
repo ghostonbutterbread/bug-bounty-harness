@@ -13,17 +13,6 @@ import tempfile
 import time
 import unittest
 
-# os.pidfd_open is absent from interpreters built without it (notably some
-# python-build-standalone/uv builds). The code under test then fails closed with
-# Blocked('caller identity unavailable'), so these tests cannot establish
-# anything about caller fencing on such an interpreter. Skip loudly rather than
-# reporting a regression that does not exist.
-requires_pidfd = unittest.skipUnless(
-    hasattr(os, 'pidfd_open'),
-    'requires os.pidfd_open; this interpreter was built without it, so '
-    'task-proxy caller fencing cannot be exercised',
-)
-
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 
 
@@ -60,7 +49,6 @@ def fixture_adapter(root):
 
 
 class LifecycleFence(unittest.TestCase):
-    @requires_pidfd
     def test_observation_holds_provisioner_lock(self):
         with tempfile.TemporaryDirectory() as root:
             _, incident = fixture_adapter(root)
@@ -80,7 +68,6 @@ class LifecycleFence(unittest.TestCase):
                 self.assertLess(time.monotonic() - started, 2)
                 self.assertFalse((Path(root) / 'inside').exists())
 
-    @requires_pidfd
     def test_entire_observation_deadline_releases_lock(self):
         with tempfile.TemporaryDirectory() as root:
             _, incident = fixture_adapter(root)
@@ -93,7 +80,6 @@ class LifecycleFence(unittest.TestCase):
             with open(state.with_suffix('.lock'), 'a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    @requires_pidfd
     def test_active_generation_finish_waits_for_observation(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)

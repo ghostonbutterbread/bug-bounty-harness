@@ -15,17 +15,6 @@ import tempfile
 import threading
 import unittest
 
-# os.pidfd_open is absent from interpreters built without it (notably some
-# python-build-standalone/uv builds). The code under test then fails closed with
-# Blocked('caller identity unavailable'), so these tests cannot establish
-# anything about caller fencing on such an interpreter. Skip loudly rather than
-# reporting a regression that does not exist.
-requires_pidfd = unittest.skipUnless(
-    hasattr(os, 'pidfd_open'),
-    'requires os.pidfd_open; this interpreter was built without it, so '
-    'task-proxy caller fencing cannot be exercised',
-)
-
 SCRIPT = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts/task_proxy_incident.py'
 
 class EntryPoint(unittest.TestCase):
@@ -152,7 +141,6 @@ class EntryPoint(unittest.TestCase):
         self.assertFalse(thread.is_alive()); self.assertEqual(errors, [], result.stdout + result.stderr)
         return result
 
-    @requires_pidfd
     def test_fixture_entrypoint_holds_manager_lock_during_sample(self):
         result = self.sample('record', assert_lock=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -163,7 +151,6 @@ class EntryPoint(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['status'], 'blocked')
         self.assertNotIn('8.8.8.8', result.stdout + result.stderr)
 
-    @requires_pidfd
     def test_existing_or_invalid_record_rejected_without_sample(self):
         first = self.sample('record')
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
@@ -189,7 +176,6 @@ class EntryPoint(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(path.read_bytes(), baseline)
 
-    @requires_pidfd
     def test_real_entrypoint_private_baseline_and_changed_comparison(self):
         first = self.sample('record')
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -204,21 +190,18 @@ class EntryPoint(unittest.TestCase):
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
         self.assertEqual((self.state/'inc-1.json').stat().st_mode & 0o777, 0o600)
 
-    @requires_pidfd
     def test_concurrent_record_is_not_replaced_after_sample(self):
         result = self.sample('record', race_record=True)
         self.assertEqual(result.returncode, 2)
         self.assertEqual((self.state/'inc-1.json').read_bytes(), b'concurrent record')
         self.assertEqual([p.name for p in self.state.iterdir()], ['inc-1.json'])
 
-    @requires_pidfd
     def test_wrong_ca_is_refused_without_publication(self):
         result = self.sample('record', bad_cert=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)['status'], 'blocked')
         self.assertFalse((self.state/'inc-1.json').exists())
 
-    @requires_pidfd
     def test_trusted_certificate_for_wrong_hostname_is_refused(self):
         result = self.sample('record', bad_hostname=True)
         self.assertEqual(result.returncode, 2)
@@ -226,19 +209,16 @@ class EntryPoint(unittest.TestCase):
         self.assertFalse((self.state/'inc-1.json').exists())
         self.assertNotIn('8.8.8.8', result.stdout + result.stderr)
 
-    @requires_pidfd
     def test_process_change_during_sample_is_not_published(self):
         result = self.sample('record', mutate=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.state/'inc-1.json').exists())
 
-    @requires_pidfd
     def test_listener_replaced_by_same_process_during_sample_is_not_published(self):
         result = self.sample('record', mutate_listener=True)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertFalse((self.state/'inc-1.json').exists())
 
-    @requires_pidfd
     def test_ca_replacement_during_sample_is_not_published(self):
         result = self.sample('record', mutate_ca=True)
         self.assertEqual(result.returncode, 2)

@@ -1364,3 +1364,16 @@ def test_fallback_plan_does_not_call_a_recorded_dead_seed_ready(usability, statu
     if status == "needs-auth":
         assert usability["state"] in plan["reason"] and usability["reasons"][0] in plan["reason"]
         assert plan["steps"]
+
+
+
+def test_launcher_marks_loaded_seed_without_auth_material_unusable():
+    module = load_launcher_module()
+    resolution = {"status": "resolved", "auth_seed_usability": {"state": "unverified", "reasons": ["never-verified"]},
+                  "auth_check_required_header_names": []}
+
+    usability = module.loaded_seed_usability(resolution, {"cookies": [], "headers": {"User-Agent": "x"}})
+    kept = module.loaded_seed_usability(resolution, {"cookies": [{"name": "sid", "value": "synthetic"}]})
+
+    assert usability == {"state": "unusable", "reasons": ["no-replayable-auth-material"]}
+    assert kept == resolution["auth_seed_usability"]

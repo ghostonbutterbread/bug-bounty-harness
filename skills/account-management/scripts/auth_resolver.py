@@ -26,16 +26,26 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.auth_seed_health import (  # noqa: E402 - repository root is added above
-    auth_check_url_warning,
-    classify_seed,
-    effective_seed_status,
-    iso_utc,
-    liveness_from_check,
-    seed_auth_material,
-    seed_status_snapshot,
-    utc_now,
-)
+try:
+    from agents.auth_seed_health import (  # noqa: E402 - repository root is added above
+        auth_check_url_warning,
+        check_discriminator,
+        classify_seed,
+        effective_seed_status,
+        iso_utc,
+        liveness_from_check,
+        parse_utc,
+        seed_auth_material,
+        seed_status_snapshot,
+        utc_now,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised only outside a checkout
+    if not str(exc.name or "").startswith("agents"):
+        raise
+    raise SystemExit(
+        f"cannot import agents.auth_seed_health from {REPO_ROOT}; run this script via `bbh` "
+        "or from a skill directory linked into a BBH checkout"
+    ) from exc
 
 
 DEFAULT_ROUTE_TABLE = Path(
@@ -86,7 +96,7 @@ SAFE_ACCOUNT_FIELDS = (
     "auth_host_filter",
     "auth_session_ttl_hours",
 )
-SEED_STATUS_KEYS = ("captured_at", "auth_material", "replayable_cookie_count", "auth_header_names")
+SEED_STATUS_KEYS = ("captured_at", "seed_fingerprint", "auth_material", "replayable_cookie_count", "auth_header_names")
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -386,7 +396,8 @@ def inspect_auth_seed(path: Path | None, required_header_names: list[str] | tupl
         return {"status": "none"}
     if not path.exists():
         return {"status": "missing", "path": str(path)}
-    mode = stat.S_IMODE(path.stat().st_mode)
+    info = path.stat()
+    mode = stat.S_IMODE(info.st_mode)
     if mode & 0o077:
         return {"status": "bad-permissions", "path": str(path), "mode": oct(mode)}
     data = load_json_file(path)
@@ -403,7 +414,7 @@ def inspect_auth_seed(path: Path | None, required_header_names: list[str] | tupl
             for key in ("account_label", "session_source")
             if data.get(key) is not None
         },
-        **seed_status_snapshot(data, required_header_names),
+        **seed_status_snapshot(data, required_header_names, fingerprint=f"{info.st_mtime_ns}:{info.st_size}"),
     }
 
 
@@ -415,21 +426,38 @@ def seed_snapshot(seed_meta: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def observed_seed_status(
-    account: dict[str, Any] | None, seed_meta: dict[str, Any], auth_check: dict[str, Any]
+    account: dict[str, Any] | None, seed_meta: dict[str, Any], auth_check: dict[str, Any], *, declared_check: bool
 ) -> tuple[dict[str, Any], bool]:
-    """Return the seed status this resolution observed and whether it should be recorded.
+    """Return the seed status this resolution observed and whether to record it.
 
-    An inconclusive check carries no evidence, so it never replaces a definitive
-    live/expired result recorded for the same capture.
+    Only the account's declared auth check is evidence about the seed: a caller's
+    one-off ``--target-url`` (for example recon's own target) may refuse the seed
+    for reasons unrelated to its validity, so its result is reported, not saved.
+    An inconclusive check never replaces a definitive live/expired result for the
+    same capture. Without a recordable result, a changed seed snapshot (new
+    capture, or no replayable material) is still recorded so inventory-only
+    readers see it.
     """
     snapshot = seed_snapshot(seed_meta)
-    prior = effective_seed_status((account or {}).get("auth_seed_status"), snapshot)
-    liveness = liveness_from_check(auth_check)
-    if snapshot is None or liveness is None:
+    stored_raw = (account or {}).get("auth_seed_status")
+    stored = stored_raw if isinstance(stored_raw, dict) else {}
+    prior = effective_seed_status(stored, snapshot)
+    if snapshot is None:
         return prior, False
-    if liveness["last_verified_result"] == "unknown" and prior.get("last_verified_result") in {"live", "expired"}:
-        return prior, False
-    return {**snapshot, **liveness}, True
+    liveness = liveness_from_check(auth_check) if declared_check else None
+    if liveness is not None and not (
+        liveness["last_verified_result"] == "unknown" and prior.get("last_verified_result") in {"live", "expired"}
+    ):
+        return {**snapshot, **liveness}, True
+    return prior, prior != stored
+
+
+def is_declared_check(account: dict[str, Any] | None, target: dict[str, str | None]) -> bool:
+    """Whether the check about to run is the account's declared auth check."""
+    if not target.get("url"):
+        return False
+    declared = auth_check_target(account, target_url=None, method_override=None)
+    return check_discriminator(declared["method"], declared["url"]) == check_discriminator(target["method"], target["url"])
 
 
 def load_auth_seed_values(path: Path | None) -> dict[str, Any] | None:
@@ -1085,7 +1113,11 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
             "host_filter": host_filter,
             "safe_next": "use Bitwarden fallback or generate fresh traffic in the requested PwnFox color",
         }
-    seed = query_result["seed"]
+    seed = dict(query_result["seed"])
+    source_time = parse_utc(seed.get("source_time"))
+    if source_time is not None and source_time <= utc_now():
+        # The proxied request is when this material was last seen in use.
+        seed["captured_at"] = iso_utc(source_time)
     if seed_auth_material(seed, required_headers)["auth_material"] != "present":
         # Do not replace an existing seed with one that cannot authenticate.
         return {
@@ -1219,8 +1251,9 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
     required_headers = auth_check_required_headers(account)
     seed = inspect_auth_seed(seed_path, required_headers)
     target = auth_check_target(account, target_url=args.target_url, method_override=args.method)
+    declared_check = is_declared_check(account, target)
     auth_check = gated_auth_check(target, args.timeout, seed_path, seed)
-    seed_status, verified_now = observed_seed_status(account, seed, auth_check)
+    seed_status, should_record = observed_seed_status(account, seed, auth_check, declared_check=declared_check)
     usability = seed_usability(account, seed, seed_status)
     proxy_plan = proxy_refresh_plan(account, route, auth_check, session_mode)
     if ready_without_check(seed, auth_check, usability):
@@ -1237,13 +1270,16 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             seed_path = auth_seed_path({**account, "auth_seed_ref": refresh_result["account"].get("auth_seed_ref")})
             seed = inspect_auth_seed(seed_path, required_headers)
             auth_check = gated_auth_check(target, args.timeout, seed_path, seed)
-            seed_status, verified_now = observed_seed_status(account, seed, auth_check)
+            seed_status, should_record = observed_seed_status(account, seed, auth_check, declared_check=declared_check)
             usability = seed_usability(account, seed, seed_status)
             proxy_plan = {"status": "completed", "provenance": refresh_result.get("proxy_provenance", {})}
             refreshed = True
         else:
             proxy_plan = {**proxy_plan, "refresh_attempt": refresh_result}
-    status_record = record_auth_seed_status(args.program, account.get("alias"), seed_status) if account and verified_now else None
+    status_record = record_auth_seed_status(args.program, account.get("alias"), seed_status) if account and should_record else None
+    if not declared_check and liveness_from_check(auth_check) is not None:
+        # A one-off --target-url result is reported here and in auth_check only.
+        status_record = {**(status_record or {"status": "not-recorded"}), "check_result": "not-recorded:one-off-check-url"}
     bw_plan = bitwarden_plan(account, auth_check, proxy_plan)
 
     if auth_check.get("status") == "passed":

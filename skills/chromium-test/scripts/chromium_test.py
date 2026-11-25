@@ -37,7 +37,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.auth_seed_health import classify_seed  # noqa: E402 - repository root is added above
+try:
+    from agents.auth_seed_health import classify_seed, seed_auth_material  # noqa: E402 - repository root is added above
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised only outside a checkout
+    if not str(exc.name or "").startswith("agents"):
+        raise
+    raise SystemExit(
+        f"cannot import agents.auth_seed_health from {REPO_ROOT}; run this script via `bbh` "
+        "or from a skill directory linked into a BBH checkout"
+    ) from exc
 
 
 PORT_MIN = 9223
@@ -441,7 +449,28 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         "credential_ref_type": ref_type,
         "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
         "auth_seed_usability": classify_seed(account),
+        "auth_check_required_header_names": auth_check_required_header_names(account),
     }
+
+
+def auth_check_required_header_names(account: dict[str, Any]) -> list[str]:
+    config = account.get("auth_check")
+    names = config.get("required_header_names") if isinstance(config, dict) else None
+    return [str(name) for name in names] if isinstance(names, list) else []
+
+
+def loaded_seed_usability(account_resolution: dict[str, Any], seed: dict[str, Any]) -> dict[str, Any] | None:
+    """Mark a loaded inventory seed unusable when it holds no replayable auth.
+
+    The inventory record may predate the seed (or never have been resolved), so
+    the launcher checks the seed it already loaded instead of trusting it.
+    """
+    if account_resolution.get("status") != "resolved":
+        return account_resolution.get("auth_seed_usability")
+    material = seed_auth_material(seed, account_resolution.get("auth_check_required_header_names") or ())
+    if material["auth_material"] == "absent":
+        return {"state": "unusable", "reasons": ["no-replayable-auth-material"]}
+    return account_resolution.get("auth_seed_usability")
 
 
 def auth_fallback_plan(
@@ -1004,6 +1033,10 @@ def main() -> int:
         }
         if not (args.json or args.dry_run):
             raise
+    if auth_seed_data is not None:
+        usability = loaded_seed_usability(account_resolution, auth_seed_data)
+        if usability is not None:
+            account_resolution["auth_seed_usability"] = usability
     auth_next_step = auth_fallback_plan(account_resolution, resolved_auth_seed_file, auth_seed_error)
     if args.account_label:
         account = args.account_label

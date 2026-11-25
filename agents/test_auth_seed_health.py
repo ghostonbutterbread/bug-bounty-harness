@@ -189,3 +189,39 @@ def test_liveness_records_discriminator_without_query_and_skips_unrun_checks():
 )
 def test_static_auth_check_url_warning(url, warns):
     assert (auth_check_url_warning(url) is not None) is warns
+
+
+
+def test_fresh_live_check_outranks_declared_ttl():
+    record = account(auth_material="present", captured_at=iso(timedelta(days=33)),
+                     last_verified_at=iso(timedelta(minutes=5)), last_verified_result="live")
+    record["auth_session_ttl_hours"] = 24
+
+    assert classify_seed(record, now=NOW)["state"] == "usable"
+
+
+def test_hand_replaced_legacy_seed_does_not_inherit_saved_result():
+    stored = {"captured_at": None, "seed_fingerprint": "100:20", "auth_material": "present",
+              "last_verified_result": "expired", "last_verified_at": iso(timedelta(hours=1))}
+    unchanged = effective_seed_status(stored, {"captured_at": None, "seed_fingerprint": "100:20", "auth_material": "present"})
+    replaced = effective_seed_status(stored, {"captured_at": None, "seed_fingerprint": "200:21", "auth_material": "present"})
+    no_identity = effective_seed_status({**stored, "seed_fingerprint": None},
+                                        {"captured_at": None, "seed_fingerprint": None, "auth_material": "present"})
+
+    assert unchanged["last_verified_result"] == "expired"
+    assert "last_verified_result" not in replaced
+    assert "last_verified_result" not in no_identity
+    assert classify_seed(account(**replaced), now=NOW)["state"] == "unverified"
+
+
+def test_403_is_recorded_unknown_and_401_expired_and_userinfo_dropped():
+    forbidden = liveness_from_check({"status": "failed", "status_code": 403, "url": "https://u:p@API.example.test:8443/me"})
+    unauthorized = liveness_from_check({"status": "failed", "status_code": 401, "url": "https://api.example.test/me"})
+
+    assert forbidden is not None and forbidden["last_verified_result"] == "unknown"
+    assert forbidden["last_verified_check"]["url"] == "https://api.example.test:8443/me"
+    assert unauthorized is not None and unauthorized["last_verified_result"] == "expired"
+
+
+def test_secret_named_header_counts_as_auth_material():
+    assert seed_auth_material({"headers": {"X-Hasura-Admin-Secret": "synthetic"}})["auth_material"] == "present"

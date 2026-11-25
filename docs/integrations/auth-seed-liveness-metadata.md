@@ -1,17 +1,17 @@
 # Auth-seed liveness metadata integration dossier
 
-- **Status:** review-ready
+- **Status:** review-ready (review loop 1 fixes applied)
 - **Owner:** Hermes (delegated subagent)
 - **Branch:** `fix/auth-seed-liveness-metadata`
 - **Worktree:** `/home/ryushe/worktrees/bbh-fix-auth-seed-liveness`
-- **Base commit:** `85373a0058b38d05cc198c8097a1af3e4b1f4b91` (`origin/beta`)
+- **Base commit:** `85373a0058b38d05cc198c8097a1af3e4b1f4b91` (`origin/beta`); `origin/beta` `067f73cd` merged in as `00d4bf28` (no rebase)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/auth-seed-liveness-metadata`
 - **Latest immutable recovery checkpoint:** the implementation commit named in
   the handoff (Git cannot embed a commit's own SHA; read `git log -1` on the
   branch and verify it is a descendant of the base)
-- **Feature implementation commit(s):** single commit on this branch
+- **Feature implementation commit(s):** `77c154d2` (initial); review-loop-1 fix commit follows the beta merge `00d4bf28`
 - **Inspiration / canonical references:** papercuts PC-20261124-084457-704ab0ed
   and PC-20261124-055718-f99c12e5 (`~/Shared/PAPERCUTS.md`, HIGH);
   `skills/account-management/references/auth-seed-health.md`
@@ -114,6 +114,53 @@ see only what was last recorded.
   scripts from their checkout; synced skill directories are symlinks into a
   checkout, so the root resolves.
 
+## Review loop 1 (independent review: BLOCK on B1, B2)
+
+- **B1 fixed:** `resolve` records a check result only when the checked URL and
+  method equal the account's declared auth check after normalization
+  (`is_declared_check`; scheme/host case, userinfo, query, and fragment
+  ignored). A caller's one-off `--target-url` (for example `recon_ry.py`) is
+  reported in `auth_check` and `auth_seed_status_record.check_result =
+  "not-recorded:one-off-check-url"`, never saved. A 403 is recorded as
+  `unknown` (WAF/bot ambiguity); 401 stays `expired`. Readiness for the run
+  itself is unchanged from base (a failed check is not ready).
+- **B2 fixed (chosen approach: file fingerprint fallback):** the snapshot
+  records `seed_fingerprint` (`<mtime_ns>:<size>`). A saved result carries
+  forward only when `captured_at` is set on both sides and equal, or, when
+  neither side has `captured_at`, when both fingerprints are set and equal.
+  A missing identity never matches. Chosen over "`captured_at` only" so a
+  hand-replaced legacy seed is detected and the inventory projection is
+  rewritten for inventory-only readers. Consequence: touching or re-syncing a
+  legacy seed (new mtime) drops its saved result to `unverified` (fail-safe).
+- **S1 fixed:** without a recordable check result, `resolve` still writes the
+  seed snapshot when it differs from the stored projection (new capture, no
+  replayable material), so lease summaries show `unusable`. The launcher also
+  classifies the seed it already loads (`loaded_seed_usability`).
+- **S2 fixed:** a fresh live check is evaluated before the declared-TTL age
+  estimate.
+- **Nits done:** N1 (`secret`, `passw` in the auth-header pattern), N3
+  (stored check URL is scheme://host[:port]/path; the path equals the declared
+  check URL already stored in the inventory, because only declared checks are
+  recorded), N4 (refresh uses the proxied request's `source_time` as
+  `captured_at` when parseable and not in the future), N6 (actionable error
+  when `agents.auth_seed_health` cannot be imported).
+- **Nits open (skipped to bound the loop):** N2 (doc line: localStorage-only
+  `storage_state` seeds are unusable because BBH does not replay
+  localStorage), N5 (inventory writes are unlocked read-modify-write;
+  `account_inventory.py` has no flock pattern, so a lock would touch every
+  writer and add a lock file in a synced folder; record in `BUGFIXES.md`),
+  N7 (re-running `add-account` with a new `--auth-check-url` should clear the
+  saved verification). Also observed, not fixed: re-running `add-account`
+  without `--auth-check-url` replaces `auth_check` with `{"method": "GET"}`,
+  dropping `required_header_names` (pre-existing; `BUGFIXES.md` candidate).
+- **Receipts (focused suite: resolver ×2, health, inventory, lease, launcher,
+  recon_ry ×6, skill hygiene; separate basetemps):** base `067f73cd` 1420
+  passed; branch 1480 passed. Regressions added: one-off 401 then declared
+  HTML check → ready; 403 → unknown; hand-replaced legacy seed after saved
+  expiry → not stale; material-less seed persisted → unusable for
+  inventory-only readers; launcher marks loaded empty seed unusable; fresh
+  live outranks TTL; secret-named header counts as material.
+
 ## Blockers and deferred work
 
 - **Missing evidence:** no live/Hoster smoke of `resolve` against a real
@@ -146,3 +193,4 @@ see only what was last recorded.
 ## Decision record
 
 - 2026-11-24 — created; implementation committed review-ready on the feature branch.
+- 2026-11-24 — review loop 1: B1/B2/S1/S2 and nits N1/N3/N4/N6 fixed; N2/N5/N7 open.

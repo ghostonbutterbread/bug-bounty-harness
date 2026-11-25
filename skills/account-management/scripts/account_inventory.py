@@ -19,7 +19,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.auth_seed_health import auth_check_url_warning, classify_seed  # noqa: E402 - repository root is added above
+try:
+    from agents.auth_seed_health import auth_check_url_warning, classify_seed  # noqa: E402 - repository root is added above
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised only outside a checkout
+    if not str(exc.name or "").startswith("agents"):
+        raise
+    raise SystemExit(
+        f"cannot import agents.auth_seed_health from {REPO_ROOT}; run this script via `bbh` "
+        "or from a skill directory linked into a BBH checkout"
+    ) from exc
 
 
 SCHEMA_VERSION = 6

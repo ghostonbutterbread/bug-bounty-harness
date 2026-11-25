@@ -677,6 +677,7 @@ def test_refresh_records_captured_at_in_seed_and_unverified_status_in_inventory(
     captured_at = json.loads(seed_path.read_text())["captured_at"]
     status = read_account(shared)["auth_seed_status"]
     assert parse_utc(captured_at) is not None
+    assert status.pop("seed_fingerprint")
     assert status == {"captured_at": captured_at, "auth_material": "present", "replayable_cookie_count": 1,
                       "auth_header_names": ["Authorization"]}
     assert result["auth_seed_usability"]["state"] == "unverified"
@@ -785,7 +786,7 @@ def test_resolve_old_format_seed_without_check_url_stays_ready_but_unverified(tm
     assert result["status"] == "ready"
     assert result["auth_seed"]["captured_at"] is None
     assert result["auth_seed_usability"] == {"state": "unverified", "reasons": ["never-verified"]}
-    assert "auth_seed_status" not in read_account(shared)
+    assert "last_verified_result" not in read_account(shared)["auth_seed_status"]
 
 
 def test_resolve_without_check_url_does_not_claim_ready_for_recorded_expired_seed(tmp_path, monkeypatch, capsys):
@@ -860,13 +861,15 @@ def test_inconclusive_check_keeps_seed_ready_but_unverified_and_records_unknown(
     seed = seed_file(tmp_path, {"captured_at": "2026-11-24T08:00:00+00:00",
                                 "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
     write_inventory(shared, "demo", {"accounts": [{"alias": "blue", "pwnfox_color": "blue",
-                                                   "auth_seed_ref": f"auth-seed:{seed}"}]})
+                                                   "auth_seed_ref": f"auth-seed:{seed}",
+                                                   "auth_check_url": "https://App.example.test/"}]})
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
     monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
         "status": "inconclusive", "reason": "html-document", "url": url, "method": method, "status_code": 200})
 
+    # An explicit --target-url equal to the declared check (after normalization) is still recorded.
     assert module.main(["resolve", "--program", "demo", "--account", "blue", "--target-url",
-                        "https://app.example.test/", "--route-table", str(route_table)]) == 0
+                        "https://app.example.test/?x=1", "--route-table", str(route_table)]) == 0
 
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "ready"
@@ -899,8 +902,8 @@ def test_inconclusive_check_does_not_overwrite_recorded_expiry(tmp_path, monkeyp
     result = json.loads(capsys.readouterr().out)
     assert result["status"] != "ready"
     assert result["auth_seed_usability"]["state"] == "stale"
-    assert "auth_seed_status_record" not in result
-    assert read_account(shared)["auth_seed_status"] == recorded
+    stored = read_account(shared)["auth_seed_status"]
+    assert {key: stored.get(key) for key in recorded} == recorded
 
 
 
@@ -915,3 +918,83 @@ def test_seed_writer_records_utc_captured_at_and_keeps_an_existing_capture_time(
     captured = parse_utc(json.loads(fresh.read_text())["captured_at"])
     assert captured is not None and captured.utcoffset().total_seconds() == 0
     assert json.loads(rewritten.read_text())["captured_at"] == "2026-10-22T08:00:00+00:00"
+
+
+
+def test_one_off_target_url_401_is_not_saved_and_declared_html_check_stays_ready(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"captured_at": "2026-11-24T08:00:00+00:00",
+                                "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_check": {"url": "https://app.example.test/account", "method": "GET"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    def fake_check(url, method, timeout, seed_path):
+        if "recon-target" in url:
+            return {"status": "failed", "url": url, "method": method, "status_code": 401}
+        return {"status": "inconclusive", "reason": "html-document", "url": url, "method": method, "status_code": 200}
+
+    monkeypatch.setattr(module, "run_auth_check", fake_check)
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--target-url",
+                        "https://recon-target.example.test/", "--route-table", str(route_table)]) == 0
+    one_off = json.loads(capsys.readouterr().out)
+    assert one_off["auth_seed_status_record"]["check_result"] == "not-recorded:one-off-check-url"
+    assert "last_verified_result" not in read_account(shared).get("auth_seed_status", {})
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+    declared = json.loads(capsys.readouterr().out)
+    assert declared["status"] == "ready"
+    assert read_account(shared)["auth_seed_status"]["last_verified_result"] == "unknown"
+
+
+def test_hand_replaced_legacy_seed_is_not_stale_after_saved_expiry(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_check": {"url": "https://api.example.test/v1/me", "method": "GET"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
+        "status": "failed", "url": url, "method": method, "status_code": 401})
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+    capsys.readouterr()
+    assert read_account(shared)["auth_seed_status"]["last_verified_result"] == "expired"
+
+    seed.write_text(json.dumps({"cookies": [{"name": "sid", "value": "synthetic-cookie-value-2"}], "pad": "x"}))
+    os.chmod(seed, 0o600)
+    monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
+        "status": "inconclusive", "reason": "html-document", "url": url, "method": method, "status_code": 200})
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["auth_seed_usability"]["state"] == "unverified"
+    assert result["status"] == "ready"
+    assert read_account(shared)["auth_seed_status"]["last_verified_result"] == "unknown"
+
+
+def test_material_less_seed_status_is_persisted_for_inventory_only_readers(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"cookies": [], "headers": {"User-Agent": "browser"}})
+    write_inventory(shared, "demo", {"accounts": [{"alias": "blue", "pwnfox_color": "blue",
+                                                   "auth_seed_ref": f"auth-seed:{seed}"}]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    capsys.readouterr()
+    stored = read_account(shared)
+    assert stored["auth_seed_status"]["auth_material"] == "absent"
+    assert module.classify_seed(stored)["state"] == "unusable"

@@ -168,6 +168,10 @@ not alternative browser launch commands.
 - **Owner/scope:** Chromium Test historical browser-manager repair on the browser node; not an ordinary browser launch path.
 - **Last verified:** 2026-10-05 (script-index contract).
 - **Coverage:** Exact legacy layout and selected owned cohort only; refuses uncertain runtime or changed plans. Detailed invocation and safeguards follow below.
+  Rows already `stopped` are outside its scope: a stopped legacy profile that
+  `request` refuses as `legacy-profile-not-quiescent` or
+  `legacy-profile-history-mismatch` is decided by the provisioner's own
+  absence evidence (see `browser_provisioner.py` Instances), not by editing rows.
 
 ## Historical manager-row repair (offline first)
 
@@ -327,6 +331,15 @@ identity and released status; active or uncertain history remains locked. This
 is admission of terminal history, not a rewrite of canonical leases or a
 replacement for the provisioner's quiescence check. `browser_manager_row_repair.py`
 repairs malformed manager projections only, not missing lease-manager provenance.
+For a non-global auth domain, pre-domain (`auth_domain=NULL`) unkeyed history
+no longer blocks that inheritance when it is released/expired, has no service
+unit, names a different (or missing) physical directory, and any recorded CDP
+endpoint is not ready; such a row cannot alias or hold the domain-scoped
+profile. NULL history that names the same directory, might be live, or belongs
+to the `legacy-global` domain still constrains inheritance as before.
+A provisioner `acquire --recover-profile` (with `--manager-id`) adopts the
+caller's own exact unlaunched standalone recovery lease; see the provisioner
+section.
 
 For a new node-local identity, the default `/mnt/bounty` is selected only when
 it is a writable, mounted local filesystem. Otherwise profiles use
@@ -514,8 +527,36 @@ Do not use this command to bypass a refusal with a different account/slot.
   purpose, explicit `--proxy mitm|external|none` (default task MITM),
   display settings; optional `--instance-key SLOT`,
   `--idle-seconds N` (claim window, default 300), `--owner-pid` (diagnostics and
-  legacy lifecycle). Headless task mode does not require a PID; headed task
+  legacy lifecycle), `--recover-profile` and repeatable `--load-extension DIR`
+  (both below). Headless task mode does not require a PID; headed task
   mode does, because native input is untracked.
+- **Profile recovery:** a non-healthy last release makes ordinary requests
+  return `account-unavailable` (its `next` names this path). Retry the same
+  request with `--recover-profile` to launch that exact profile for repair. If
+  the same agent/run already holds an unlaunched standalone
+  `browser_profile_lease.py acquire --recover-profile` lease for the exact
+  account/domain/slot (no manager, no CDP URL or unit), the provisioner adopts
+  that lease instead of returning `managed-by-provisioner`; foreign, launched or
+  non-recovery leases are never adopted. Release with the observed health
+  (`healthy` only once repaired). A start that fails before registration now
+  preserves the previous health instead of recording `healthy`.
+- **Unpacked extensions:** `--load-extension DIR` (repeatable) requires an
+  absolute existing directory with `manifest.json` and no comma; paths are
+  resolved (Chromium derives the unpacked extension ID from the resolved path)
+  and deduplicated. The launcher swaps `--disable-extensions` for
+  `--disable-extensions-except=` plus `--load-extension=` with exactly those
+  directories; there is no generic Chrome-flag passthrough. Admission, leasing,
+  proxy/CA and cleanup are unchanged. Receipts and the private launch recipe
+  carry `load_extensions` (resolved path, manifest SHA-256, name/version/
+  manifest_version when parseable); `start` fails closed if the launcher record
+  does not confirm the set, a running browser with a different set is
+  `locked/extension-mismatch`, live transfer requires an equal set, and `resume`
+  replays it. Headless uses `--headless=new`, which loads extensions (verified
+  offline with Chrome for Testing 148, the Playwright build Hoster uses);
+  branded Google Chrome 137+ ignores the flag; the launcher refuses an
+  automatically selected binary whose `--version` identifies such a build
+  (explicit `--chrome-binary`/`CHROMIUM_TEST_CHROME` wrappers are not executed
+  for this probe, so verify loading there).
 - **Run-end ownership:** without `--owner-pid`, a browser that `start` launches
   or takes over records the exact process identity of the nearest ancestor that
   is a known agent runtime (`claude`, `codex`, `hermes`, `pi`, `omp`,
@@ -583,9 +624,19 @@ Do not use this command to bypass a refusal with a different account/slot.
   only after admission. For a stopped legacy browser, the first request keeps
   the original profile (and its old authentication), provided every historical
   manager row for that slot is stopped, its unit inactive, its recorded root/CDP
-  terminal where observable, no SingletonLock exists, and no process command
-  names that profile. Missing launch receipts are permitted only under those
+  terminal where observable, no live SingletonLock exists, and no process command
+  names that profile. A SingletonLock is accepted as stale only when its
+  `<host>-<pid>` target equals the recorded process identity of a manager row for
+  that same physical profile, that identity is terminal, and the PID no longer
+  exists; the lock is not removed (Chromium unlinks an orphaned same-host lock).
+  A manager row whose record lacks `instance_key` (a start interrupted before
+  registration, or a missing record) belongs to the slot its profile path names
+  when that path is exactly `<program>/web/browser-instances/<domain>/<account>/<slot>`;
+  it is no longer mistaken for the unkeyed legacy profile. Other unannotated
+  rows stay legacy. Missing launch receipts are permitted only under those
   independent checks; an observable live root or ambiguous lock fails closed.
+  None of this stops a unit or edits a row: it only stops treating proven-absent
+  resources as live owners. Age or idleness alone is never evidence.
   Once that first browser runs, a second agent receives a fresh isolated auto
   slot when multiple-browser policy and capacity permit. No profile or
   authentication data is copied: the new slot needs its own login/auth seed.
@@ -770,13 +821,14 @@ Do not use this command to bypass a refusal with a different account/slot.
 
 - **Purpose:** Launch or reuse the isolated Chromium process selected by the
   browser provisioner.
-- **Inputs:** Profile, CDP, proxy, certificate, display, and target URL controls.
+- **Inputs:** Profile, CDP, proxy, certificate, display, and target URL controls;
+  repeatable validated `--load-extension DIR` (provisioner-forwarded).
 - **Outputs:** Browser launch/status receipt with owned process and endpoint
-  metadata.
+  metadata, plus `load_extensions` when extensions were requested.
 - **Mutates:** The selected task-owned browser profile and processes.
-- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_chromium_test_launcher.py -q`
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_chromium_test_launcher.py agents/test_browser_recovery_extension_legacy.py -q`
 - **Owner/scope:** Chromium Test skill.
-- **Last verified:** 2026-09-10.
+- **Last verified:** 2026-11-24.
 
 ## `mitm_lane.py`
 

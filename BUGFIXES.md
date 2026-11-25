@@ -13,6 +13,21 @@ the old behavior. An interrupted startup may leave no receipt for the caller.
 consider a separately coordinated breaking change to require it. An operator
 must establish ownership independently before recovering an unreceipted startup.
 
+## Same-run second browser cannot reuse its own task proxy under a new purpose
+
+**Location:** `skills/chromium-test/scripts/browser_provisioner.py`
+`start_proxy` (reuse check comparing `(account, purpose)`).
+**Evidence:** Hoster 2026-11-24, run `bunny-pinterest-runtime-20261124T030000Z`:
+after releasing browser 1, a `request --task-owned --recover-profile` for the
+same agent/run but a different `--purpose` returned `proxy-conflict` "task
+listener unavailable or belongs to another request"; the still-running lane
+had the first request's purpose. The agent had to `task-proxy-finish` and
+re-request, losing the shared capture continuity.
+**Impact:** the fixed detail does not say *which* field differs, and an exact
+purpose string is an unexpectedly strict ownership key within one agent/run.
+Decide in the proxy-lifecycle owner's task whether purpose should be part of
+the reuse key; at minimum report a fixed `reason` category.
+
 ## Stack-to-program script index and upload assertion drift
 
 **Location:** `skills/stack-to-program/scripts/README.md:11`, its script record,

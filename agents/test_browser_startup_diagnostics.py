@@ -130,7 +130,7 @@ def test_manager_failure_receipts(monkeypatch, tmp_path, capsys, failure, phase,
     # This suite tests diagnostic receipts, not the independently tested stop
     # proof. Model a verified failed-launch teardown before lease release.
     monkeypatch.setattr(m, 'failed_launch', lambda c, lid, unit: stopped.append(unit) or True)
-    monkeypatch.setattr(m, 'release_lease', lambda *a: released.append(a) or True)
+    monkeypatch.setattr(m, 'release_lease', lambda *a, **kw: released.append((a, kw)) or True)
     monkeypatch.setattr(m, 'lease', lambda args, action, *rest:
                         {'status': 'leased', 'lease': {'lease_id': 'lease', 'account_alias': 'fixture',
                          'auth_domain': 'default', 'profile_dir': str(tmp_path / 'profile')}}
@@ -145,6 +145,8 @@ def test_manager_failure_receipts(monkeypatch, tmp_path, capsys, failure, phase,
     assert data['events'][-1]['outcome'] == 'failed'
     assert SECRET not in json.dumps(data)
     assert released and (stopped or failure == 'dispatch')
+    # A failed start never repaired the profile: keep its prior health.
+    assert all(kw.get('health', 'healthy') is None for _a, kw in released)
     assert any(part.startswith('--setenv=BROWSER_STARTUP_RECEIPT_DIR=') for part in calls[0])
 
 

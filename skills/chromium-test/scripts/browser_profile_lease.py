@@ -301,7 +301,28 @@ def stopped_legacy_profile(conn, args, alias, domain, key):
             (slug(args.program), slug(alias), domain),
         )
     )
+    def retired_pre_domain(row):
+        """Terminal pre-domain history of another directory cannot alias this profile.
+
+        A NULL auth_domain means legacy-global; for any other domain such a
+        row only constrains inheritance if it names this physical directory or
+        might still be live. Released/expired, no service unit, a different
+        (or missing) directory and a closed recorded CDP endpoint prove neither.
+        """
+        if (row['auth_domain'] is not None or domain == DEFAULT_LEGACY_AUTH_DOMAIN
+                or row['status'] not in ('released', 'expired') or row['service_unit'] is not None
+                or physical_profile(row['profile_dir']) == identity):
+            return False
+        if row['cdp_url'] is None:
+            return True
+        try:
+            return local_cdp_version(row['cdp_url'])['status'] != 'ready'
+        except SystemExit:  # not a loopback endpoint: cannot classify
+            return False
+
     def consistent_history(row):
+        if retired_pre_domain(row):
+            return True
         if physical_profile(row['profile_dir']) != identity or row['auth_domain'] != domain:
             return False
         if row['manager_id'] == manager:
@@ -685,6 +706,27 @@ def last_release(conn: sqlite3.Connection, program: str, alias: str, auth_domain
     ).fetchone()
 
 
+RECOVERY_NEXT = (
+    "to repair this exact profile, retry the same browser_provisioner.py request with "
+    "--recover-profile (it also adopts your own unlaunched recover-profile lease for this "
+    "exact account/run); on release record the health you observed: healthy only after the "
+    "repair is verified, otherwise needs-refresh/needs-cleanup again so the next user recovers it"
+)
+
+
+def adoptable_recovery_lease(existing: sqlite3.Row, args: argparse.Namespace) -> bool:
+    """A provisioner recovery may adopt the caller's own unlaunched standalone lease.
+
+    The caller already matches agent, run and instance key. Adoption only moves
+    a lease that no manager owns and that has no registered browser, so the
+    manager can launch, compensate and release it with an honest health value.
+    """
+    return bool(getattr(args, "recover_profile", False) and getattr(args, "manager_id", None)
+                and existing["manager_id"] is None and existing["status"] == "active"
+                and existing["browser_status"] == "not-started"
+                and existing["cdp_url"] is None and existing["service_unit"] is None)
+
+
 def profile_available(account: dict[str, Any], release: sqlite3.Row | None) -> bool:
     """A released profile needs an explicit healthy disposition before reuse."""
     return account_lease_eligible(account) and (release is None or release["profile_health"] == "healthy")
@@ -1042,7 +1084,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "account": account_summary(account, inventory),
                 "last_release": safe_lease(release),
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp, auth_domain),
-                "next": "acquire with --recover-profile only for profile repair, then record a healthy release before leasing it again",
+                "next": RECOVERY_NEXT,
             }
         # All admission paths share this SQLite transaction. Legacy profiles
         # remain an account-wide lock; explicit instance keys opt into isolation.
@@ -1065,6 +1107,29 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             conn, r, key, getattr(args, 'manager_id', None), automatic)), None)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key
+            # Exact domain too: a pre-domain (NULL) lease names another profile.
+            if same_owner and existing["auth_domain"] == auth_domain and adoptable_recovery_lease(existing, args):
+                if (not safe_profile_path(Path(existing['profile_dir']))
+                        or reservation_conflict(conn, path=existing['profile_dir'])):
+                    conn.commit()
+                    return {'status': 'profile-unavailable', 'next': 'The recovery lease names a profile that is reserved or not on a safe local filesystem; inspect it without relocating.'}
+                # Report 'leased': this manager now owns compensation for the
+                # adopted lease, so a prelaunch failure releases it with the
+                # previous (unrepaired) health instead of stranding it.
+                conn.execute(
+                    "UPDATE browser_profile_leases SET manager_id=?, heartbeat_at=?, expires_at=? "
+                    "WHERE lease_id=? AND manager_id IS NULL AND status='active'",
+                    (args.manager_id, timestamp, timestamp + args.ttl_seconds, existing["lease_id"]),
+                )
+                conn.commit()
+                adopted = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (existing["lease_id"],)).fetchone()
+                return {
+                    "status": "leased",
+                    "adopted_recovery_lease": True,
+                    "account": account_summary(account, inventory),
+                    "lease": safe_lease(adopted, include_cdp=True),
+                    "next": "the provisioner launches this exact profile for repair; release it with the observed profile health",
+                }
             if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
                 return {'status': 'managed-by-provisioner'}
             if same_owner:

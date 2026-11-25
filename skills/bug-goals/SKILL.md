@@ -205,10 +205,18 @@ edge. Preserve continuity and choose a meaningfully distinct next discriminator.
 
 ### Revalidation
 
-Trigger: retest, repass, old issue, or prior lead review.
+Trigger: retest or repass of a **specific** prior issue, or fix verification —
+one known thing with a reason to believe its status changed.
 
 Historical target material is primary input, but establish a fresh baseline and
 record current behavior separately from prior observations.
+
+Mining a cohort of closures is **not** this mode and is not a normal opening
+move: a closure records the tuple already tested, not a safety verdict, and the
+unassessed surface is usually larger. When a capability change justifies that
+exceptional pass, route it to Focused surface and rank with
+`retest-candidate-selection`; each closure supplies where to stand and which
+control lives there, never the verdict. Keep the completion gate on.
 
 ## Surface Synthesis
 

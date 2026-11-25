@@ -345,6 +345,12 @@ legacy custom-root records likewise lack historical device identity, and the
 node-local database cannot establish absence of a profile on another host.
 The launcher still requires its normal exact-path preflight.
 
+Account summaries in `status`/`acquire` include `auth_seed_usability`
+(`usable`, `unverified`, `stale`, `unusable`, or `none`) computed from the
+inventory's non-secret `auth_seed_status`; the seed file is never read here.
+It does not change lease availability. See
+`skills/account-management/references/auth-seed-health.md`.
+
 Manual policy and passive reporting:
 
 ```sh

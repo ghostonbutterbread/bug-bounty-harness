@@ -652,3 +652,28 @@ def test_recorded_shared_profile_is_never_relocated_or_leased(monkeypatch, tmp_p
     assert result['status'] == 'profile-unavailable'
     with module.connect(state / 'browser_profile_leases.sqlite') as conn:
         assert conn.execute('SELECT profile_dir FROM browser_profile_leases').fetchone()[0] == recorded
+
+
+
+def test_status_lists_recorded_seed_usability_for_planners(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    write_inventory(shared)
+    path = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["accounts"][0]["auth_seed_status"] = {
+        "captured_at": "2026-10-22T00:00:00+00:00", "auth_material": "present",
+        "last_verified_at": "2026-11-24T00:00:00+00:00", "last_verified_result": "expired",
+        "last_verified_reason": "http-401",
+    }
+    path.write_text(json.dumps(inventory))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    result = module.cmd_status(args(module, tmp_path / "state", "status", account="green"))
+    member = module.cmd_status(args(module, tmp_path / "state", "status", account="pink"))
+
+    assert result["account"]["auth_seed_configured"] is True
+    assert result["account"]["auth_seed_usability"]["state"] == "stale"
+    assert result["account"]["auth_seed_usability"]["reasons"] == ["last-check-expired:http-401"]
+    assert member["account"]["auth_seed_usability"]["state"] == "none"
+    assert "/private/green.json" not in json.dumps(result)

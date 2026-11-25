@@ -1339,3 +1339,28 @@ def test_kasmvnc_is_not_started_when_auth_validation_blocks_browser_launch(monke
 
     assert kasmvnc_started is False
     assert json.loads(capsys.readouterr().out)["auth_seed"]["status"] == "unusable"
+
+
+
+@pytest.mark.parametrize(
+    "usability,status",
+    [
+        ({"state": "unverified", "reasons": ["never-verified"]}, "ready"),
+        ({"state": "stale", "reasons": ["last-check-expired:http-401"]}, "needs-auth"),
+        ({"state": "unusable", "reasons": ["no-replayable-auth-material"]}, "needs-auth"),
+    ],
+)
+def test_fallback_plan_does_not_call_a_recorded_dead_seed_ready(usability, status):
+    module = load_launcher_module()
+    resolution = {
+        "status": "resolved", "account_alias": "blue", "auth_session_mode": "hybrid",
+        "credential_ref_type": "auth-seed", "auth_refresh_source": "ryushe-proxy",
+        "auth_seed_usability": usability,
+    }
+
+    plan = module.auth_fallback_plan(resolution, "/synthetic/seeds/blue.json")
+
+    assert plan["status"] == status
+    if status == "needs-auth":
+        assert usability["state"] in plan["reason"] and usability["reasons"][0] in plan["reason"]
+        assert plan["steps"]

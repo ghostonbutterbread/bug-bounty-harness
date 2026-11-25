@@ -19,12 +19,15 @@
   exposing secret values.
 - **Inputs:** Program, account, operation, and registered inventory/auth references.
 - **Outputs:** Sanitized resolution, status, or refresh receipts.
-- **Mutates:** Some explicit refresh operations may update approved auth-seed
-  state; ordinary resolution is read-only.
+- **Mutates:** Explicit refresh operations write the approved auth seed (with
+  `captured_at`) and its inventory reference. When `resolve` actually runs the
+  declared liveness check, it records the non-secret result in the account's
+  `auth_seed_status`; it never rewrites the seed itself. See
+  [`../references/auth-seed-health.md`](../references/auth-seed-health.md).
 - **Example:** `bbh skills/account-management/scripts/auth_resolver.py resolve --program <program> --account <alias>`
-- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest skills/account-management/scripts/test_auth_resolver.py agents/test_account_inventory.py -q`
-- **Owner/scope:** Account Management skill.
-- **Last verified:** 2026-09-10.
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest skills/account-management/scripts/test_auth_resolver.py agents/test_auth_resolver.py agents/test_auth_seed_health.py agents/test_account_inventory.py -q`
+- **Owner/scope:** Account Management skill; planning-time seed usability lives in `agents/auth_seed_health.py`.
+- **Last verified:** 2026-11-24.
 
 ## `inventory_paths.py`
 

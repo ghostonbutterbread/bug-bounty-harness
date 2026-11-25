@@ -33,6 +33,12 @@ from kasmvnc_session import stop_session as stop_kasmvnc_session
 from mitm_chromium_profile import DEFAULT_CA_CERT, DEFAULT_CERT_NAME, prepare_profile_ca
 from inventory_paths import inventory_path as canonical_inventory_path
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from agents.auth_seed_health import classify_seed  # noqa: E402 - repository root is added above
+
 
 PORT_MIN = 9223
 PORT_MAX = 9500
@@ -434,6 +440,7 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         "auth_session_mode": resolution.get("auth_session_mode", "hybrid"),
         "credential_ref_type": ref_type,
         "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
+        "auth_seed_usability": classify_seed(account),
     }
 
 
@@ -477,13 +484,21 @@ def auth_fallback_plan(
             ],
         }
 
-    if auth_seed_file and not auth_seed_error:
+    usability = account_resolution.get("auth_seed_usability") or {}
+    recorded_dead = usability.get("state") in {"stale", "unusable"}
+    if auth_seed_file and not auth_seed_error and not recorded_dead:
         return {"status": "ready", "source": "stored-auth-seed"}
 
+    if auth_seed_error:
+        reason = "stored auth seed is missing or unusable"
+    elif auth_seed_file and recorded_dead:
+        reason = f"stored auth seed is recorded {usability['state']}: {', '.join(usability.get('reasons', []))}"
+    else:
+        reason = "no stored auth seed resolved"
     plan: dict[str, Any] = {
         "status": "needs-auth",
         "account_alias": account_resolution.get("account_alias"),
-        "reason": "stored auth seed is missing or unusable" if auth_seed_error else "no stored auth seed resolved",
+        "reason": reason,
         "credential_ref_type": ref_type,
         "auth_refresh_source": refresh_source,
         "steps": [],
@@ -629,6 +644,7 @@ def maybe_refresh_auth_seed(
                 "status": "refreshed",
                 "provenance": result.get("proxy_provenance", {}),
                 "host_filter": result.get("host_filter"),
+                "auth_seed_usability": result.get("auth_seed_usability"),
             }
     return seed_path, {
         key: result.get(key)
@@ -677,6 +693,9 @@ def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[s
     safe = safe_account_resolution(resolution, seed_path)
     if refresh_result:
         safe["auth_auto_refresh"] = refresh_result
+        if refresh_result.get("status") == "refreshed" and refresh_result.get("auth_seed_usability"):
+            # The inventory record read above predates this refresh.
+            safe["auth_seed_usability"] = refresh_result["auth_seed_usability"]
     return (str(seed_path) if seed_path else None), safe
 
 

@@ -70,8 +70,8 @@ For named accounts or colors, resolve auth in this order:
    Tailscale/SSH manual-login handoff. `unknown` also fails closed into that
    handoff; only `proxy-replayable` permits the explicitly recorded approved
    refresh source, while `hybrid` retains the existing safe fallback.
-3. Try the current stored auth seed/session or secret-store reference in the
-   agent lane when the recorded session mode permits it.
+3. Try the stored seed or secret-store reference in the agent lane when the session
+   mode permits; check `auth_seed_usability` first (`references/auth-seed-health.md`).
 4. When no usable seed exists and the program record permits it, automatically
    refresh only the selected account from Ryushe's proxy. Never reset an
    existing seed simply because the resolver runs.

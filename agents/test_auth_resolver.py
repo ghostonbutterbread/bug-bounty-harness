@@ -4,14 +4,21 @@ import importlib.util
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
+
+from agents.auth_seed_health import parse_utc
 
 
 def load_resolver_module():
     root = Path(__file__).resolve().parents[1]
     resolver = root / "skills" / "account-management" / "scripts" / "auth_resolver.py"
+    # The resolver imports its sibling inventory_paths module; do not depend on
+    # another test file having put the scripts directory on sys.path first.
+    if str(resolver.parent) not in sys.path:
+        sys.path.insert(0, str(resolver.parent))
     spec = importlib.util.spec_from_file_location("auth_resolver", resolver)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -619,3 +626,292 @@ def test_write_auth_seed_refuses_symlink_destination(tmp_path):
     with pytest.raises(SystemExit, match="not an owned regular file"):
         module.write_auth_seed(link, {"cookies": []})
     assert link.is_symlink() and target.read_text() == "original"
+
+
+
+SYNTHETIC_SECRETS = ("synthetic-cookie-value", "synthetic-bearer-value")
+
+
+def seed_file(tmp_path: Path, data: dict) -> Path:
+    seed = tmp_path / "seeds" / "blue.json"
+    seed.parent.mkdir(exist_ok=True)
+    seed.write_text(json.dumps(data))
+    os.chmod(seed, 0o600)
+    return seed
+
+
+def read_account(shared: Path) -> dict:
+    return json.loads((shared / "demo" / "credentials" / "account_inventory.json").read_text())["accounts"][0]
+
+
+def assert_no_secrets(*texts: str) -> None:
+    for text in texts:
+        for secret in SYNTHETIC_SECRETS:
+            assert secret not in text
+
+
+def test_refresh_records_captured_at_in_seed_and_unverified_status_in_inventory(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_refresh_source": "ryushe-proxy",
+        "auth_seed_status": {"captured_at": "2026-10-22T00:00:00+00:00", "auth_material": "present",
+                             "last_verified_at": "2026-10-22T00:00:00+00:00", "last_verified_result": "expired"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setenv("GHOST_AGENT_RUNTIME", "openclaw")
+    monkeypatch.setattr(module, "query_proxy_seed", lambda *_args: {"status": "found", "seed": {
+        "account_label": "blue", "session_source": "ryushe-proxy",
+        "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}],
+        "headers": {"Authorization": "synthetic-bearer-value", "User-Agent": "browser"},
+    }, "provenance": {}})
+
+    assert module.main(["refresh-from-ryushe-proxy", "--program", "demo", "--account", "blue",
+                        "--host-filter", "example.test", "--route-table", str(route_table)]) == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    seed_path = shared / "demo" / "credentials" / "auth_seeds" / "blue.json"
+    captured_at = json.loads(seed_path.read_text())["captured_at"]
+    status = read_account(shared)["auth_seed_status"]
+    assert parse_utc(captured_at) is not None
+    assert status == {"captured_at": captured_at, "auth_material": "present", "replayable_cookie_count": 1,
+                      "auth_header_names": ["Authorization"]}
+    assert result["auth_seed_usability"]["state"] == "unverified"
+    assert result["auth_seed_usability"]["reasons"] == ["never-verified"]
+    assert_no_secrets(output, (shared / "demo" / "credentials" / "account_inventory.json").read_text())
+
+
+def test_refresh_refuses_proxy_seed_without_auth_material_and_keeps_existing_seed(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    existing = seed_file(tmp_path, {"cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_refresh_source": "ryushe-proxy",
+        "auth_seed_ref": f"auth-seed:{existing}",
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setenv("GHOST_AGENT_RUNTIME", "openclaw")
+    monkeypatch.setattr(module, "query_proxy_seed", lambda *_args: {"status": "found", "seed": {
+        "cookies": [], "headers": {"User-Agent": "browser", "Accept": "*/*"},
+    }, "provenance": {}})
+    before = existing.read_text()
+
+    assert module.main(["refresh-from-ryushe-proxy", "--program", "demo", "--account", "blue",
+                        "--host-filter", "example.test", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "no-matching-proxy-auth"
+    assert result["proxy_query"]["status"] == "no-replayable-auth-material"
+    assert existing.read_text() == before
+    assert "auth_seed_status" not in read_account(shared)
+
+
+def test_resolve_records_failed_liveness_as_stale_without_printing_secrets(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"captured_at": "2026-10-22T08:00:00Z",
+                                "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_check": {"url": "https://api.example.test/v1/me?sig=abc", "method": "GET"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
+        "status": "failed", "url": url, "method": method, "status_code": 401})
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    status = read_account(shared)["auth_seed_status"]
+    assert result["status"] != "ready"
+    assert result["auth_seed_usability"]["state"] == "stale"
+    assert result["auth_seed_status_record"] == {"status": "recorded"}
+    assert status["captured_at"] == "2026-10-22T08:00:00Z"
+    assert status["last_verified_result"] == "expired"
+    assert status["last_verified_reason"] == "http-401"
+    assert status["last_verified_check"] == {"method": "GET", "url": "https://api.example.test/v1/me"}
+    assert parse_utc(status["last_verified_at"]) is not None
+    assert_no_secrets(output, json.dumps(status))
+
+
+def test_resolve_skips_liveness_for_seed_without_auth_material_and_is_not_ready(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"cookies": [], "headers": {"User-Agent": "browser"}})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_check_url": "https://api.example.test/v1/me",
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    def must_not_check(*_args):
+        raise AssertionError("liveness check sent without replayable auth material")
+
+    monkeypatch.setattr(module, "run_auth_check", must_not_check)
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] != "ready"
+    assert result["auth_check"] == {"status": "skipped", "reason": "no-replayable-auth-material",
+                                    "url": "https://api.example.test/v1/me"}
+    assert result["auth_seed"]["auth_material"] == "absent"
+    assert result["auth_seed_usability"]["state"] == "unusable"
+
+
+def test_resolve_old_format_seed_without_check_url_stays_ready_but_unverified(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{"alias": "blue", "pwnfox_color": "blue",
+                                                   "auth_seed_ref": f"auth-seed:{seed}"}]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ready"
+    assert result["auth_seed"]["captured_at"] is None
+    assert result["auth_seed_usability"] == {"state": "unverified", "reasons": ["never-verified"]}
+    assert "auth_seed_status" not in read_account(shared)
+
+
+def test_resolve_without_check_url_does_not_claim_ready_for_recorded_expired_seed(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"captured_at": "2026-10-22T08:00:00+00:00",
+                                "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_seed_status": {"captured_at": "2026-10-22T08:00:00+00:00", "auth_material": "present",
+                             "last_verified_at": "2026-11-24T08:00:00+00:00", "last_verified_result": "expired",
+                             "last_verified_reason": "http-401"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] != "ready"
+    assert result["auth_seed_usability"]["state"] == "stale"
+
+
+class FakeResponse:
+    def __init__(self, status, headers):
+        import email.message
+
+        self.status = status
+        self.headers = email.message.Message()
+        for name, value in headers.items():
+            self.headers[name] = value
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+@pytest.mark.parametrize(
+    "headers,status,reason",
+    [
+        ({"Content-Type": "application/json", "CF-Cache-Status": "HIT"}, "inconclusive", "cached-response"),
+        ({"Content-Type": "application/json", "Age": "120"}, "inconclusive", "cached-response"),
+        ({"Content-Type": "text/html; charset=utf-8"}, "inconclusive", "html-document"),
+        ({"Content-Type": "application/json", "CF-Cache-Status": "DYNAMIC"}, "passed", None),
+    ],
+)
+def test_auth_check_200_from_cache_or_html_shell_is_not_live(tmp_path, monkeypatch, headers, status, reason):
+    module = load_resolver_module()
+    seed = seed_file(tmp_path, {"cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+
+    class Opener:
+        def open(self, request, timeout):
+            return FakeResponse(200, headers)
+
+    monkeypatch.setattr(module.urllib.request, "build_opener", lambda *_args: Opener())
+
+    result = module.run_auth_check("https://api.example.test/v1/me", "GET", 1.0, seed)
+
+    assert result["status"] == status
+    assert result.get("reason") == reason
+
+
+
+def test_inconclusive_check_keeps_seed_ready_but_unverified_and_records_unknown(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    seed = seed_file(tmp_path, {"captured_at": "2026-11-24T08:00:00+00:00",
+                                "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    write_inventory(shared, "demo", {"accounts": [{"alias": "blue", "pwnfox_color": "blue",
+                                                   "auth_seed_ref": f"auth-seed:{seed}"}]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
+        "status": "inconclusive", "reason": "html-document", "url": url, "method": method, "status_code": 200})
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--target-url",
+                        "https://app.example.test/", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ready"
+    assert result["auth_check"]["discriminator_warning"]
+    assert result["auth_seed_usability"]["reasons"] == ["last-check-inconclusive:html-document"]
+    assert read_account(shared)["auth_seed_status"]["last_verified_result"] == "unknown"
+
+
+def test_inconclusive_check_does_not_overwrite_recorded_expiry(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    captured = "2026-10-22T08:00:00+00:00"
+    seed = seed_file(tmp_path, {"captured_at": captured,
+                                "cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    recorded = {"captured_at": captured, "auth_material": "present", "replayable_cookie_count": 1,
+                "auth_header_names": [], "last_verified_at": "2026-11-24T08:00:00+00:00",
+                "last_verified_result": "expired", "last_verified_reason": "http-401"}
+    write_inventory(shared, "demo", {"accounts": [{"alias": "blue", "pwnfox_color": "blue",
+                                                   "auth_seed_ref": f"auth-seed:{seed}",
+                                                   "auth_seed_status": recorded}]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "run_auth_check", lambda url, method, timeout, seed_path: {
+        "status": "inconclusive", "reason": "cached-response", "url": url, "method": method, "status_code": 200})
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--target-url",
+                        "https://app.example.test/", "--route-table", str(route_table)]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] != "ready"
+    assert result["auth_seed_usability"]["state"] == "stale"
+    assert "auth_seed_status_record" not in result
+    assert read_account(shared)["auth_seed_status"] == recorded
+
+
+
+def test_seed_writer_records_utc_captured_at_and_keeps_an_existing_capture_time(tmp_path):
+    module = load_resolver_module()
+    fresh = tmp_path / "fresh.json"
+    rewritten = tmp_path / "rewritten.json"
+
+    module.write_auth_seed(fresh, {"cookies": [{"name": "sid", "value": "synthetic-cookie-value"}]})
+    module.write_auth_seed(rewritten, {"captured_at": "2026-10-22T08:00:00+00:00", "cookies": []})
+
+    captured = parse_utc(json.loads(fresh.read_text())["captured_at"])
+    assert captured is not None and captured.utcoffset().total_seconds() == 0
+    assert json.loads(rewritten.read_text())["captured_at"] == "2026-10-22T08:00:00+00:00"

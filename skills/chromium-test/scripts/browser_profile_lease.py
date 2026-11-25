@@ -30,6 +30,12 @@ if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
 
 from inventory_paths import inventory_path, program_key, shared_base as shared_base
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from agents.auth_seed_health import classify_seed  # noqa: E402 - repository root is added above
+
 
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/browser-profile-leases").expanduser()
 DEFAULT_TTL_SECONDS = 30 * 60
@@ -580,6 +586,8 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
         "browser_lease_enabled": account.get("browser_lease_enabled") is True,
         "capabilities": [str(value) for value in capabilities],
         "auth_seed_configured": bool(account.get("auth_seed_ref") or account.get("credential_ref")),
+        # Non-secret recorded capture/verification metadata only; the seed file is not read here.
+        "auth_seed_usability": classify_seed(account),
         "auth_refresh_source": account.get("auth_refresh_source"),
         "owned_resource_types": sorted({str(item.get("type")) for item in resources if item.get("type")}),
         "owned_resource_count": len(resources),

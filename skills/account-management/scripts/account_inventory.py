@@ -15,6 +15,12 @@ from urllib.parse import unquote
 
 from inventory_paths import inventory_path, program_key
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from agents.auth_seed_health import auth_check_url_warning, classify_seed  # noqa: E402 - repository root is added above
+
 
 SCHEMA_VERSION = 6
 AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
@@ -278,6 +284,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
             f"pwnfox={account.get('pwnfox_color')}" if account.get("pwnfox_color") else "",
             f"destructible={account.get('destructible')}" if account.get("destructible") else "",
+            seed_state_label(account),
         ]
         print("  - " + " ".join(part for part in parts if part))
     print(f"Resources: {len(data.get('resources', []))}")
@@ -300,9 +307,30 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def seed_state_label(account: dict[str, Any]) -> str:
+    """Planning-time auth-seed usability, from non-secret inventory metadata only."""
+    verdict = classify_seed(account)
+    if verdict["state"] == "none":
+        return ""
+    return f"seed={verdict['state']}({','.join(verdict['reasons'])})"
+
+
+def positive_hours(value: str) -> float:
+    try:
+        hours = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a positive number of hours") from exc
+    if not hours > 0 or hours == float("inf"):
+        raise argparse.ArgumentTypeError("expected a positive number of hours")
+    return hours
+
+
 def cmd_add_account(args: argparse.Namespace) -> int:
     if args.alias.lower() in {"integration-profile", "integration_profile"}:
         raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
+    warning = auth_check_url_warning(args.auth_check_url)
+    if warning:
+        print(f"warning: {warning}", file=sys.stderr)
     values = compact_record(
         {
             "alias": args.alias,
@@ -325,6 +353,7 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "auth_check": compact_record({"url": args.auth_check_url, "method": args.auth_check_method}),
             "auth_check_url": args.auth_check_url,
             "auth_host_filter": args.auth_host_filter,
+            "auth_session_ttl_hours": args.auth_session_ttl_hours,
             "pwnfox_color": args.pwnfox_color,
             "destructible": args.destructible,
             "source": args.source,
@@ -339,6 +368,10 @@ def cmd_add_account(args: argparse.Namespace) -> int:
         for account in data["accounts"]
     ):
         raise SystemExit("account aliases must be unique without regard to case")
+    for existing in data["accounts"]:
+        # Recorded capture/verification metadata belongs to one seed; repointing drops it.
+        if existing.get("alias") == args.alias and args.auth_seed_ref and existing.get("auth_seed_ref") != args.auth_seed_ref:
+            existing.pop("auth_seed_status", None)
     action = upsert(data["accounts"], values, ("alias",))
     account_by_alias(data, args.alias).setdefault("linked_logins", [])
     account_by_alias(data, args.alias).setdefault("integrations", [])
@@ -552,7 +585,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     account.add_argument(
         "--auth-check-url",
-        help="Safe read-only URL used by auth_resolver.py to check whether this account is logged in.",
+        help=(
+            "Safe read-only URL used by auth_resolver.py to check whether this account is logged in. "
+            "It must respond differently by auth state (401 or a structured auth error when logged out); "
+            "a cached page or SPA shell that returns 200 either way is not a liveness check."
+        ),
+    )
+    account.add_argument(
+        "--auth-session-ttl-hours",
+        type=positive_hours,
+        help=(
+            "Declared session lifetime from auth-contract.md. Seeds older than this read as stale, "
+            "and a live check stays current for this long (default 24h when undeclared)."
+        ),
     )
     account.add_argument(
         "--auth-check-method",

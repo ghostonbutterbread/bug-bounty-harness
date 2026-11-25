@@ -272,3 +272,72 @@ def test_integration_profile_requires_an_active_non_reserved_owned_account(tmp_p
         assert "unique without regard to case" in str(exc)
     else:
         raise AssertionError("case-insensitive duplicate alias was accepted")
+
+
+
+def test_add_account_warns_on_static_auth_check_url_and_records_declared_ttl(tmp_path, monkeypatch, capsys):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    assert module.main(["add-account", "demo", "--alias", "blue", "--auth-check-url", "https://app.example.test/",
+                        "--auth-session-ttl-hours", "168"]) == 0
+    warned = capsys.readouterr().err
+    assert module.main(["add-account", "demo", "--alias", "cyan", "--auth-check-url", "https://api.example.test/v1/me"]) == 0
+    quiet = capsys.readouterr().err
+
+    assert "static or cacheable document" in warned
+    assert quiet == ""
+    accounts = {a["alias"]: a for a in module.load_inventory("demo")["accounts"]}
+    assert accounts["blue"]["auth_session_ttl_hours"] == 168.0
+    assert "auth_session_ttl_hours" not in accounts["cyan"]
+
+
+@pytest.mark.parametrize("hours", ["0", "-1", "nan", "inf", "soon"])
+def test_add_account_rejects_non_positive_ttl(tmp_path, monkeypatch, hours):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    with pytest.raises(SystemExit):
+        module.main(["add-account", "demo", "--alias", "blue", "--auth-session-ttl-hours", hours])
+
+
+def test_show_lists_seed_usability_without_live_traffic(tmp_path, monkeypatch, capsys):
+    module = load_inventory_module()
+    shared = tmp_path / "shared"
+    path = shared / "demo" / "credentials" / "account_inventory.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"schema_version": 6, "program": "demo", "accounts": [
+        {"alias": "legacy", "auth_seed_ref": "auth-seed:/synthetic/legacy.json"},
+        {"alias": "empty", "auth_seed_ref": "auth-seed:/synthetic/empty.json",
+         "auth_seed_status": {"captured_at": None, "auth_material": "absent"}},
+        {"alias": "dead", "auth_seed_ref": "auth-seed:/synthetic/dead.json",
+         "auth_seed_status": {"auth_material": "present", "last_verified_result": "expired",
+                              "last_verified_reason": "http-401", "last_verified_at": "2026-11-24T00:00:00+00:00"}},
+        {"alias": "browser-only"},
+    ]}))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    assert module.main(["show", "demo"]) == 0
+
+    lines = {line.split()[1]: line for line in capsys.readouterr().out.splitlines() if line.startswith("  - ")}
+    assert "seed=unverified(no-recorded-seed-status)" in lines["legacy"]
+    assert "seed=unusable(no-replayable-auth-material)" in lines["empty"]
+    assert "seed=stale(last-check-expired:http-401)" in lines["dead"]
+    assert "seed=" not in lines["browser-only"]
+
+
+
+def test_repointing_auth_seed_ref_drops_previous_seed_status(tmp_path, monkeypatch):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+    assert module.main(["add-account", "demo", "--alias", "blue", "--auth-seed-ref", "auth-seed:/synthetic/old.json"]) == 0
+    data = module.load_inventory("demo")
+    data["accounts"][0]["auth_seed_status"] = {"auth_material": "present", "last_verified_result": "expired"}
+    module.save_inventory("demo", data)
+
+    assert module.main(["add-account", "demo", "--alias", "blue", "--role", "member"]) == 0
+    assert "auth_seed_status" in module.load_inventory("demo")["accounts"][0]
+    assert module.main(["add-account", "demo", "--alias", "blue", "--auth-seed-ref", "auth-seed:/synthetic/old.json"]) == 0
+    assert "auth_seed_status" in module.load_inventory("demo")["accounts"][0]
+    assert module.main(["add-account", "demo", "--alias", "blue", "--auth-seed-ref", "auth-seed:/synthetic/new.json"]) == 0
+    assert "auth_seed_status" not in module.load_inventory("demo")["accounts"][0]

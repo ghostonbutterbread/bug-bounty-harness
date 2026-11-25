@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-11-24
 - **Owning feature branch/ref:** `fix/mapstore-update-in-place`
-- **Latest immutable recovery checkpoint:** recorded in the follow-up dossier-only commit (Git cannot embed a commit's own SHA)
-- **Feature implementation commit(s):** `18529a2995be6fda138834fea651d302ebbf0d8a` (initial supersede); review-loop-1 fix commit recorded in the follow-up dossier-only commit
+- **Latest immutable recovery checkpoint:** `30de7489366dabe345ea6a03a96e3ee94a256bcd`; the branch tip adds a later dossier-only commit
+- **Feature implementation commit(s):** `18529a2995be6fda138834fea651d302ebbf0d8a` (initial supersede); `30de7489366dabe345ea6a03a96e3ee94a256bcd` (review loop 1)
 - **Inspiration / canonical references:** papercut `PC-20261006-184250-c75063f4` (HIGH, breaking); `bf777097` (append-safe URL observations), `f336512e` (reviewer attribution on updates), `ad546f6e` (retain orientation on behavior updates)
 
 ## Intent
@@ -91,9 +91,10 @@ tests/test_papercut_contract_docs.py`.
   `92782cf1` code: 10 of 12 fail as expected; the case/whitespace and
   same-non-ASCII-title supersede tests pass on both.
 - Base `origin/beta` `6f6ce2a9`, 9-file selection: 127 passed.
-- Branch working tree (identical to the review-fix commit), 9-file selection:
+- Branch `30de7489` (receipts taken on its identical working tree), 9-file selection:
   144 passed
-  (127 existing, 3 of them updated to the supersede contract, + 17 new).
+  (127 existing, 2 duplicate-title tests updated to the supersede contract,
+  + 17 new: 7 from the initial fix, 10 from review loop 1).
 - `git diff --check` clean; `skills/map-store/SKILL.md` stays at its 544-line
   budget.
 - Independent review loop 1 (parent): BLOCK on untitled collapse plus nits;
@@ -136,3 +137,4 @@ tests/test_papercut_contract_docs.py`.
   failures reported per entry without failing the write; file-before-index
   ordering; output links; docs corrected; consumer follow-up recorded in
   `BUGFIXES.md`.
+- 2026-11-24 — review-loop-1 fix `30de7489` committed and pushed; re-review pending.

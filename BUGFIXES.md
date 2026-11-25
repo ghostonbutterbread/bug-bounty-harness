@@ -488,3 +488,30 @@ stored. The shell CLI rejects null and non-string required fields itself.
 **Impact:** Python callers get a confusing error for null fields and can store
 non-string required fields (schema drift). Decide in a separate task whether
 the library should require nonempty strings for the five fields.
+
+## Dormant-split navigation assertion expects a bare-FID packet link
+
+**Location:** `agents/test_dormant_split.py:586`,
+`TestSharedDormantSubtierPreservation.test_promotion_and_reporting_preserve_dormant_subtier_labels`.
+**Evidence:** fails identically on unchanged beta `0821e438` and on
+`fix/ledger-write-hot-path` with Bounty Core at the requirements pin `9db8b23d`.
+The test asserts `D01/EVIDENCE|D01]]`, but the reserved packet is
+`D01-<title-slug>/` and the navigation link is
+`[[../../D01-dormant-active-dom-sink/EVIDENCE|D01]]`.
+**Impact:** one red test in the ledger-adjacent suites. Update the assertion to
+match the titled packet in a separate bounded task. Do not change packet naming
+to satisfy it.
+
+## MapStore consumers do not follow supersede chains
+
+**Location:** `agents/hypothesis_ledger.py` `_public_lead`; Application Behavior
+`observation_paths` in `agents/map_store.py` (`write_behavior`, `query_behaviors`).
+**Evidence:** found in review of `fix/mapstore-update-in-place`. A titled MapStore
+re-write archives the prior entry with `superseded_by`. `_public_lead` resolves an
+exact lead path including archived entries and returns the superseded card
+without its successor. Behavior records keep the archived path in
+`observation_paths`; only `behavior show` displays the forward link.
+**Impact:** a follow-up or behavior lookup can start from superseded evidence.
+In a separate task, decide whether these consumers should resolve or surface
+`superseded_by` (for example a warning naming the current path), without
+rewriting stored IDs implicitly.

@@ -55,6 +55,8 @@ from bounty_core.reports import (
 )
 from bounty_core.storage import StorageLayout, resolve_storage
 
+from agents.ledger_report_dirs import apply_pointer_issues, find_pointer_issues
+
 TOMBSTONE_FILENAME = "deleted-findings.jsonl"
 TOMBSTONE_SCHEMA = "bbh-deleted-finding/2"
 ARCHIVE_STATUS = "archive"
@@ -739,6 +741,9 @@ def delete_finding_by_fid(
                 "deleted_by": (deleted_by or "").strip() or DEFAULT_ACTOR,
             })
             payload["findings"] = remaining
+            # The post-commit refresh preflights every remaining finding; carry the
+            # canonical form of any safely resolvable legacy relative pointer.
+            apply_pointer_issues(remaining, find_pointer_issues(layout, remaining))
             payload["updated_at"] = _timestamp_iso()
             try:
                 # Commit point: Bounty Core's writer ends in one rename, so if it

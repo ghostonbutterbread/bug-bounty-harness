@@ -30,8 +30,10 @@ from agents.ledger import (
     create_team_ledger_from_storage,
     ledger_get,
     patch_finding_by_fid,
+    read_team_findings,
     update_team_finding,
 )
+from agents.ledger_report_dirs import repair_report_dirs
 from agents.ledger_tombstones import (
     EXIT_OK,
     EXIT_PARTIAL,
@@ -49,7 +51,7 @@ from agents.report_checker import (
     _merge_findings,
 )
 from agents.shared_brain import load_index
-from agents.snapshot_identity import get_snapshot_identity
+from agents.snapshot_identity import _normalize_version_label, default_manifest_cache_dir, get_snapshot_identity
 from agents.source_roots import resolve_source_root
 from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
@@ -299,7 +301,9 @@ def _build_hunt_context(
         "exe": "desktop application",
         "mac": "macOS application",
     }.get(resolved_lane, "target")
-    snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
+    snapshot_identity = get_snapshot_identity(
+        target_root, version_label=version_label, manifest_cache_dir=default_manifest_cache_dir(),
+    )
     examined_rows: list[dict[str, Any]] = []
     unexplored_rows: list[dict[str, Any]] = []
     legacy_auto_marks = False
@@ -1294,9 +1298,13 @@ class ManualHunter:
         self.source_root = self._resolve_source_root(source_root)
         self.migrate = bool(migrate)
         target_root = self.source_root or Path.cwd()
-        self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
-        self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
-        self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
+        # The snapshot identity hashes every file of a non-git source root, so it
+        # is resolved lazily (see the ``snapshot_identity`` property): only
+        # ingesting a new finding/sighting stamps it. ``version_label`` is the
+        # value the identity would report.
+        self._snapshot_root = target_root
+        self._snapshot_identity: dict[str, Any] | None = None
+        self.version_label = _normalize_text(_normalize_version_label(self.version_label or None))
         self.storage = resolve_storage(
             self.program,
             family=self.family,
@@ -1315,7 +1323,7 @@ class ManualHunter:
             storage=self.storage,
             target_root=target_root,
             version_label=self.version_label or None,
-            snapshot_identity=self.snapshot_identity,
+            snapshot_loader=lambda: self.snapshot_identity,
             agent="manual-hunter",
         )
         self.comment_store = DuplicateCommentStore(
@@ -1330,6 +1338,24 @@ class ManualHunter:
             lane=self.lane,
             root_override=self.storage_root,
         )
+
+    @property
+    def snapshot_identity(self) -> dict[str, Any]:
+        """Snapshot of the source root, computed on first use and cached per tree."""
+        if self._snapshot_identity is None:
+            self._snapshot_identity = get_snapshot_identity(
+                self._snapshot_root, version_label=self.version_label or None,
+                manifest_cache_dir=default_manifest_cache_dir(),
+            )
+        return self._snapshot_identity
+
+    @snapshot_identity.setter
+    def snapshot_identity(self, value: dict[str, Any]) -> None:
+        self._snapshot_identity = value
+
+    @property
+    def snapshot_id(self) -> str:
+        return _normalize_text(self.snapshot_identity.get("snapshot_id"))
 
     def _resolve_source_root(self, override: str | Path | None) -> Path | None:
         return resolve_source_root(
@@ -1415,8 +1441,11 @@ class ManualHunter:
         target_fid = _normalize_text(fid)
         if not target_fid:
             raise ValueError("finding fid is required")
+        # A metadata lookup: no snapshot ordering needed, so the identity stays unresolved.
         current = next(
-            (item for item in self.ledger.list_all() if _normalize_text(item.get("fid")).upper() == target_fid.upper()),
+            (item for item in read_team_findings(self.program, family=self.family, lane=self.lane,
+                                                 root_override=self.storage_root)
+             if _normalize_text(item.get("fid")).upper() == target_fid.upper()),
             None,
         )
         if current is None:
@@ -1593,8 +1622,10 @@ class ManualHunter:
         target_root = self.source_root or _default_source_root(self.program)
         reports_dir = (self.storage.reports_root / "raw").resolve(strict=False)
         reports_dir.mkdir(parents=True, exist_ok=True)
-        self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
-        self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
+        self.snapshot_identity = get_snapshot_identity(
+            target_root, version_label=self.version_label or None,
+            manifest_cache_dir=default_manifest_cache_dir(),
+        )
         self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
         write_context_files(self.storage)
 
@@ -1707,6 +1738,12 @@ def build_parser() -> argparse.ArgumentParser:
         "report/evidence files, and lists every file it leaves. Exit 0 ok, 1 refused, 3 deleted with warnings.",
     )
     mode.add_argument(
+        "--repair-report-dirs", action="store_true",
+        help="List findings whose report_dir/report_path/evidence_path is relative or not in canonical form "
+        "(dry run, the default). With --apply, rewrite the safely resolvable ones to the canonical absolute "
+        "packet path under the ledger lock. Exit 0 clean/repaired, 2 issues remain.",
+    )
+    mode.add_argument(
         "--hunt",
         action="store_true",
         help="Hunt with Codex using current Ghost state as coordination context. Loads coverage/unexplored "
@@ -1743,6 +1780,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "dropped"), default="submitted")
     parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
     parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
+    repair_mode = parser.add_mutually_exclusive_group()
+    repair_mode.add_argument("--dry-run", action="store_true",
+                             help="With --repair-report-dirs: only list (the default).")
+    repair_mode.add_argument("--apply", action="store_true",
+                             help="With --repair-report-dirs: rewrite repairable pointers.")
     parser.add_argument("--actor", help="Agent/user label recorded as deleted_by (default: manual_hunter).")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
@@ -1782,6 +1824,39 @@ def delete_finding_cli(args: argparse.Namespace) -> int:
     return EXIT_PARTIAL if result.warnings else EXIT_OK
 
 
+def repair_report_dirs_cli(args: argparse.Namespace) -> int:
+    """``--repair-report-dirs`` without ManualHunter's storage/context side effects."""
+    try:
+        family, lane = resolve_family_lane(
+            family=_normalize_text(args.family) or None,
+            lane=_normalize_text(args.lane) or None,
+            hunt_type=args.hunt_type or args.lane,
+        )
+        storage_root = Path(args.storage_root).expanduser().resolve(strict=False) if args.storage_root else None
+        result = repair_report_dirs(
+            _sanitize_program_name(args.program), family=family, lane=lane,
+            root_override=storage_root, apply=bool(args.apply),
+        )
+    except Exception as exc:
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    mode = "apply" if args.apply else "dry-run"
+    print(f"Ledger: {result.ledger_path} ({mode})")
+    if not result.issues:
+        print("No relative or non-canonical packet pointers.")
+        return EXIT_OK
+    for issue in result.issues:
+        if issue.repairable:
+            verb = "Repaired" if result.applied else "Would repair"
+            print(f"{verb}: {issue.fid} {issue.key}: {issue.stored} -> {issue.canonical} ({issue.reason})")
+        else:
+            print(f"Manual review: {issue.fid} {issue.key}: {issue.stored} ({issue.reason})")
+    print(f"Summary: {len(result.repairable)} repairable, {len(result.unrepairable)} need manual review"
+          + ("; ledger rewritten" if result.applied else "; nothing written"))
+    remaining = result.unrepairable if result.applied else result.issues
+    return 2 if remaining else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1789,8 +1864,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--actor is only valid with --delete-finding")
     if bool(args.edit_finding) != bool(args.patch_file):
         raise ValueError("--edit-finding and --patch-file must be used together")
+    if (args.dry_run or args.apply) and not args.repair_report_dirs:
+        parser.error("--dry-run/--apply are only valid with --repair-report-dirs")
     if args.delete_finding:
         return delete_finding_cli(args)
+    if args.repair_report_dirs:
+        return repair_report_dirs_cli(args)
     verbosity = clamp_verbosity(args.verbose)
     note = None
     if args.from_file:
@@ -1838,7 +1917,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.edit_finding:
         return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission,
-                             args.edit_finding, args.delete_finding)):
+                             args.edit_finding, args.delete_finding, args.repair_report_dirs)):
         if verbosity.verbose:
             print(f"[/ledger] verbosity={verbosity.level}")
             print(f"[/ledger] storage_root={hunter.storage.lane_root}")

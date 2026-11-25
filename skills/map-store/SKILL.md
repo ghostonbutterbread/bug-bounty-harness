@@ -83,9 +83,10 @@ For a stateful/browser-backed capability, use the mapping evidence checklist in
    missing tag alone is not a reason to duplicate an identical attempt or start
    broad re-testing; preserve normal scope, rate, lifecycle, and dedupe rules.
 6. Do the work.
-7. Write back important positive and negative observations.
-8. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
-   facts.
+7. Write back important positive and negative observations. Give each distinct
+   fact its own `--title`; only titled writes supersede. To correct one, re-write
+   the same title, tags and location; the old entry is archived and linked.
+8. Use `--scope app` for app-wide and `--scope surface` for surface-wide facts.
 9. Add vuln-class/status tags so specialist agents can filter. For a
    stack-grounded pre-probe class decision, add `class-derivation` and, only for
    a defensible low/not-applicable conclusion, `declined` plus the relevant
@@ -533,9 +534,8 @@ bbh agents/map_store.py update-status --program <program> --family web_bounty --
 bbh agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
 ```
 
-Prefer `--body-file` or `--body-stdin` for Markdown observations. Inline
-`--body` is only for simple text; backticks and other shell metacharacters can
-be interpreted by the shell before MapStore receives them.
+Prefer `--body-file` or `--body-stdin` for Markdown observations; with inline
+`--body`, the shell can interpret backticks and other metacharacters.
 
 Open `references/routing-examples.md` for MapStore vs Bounty Notes examples.
 Open `references/map-store-reference.md` for scope levels, surfaces, tags,

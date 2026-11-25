@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import platform as platform_lib
 import subprocess
 import sys
@@ -111,6 +112,7 @@ def _manifest_hash(target_root: Path, entries: list[tuple[Path, str, os.stat_res
 MANIFEST_CACHE_SCHEMA = "bbh-snapshot-manifest-cache/2"
 MANIFEST_CACHE_MAX_AGE_SECONDS = 30 * 24 * 3600
 MANIFEST_CACHE_MAX_ENTRIES = 512
+_CACHE_ENTRY_NAME = re.compile(r"[0-9a-f]{64}\.json")  # only our own entries are ever pruned
 
 
 def default_manifest_cache_dir() -> Path:
@@ -190,7 +192,8 @@ def _prune_manifest_cache(cache_dir: Path, *, keep: Path | None = None) -> None:
         now = time.time()
         aged: list[tuple[float, Path]] = []
         for entry in cache_dir.glob("*.json"):
-            if entry == keep or entry.is_symlink() or not entry.is_file():
+            if (entry == keep or not _CACHE_ENTRY_NAME.fullmatch(entry.name)
+                    or entry.is_symlink() or not entry.is_file()):
                 continue
             mtime = entry.stat().st_mtime
             if now - mtime > MANIFEST_CACHE_MAX_AGE_SECONDS:

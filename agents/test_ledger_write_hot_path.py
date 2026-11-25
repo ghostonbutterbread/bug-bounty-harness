@@ -202,14 +202,18 @@ class ManifestCacheTests(unittest.TestCase):
         old.write_text("{}", encoding="utf-8")
         past = time.time() - snap.MANIFEST_CACHE_MAX_AGE_SECONDS - 60
         os.utime(old, (past, past))
+        foreign = self.cache / "settings.json"
+        foreign.write_text("{}", encoding="utf-8")
+        os.utime(foreign, (past, past))
         with patch.object(snap, "MANIFEST_CACHE_MAX_ENTRIES", 3):
             for index in range(5):
                 (self.cache / f"{index:064d}.json").write_text("{}", encoding="utf-8")
                 os.utime(self.cache / f"{index:064d}.json", (time.time() - 100 + index, time.time() - 100 + index))
             self.cached()
-        remaining = sorted(path.name for path in self.cache.glob("*.json"))
+        remaining = sorted(path.name for path in self.cache.glob("*.json") if path.name != "settings.json")
         self.assertNotIn(old.name, remaining)
         self.assertEqual(len(remaining), 3)
+        self.assertTrue((self.cache / "settings.json").exists())  # foreign files are never pruned
         self.assertIn(snap._cache_file(self.cache, self.tree.resolve()).name, remaining)
 
     def test_rename_and_new_file_invalidate(self) -> None:

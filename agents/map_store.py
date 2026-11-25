@@ -1198,7 +1198,8 @@ class MapStore:
                 print(
                     f"WARNING: MapStore wrote {new_path}, but archiving superseded entry "
                     f"{old_path} did not complete: {exc}. Recover with: map_store.py "
-                    f"update-status --path {old_path} --status archived "
+                    f"update-status --program {self._program} --family {self._family} "
+                    f"--lane {self._lane} --path {old_path} --status archived "
                     f"--reason 'Superseded by {new_path}'",
                     file=sys.stderr,
                 )

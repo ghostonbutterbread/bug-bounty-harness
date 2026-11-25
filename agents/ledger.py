@@ -8,6 +8,7 @@ read/write the shared version-aware ledger while preserving the existing
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +22,13 @@ from bounty_core.ledger import (  # noqa: E402
     ledger_get,
     ledger_list,
     ledger_path,
-    patch_finding_by_fid,
+    patch_finding_by_fid as core_patch_finding_by_fid,
     update_coverage_state as core_update_coverage_state,
 )
 from bounty_core.reports import EVIDENCE_ONLY
 
+from agents.ledger_report_dirs import normalize_lane_packet_pointers
+from agents.snapshot_identity import _normalize_version_label
 from agents.ledger_tombstones import (
     delete_finding_by_fid,
     skip_message,
@@ -48,6 +51,71 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
     ``tombstoned=True`` so callers skip it instead of inserting it.
     """
 
+    def __init__(
+        self,
+        program: str,
+        *,
+        target_root: str | Path,
+        version_label: str | None = None,
+        snapshot_identity: dict[str, Any] | None = None,
+        snapshot_loader: Callable[[], dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """``snapshot_loader`` defers the snapshot identity until a write stamps it.
+
+        Bounty Core computes ``get_snapshot_identity`` (a full-tree hash for a
+        non-git root) in its constructor. Metadata writes never read it, so a
+        caller may pass a loader instead; it runs once, outside the ledger
+        lock, before the first operation that stamps a snapshot.
+        """
+        if snapshot_identity is not None or snapshot_loader is None:
+            super().__init__(program, target_root=target_root, version_label=version_label,
+                             snapshot_identity=snapshot_identity, **kwargs)
+            return
+        # A placeholder keeps Bounty Core's constructor from hashing; version_label
+        # is exactly what the deferred identity will report.
+        deferred_version = _normalize_version_label(version_label)
+        super().__init__(program, target_root=target_root, version_label=version_label,
+                         snapshot_identity={"snapshot_id": "", "version_label": deferred_version}, **kwargs)
+        self.__dict__["_snapshot_identity"] = None
+        self.__dict__.pop("_snapshot_id", None)
+        self.__dict__["_snapshot_loader"] = snapshot_loader
+
+    @property
+    def snapshot_identity(self) -> dict[str, Any]:
+        identity = self.__dict__.get("_snapshot_identity")
+        if identity is None:
+            loader = self.__dict__.get("_snapshot_loader")
+            identity = dict(loader()) if loader is not None else {}
+            self.__dict__["_snapshot_identity"] = identity
+        return identity
+
+    @snapshot_identity.setter
+    def snapshot_identity(self, value: dict[str, Any]) -> None:
+        self.__dict__["_snapshot_identity"] = value
+
+    @property
+    def snapshot_id(self) -> str:
+        if "_snapshot_id" in self.__dict__:
+            return self.__dict__["_snapshot_id"]
+        return str(self.snapshot_identity.get("snapshot_id") or "").strip()
+
+    @snapshot_id.setter
+    def snapshot_id(self, value: str) -> None:
+        self.__dict__["_snapshot_id"] = value
+
+    @property
+    def snapshot_loaded(self) -> bool:
+        return self.__dict__.get("_snapshot_identity") is not None or "_snapshot_id" in self.__dict__
+
+    def _load_snapshot(self) -> None:
+        """Resolve a deferred identity before Bounty Core takes the ledger lock."""
+        _ = self.snapshot_id
+
+    def _normalize_packet_pointers(self) -> None:
+        normalize_lane_packet_pointers(self.program, family=self.family, lane=self.lane,
+                                       root_override=self.root_override)
+
     def _tombstone_match(self, candidate: dict[str, Any], *, loose: bool) -> str | None:
         # ``loose`` only where Bounty Core's own lookup falls back to (file, class):
         # ledger_check (check), import_finding, and reserve_batch.
@@ -62,12 +130,15 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
         fid = self._tombstone_match(finding_dict, loose=True)
         if fid:
             return self._skipped(finding_dict, fid, f"{self.agent} check")
+        self._load_snapshot()
         return super().check(finding_dict)
 
     def import_finding(self, candidate: dict[str, Any], *, packet_mode: str = EVIDENCE_ONLY) -> tuple[bool, str, dict[str, Any]]:
         fid = self._tombstone_match(candidate, loose=True)
         if fid:
             return self._skipped(candidate, fid, f"{self.agent} import")
+        self._load_snapshot()
+        self._normalize_packet_pointers()
         return super().import_finding(candidate, packet_mode=packet_mode)
 
     def reserve_batch(self, candidates: list[dict[str, Any]]) -> list[tuple[bool, str | None, dict[str, Any]]]:
@@ -76,6 +147,8 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
         guard = tombstone_guard_for_layout(self.storage)
         matches = [guard.match(c, loose=True) if guard and isinstance(c, dict) else None for c in candidates]
         allowed = [c for c, m in zip(candidates, matches) if not m]
+        if allowed:
+            self._load_snapshot()
         reserved = iter(super().reserve_batch(allowed) if allowed else [])
         return [self._skipped(c, m, f"{self.agent} batch") if m else next(reserved)
                 for c, m in zip(candidates, matches)]
@@ -84,6 +157,7 @@ class TombstoneAwareFindingsLedger(VersionedFindingsLedger):
         fid = self._tombstone_match(finding_with_fid, loose=False)  # ledger_add: full key only
         if fid:
             return self._skipped(finding_with_fid, fid, f"{self.agent} update")[2]
+        self._load_snapshot()
         return super().update(finding_with_fid)
 
 
@@ -99,6 +173,7 @@ def create_team_ledger(
     target_root: str | Path,
     version_label: str | None = None,
     snapshot_identity: dict[str, Any] | None = None,
+    snapshot_loader: Callable[[], dict[str, Any]] | None = None,
     run_id: str | None = None,
     agent: str = "codex",
     lane: str,
@@ -110,13 +185,15 @@ def create_team_ledger(
 
     Connected team modules should use this helper instead of instantiating
     VersionedFindingsLedger directly so future shared ledger logic stays
-    centralized.
+    centralized. Pass ``snapshot_loader`` instead of ``snapshot_identity`` to
+    defer identity computation until a write stamps a snapshot.
     """
     return TombstoneAwareFindingsLedger(
         program,
         target_root=target_root,
         version_label=version_label,
         snapshot_identity=snapshot_identity,
+        snapshot_loader=snapshot_loader,
         run_id=run_id,
         agent=agent,
         lane=lane,
@@ -133,6 +210,7 @@ def create_team_ledger_from_storage(
     target_root: str | Path,
     version_label: str | None = None,
     snapshot_identity: dict[str, Any] | None = None,
+    snapshot_loader: Callable[[], dict[str, Any]] | None = None,
     run_id: str | None = None,
     agent: str = "codex",
 ) -> VersionedFindingsLedger:
@@ -142,6 +220,7 @@ def create_team_ledger_from_storage(
         target_root=target_root,
         version_label=version_label,
         snapshot_identity=snapshot_identity,
+        snapshot_loader=snapshot_loader,
         run_id=run_id,
         agent=agent,
         lane=storage.lane,
@@ -149,6 +228,37 @@ def create_team_ledger_from_storage(
         root_override=_explicit_root_from_storage(storage),
     )
 
+
+def patch_finding_by_fid(
+    program: str,
+    fid: str,
+    patch: dict[str, Any],
+    *,
+    lane: str = "apk",
+    family: str | None = None,
+    root_override: str | Path | None = None,
+    storage_root: str | Path | None = None,
+    write_report: bool = False,
+    refresh: bool = False,
+    packet_mode: str | None = None,
+    **kwargs: Any,
+) -> dict[str, Any] | None:
+    """Bounty Core ``patch_finding_by_fid`` that tolerates legacy relative packet pointers.
+
+    A refreshing or packet-writing patch preflights every finding in the lane,
+    so first persist the canonical absolute form of any safely resolvable
+    legacy pointer (``reports/<FID>``). Unsafe values are left unchanged and
+    Bounty Core still refuses them.
+    """
+    if packet_mode is not None:
+        kwargs["packet_mode"] = packet_mode
+    if refresh or write_report or packet_mode is not None:
+        normalize_lane_packet_pointers(program, family=family, lane=lane,
+                                       root_override=root_override, storage_root=storage_root)
+    return core_patch_finding_by_fid(
+        program, fid, patch, lane=lane, family=family, root_override=root_override,
+        storage_root=storage_root, write_report=write_report, refresh=refresh, **kwargs,
+    )
 
 
 def read_team_findings(

@@ -424,6 +424,12 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}")
         return 2
+    except OSError as exc:
+        # Scope file reads (ScopeFileReadError, caught by base class so module
+        # identity does not matter), scope pulls (network) and layout writes.
+        print(f"error: could not read or fetch scope, or write program files: {exc}")
+        print("hint: fix the cause above (file permissions/content or network), then retry")
+        return 2
     if args.json:
         print(json.dumps(result, indent=2))
     else:

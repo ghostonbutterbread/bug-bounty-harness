@@ -222,16 +222,30 @@ class HarnessConstraints:
         self._rate_tracker = self.state.setdefault("_rate_tracker", {})
 
     def is_in_scope(self, url: str) -> bool:
-        """Check if URL is within scope domains. Returns True/False."""
+        """Check if an http(s) URL on port 80/443 is within scope domains.
+
+        The host comes from ScopeValidator's parser, which refuses
+        backslashes, userinfo, control characters and malformed ports rather
+        than guessing the host an HTTP client would contact. The import is
+        local so CampaignState-only users need no scope dependencies; an
+        import failure propagates instead of silently denying every URL.
+        """
         try:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            host = parsed.netloc.lower()
-            # Remove port if standard
-            host = re.sub(r":(80|443)$", "", host)
+            from agents.scope_validator import _extract_host, _safe_host
+        except ModuleNotFoundError:
+            from scope_validator import _extract_host, _safe_host
+        try:
+            from urllib.parse import urlsplit
+            scheme, separator, rest = url.partition("://")
+            if not separator or scheme.lower() not in ("http", "https"):
+                return False
+            url = f"{scheme.lower()}://{rest}"  # schemes are case-insensitive
+            host = _extract_host(url)
+            if not host or urlsplit(url).port not in (None, 80, 443):
+                return False
             for domain in self.scope_domains:
-                domain = domain.lower()
-                if host == domain or host.endswith(f".{domain}"):
+                domain = _safe_host(str(domain))
+                if domain and (host == domain or host.endswith(f".{domain}")):
                     return True
             return False
         except Exception:

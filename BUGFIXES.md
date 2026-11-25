@@ -34,7 +34,7 @@ weaken the lane or script-index checks to release an unrelated skill change.
 **Evidence:** all four expect `reports/findings/...` while the canonical writer now uses `reports/<FID>/REPORT.md`; they fail identically on unchanged BBH beta when tested with the same installed Bounty Core revision.
 **Impact:** related reporting suites remain red despite a working FID packet. Update the tests to assert canonical paths in a separate bounded task; do not revive legacy duplicate report files.
 
-## ScopeManager does not load explicit exclusions
+## ScopeManager does not load explicit exclusions — resolved
 
 **Location:** `agents/scope_manager.py:17-27`, `_load_domains`, `_load_urls`,
 and `is_in_scope`.
@@ -46,6 +46,14 @@ its candidate scope filenames omit `out-of-scope.txt` and `excluded.txt`.
 **Impact:** an explicitly excluded host can still be accepted by ScopeManager
 when it matches an allow. This is separate from ScopeValidator's annotation
 parsing defect and is intentionally not fixed in that bounded parser task.
+
+**Resolution:** ScopeManager now builds a ScopeValidator over the same canonical
+and legacy roots and refuses any target `is_out_of_scope` reports, so exclusion
+files, canonical-over-legacy precedence, annotations, wildcard/URL-path deny-wins
+matching and invalid-exclusion deny-all are shared rather than reimplemented.
+Allow files and the `domains`/`urls` attributes are unchanged. An unreadable
+exclusion file now raises `ScopeExclusionReadError` at construction. Regression:
+`tests/test_scope_gate_exclusions.py`.
 
 ## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word — resolved
 
@@ -154,7 +162,7 @@ Queue's host-oriented behavior does not establish exclusion enforcement.
 Separately verify request containment before active use. Reconcile affected
 branches deliberately; do not describe host filters as a full egress fix.
 
-## urlparse accepts a backslash-userinfo host that Go tooling rejects
+## urlparse accepts a backslash-userinfo host that Go tooling rejects — resolved
 
 **Location:** `agents/scope_validator.py` `_extract_host`, via `urlparse`.
 
@@ -168,7 +176,13 @@ identically before the scope normalization change.
 gates. Not exploitable through the current corpus, but the gate should agree
 with whatever actually issues the request. Needs its own task.
 
-## Suffix scope checks outside the subdomain agent use unparsed hosts
+**Resolution:** ScopeValidator's `_extract_host` already refuses backslashes,
+userinfo, percent escapes, control characters and malformed ports (`db9f27dc`).
+ScopeManager kept its own `urlparse` copy with the same differential; it now
+uses the shared `_extract_host`, as do the two checks in the next entry.
+Regression: `tests/test_scope_gate_exclusions.py`.
+
+## Suffix scope checks outside the subdomain agent use unparsed hosts — resolved
 
 **Location:** `harness_core.py` `HarnessConstraints.is_in_scope` / `enforce`;
 `agents/recon/asset_intelligence.py` `host_from_value` / `scope_matches`.
@@ -188,6 +202,32 @@ per-candidate requests.
 `enforce()` can reach another authority. Asset-graph records can carry a wrong
 `in-scope` label. Fix each under its own task by reusing the parsed-host check
 (`scope_validator._extract_host` / `subdomain_agent.is_target_host`).
+
+**Resolution:** both use ScopeValidator's `_extract_host`/`_safe_host`.
+`HarnessConstraints` keeps its contract (http(s) in any letter case, port
+80/443, suffix match) and lets a scope-module import failure propagate instead
+of denying silently. Asset labels read a bare value as an http authority, so
+`host:port` keeps its label and `evil.test?x=.target.com` labels as
+`evil.test`; an unparseable URL/host labels out-of-scope when exclusions exist.
+
+The real fuzz caller was also ungated: `run_campaign.py run --agent fuzz` built
+`FuzzAgent(campaign)` without a program, so `FuzzAgent.is_in_scope` returned
+True and `HarnessConstraints` (campaign domain list, no exclusions) was the only
+check; `in-scope.txt` `x.com` plus `out-of-scope.txt` `admin.x.com` let
+`https://admin.x.com` through. Even with a program, only the target was checked:
+wordlist entries such as `admin` reached ffuf under a `https://x.com/admin`
+exclusion, and a target with `?query`/`#fragment` put `FUZZ` beside, not under,
+an allowed path. `run_fuzz` now passes the campaign's recorded
+`program_config.program` and refuses to run (exit 1, no requests) without a
+valid one; `FuzzAgent` without a program raises; an empty saved scope raises
+from `run()`. The program's ScopeValidator (allows and exclusions, path
+exclusions case-insensitively) now checks the target and each concrete URL
+handed to ffuf (`<target path>/<entry>`, query/fragment dropped), and
+HarnessConstraints checks the target's domain. What ffuf does after sending a
+URL (redirects) is not gated; see the ffuf redirect entry. A campaign without a
+recorded program needs a new campaign (`init --campaign <new-id> --program
+<program>`); `--force` on the old one resets its findings and fuzz state.
+Regression: `tests/test_scope_gate_exclusions.py`.
 
 ## Proxy-store private-ancestor fence can never pass under `/tmp`
 
@@ -268,6 +308,103 @@ red, and a genuine regression in browser transfer would be masked by it. First
 task is to run this cluster **with** a provisioned CDP browser and record whether
 the failures persist; only then decide whether it is a code defect.
 
+## Recon-Ry start-port suite fails after the portable-import test in one run
+
+**Location:** `agents/test_portable_import_paths.py:31-42` and
+`tests/test_recon_ry_start_ports.py:109`.
+
+**Evidence:** the portable-import test pops `scope_validator` from
+`sys.modules`; a later start-port test reads
+`sys.modules[recon_ry.ScopeValidator.__module__]` and raises
+`KeyError: 'scope_validator'`. Running both in one pytest session on beta
+`3f72ed81` gives 264 start-port failures; the start-port file alone passes 608.
+
+**Impact:** combined scope-suite receipts show 264 false failures that can mask
+a real regression. Fix the test isolation (restore the popped module or resolve
+the class's module without `sys.modules`) in its own task.
+
+## HarnessConstraints never matches wildcard campaign scope entries
+
+**Location:** `harness_core.py` `HarnessConstraints.is_in_scope`;
+`program_config._load_in_scope_domains` feeds it `in-scope.txt` host lines.
+
+**Evidence:** an entry such as `*.example.com` is compared as a literal host
+or `.*.example.com` suffix, so it grants nothing; only bare-domain entries
+grant subdomains. `agents/fuzz_runner.py` therefore raises `HarnessViolation`
+for a wildcard-only target that ScopeValidator accepts (same on beta `3f72ed81`).
+
+**Impact:** fails closed (lost fuzz coverage, not a scope escape). Decide
+whether `*.` entries should grant subdomains before changing it.
+
+## Asset-intelligence URL-path exclusions are bypassed by path spellings
+
+**Location:** `agents/recon/asset_intelligence.py` `scope_matches` (URL-pattern
+branch), used by `classify_scope`.
+
+**Evidence:** with in-scope `*.x.test` and exclusion `https://x.test/admin`,
+`https://x.test:443/admin`, `https://x.test//admin`, `https://x.test/%61dmin`,
+`http://x.test/admin`, `https://x.test/admin;x` and bare `x.test/admin` are all
+labeled `in-scope` (lexical prefix match on the raw string). ScopeValidator's
+exclusion matching treats these as excluded.
+
+**Impact:** labels only (the module sends no per-candidate requests), but
+`target_intel` can rank an excluded path as in scope. Reuse ScopeValidator's
+URL-pattern exclusion matching in its own task. Relatedly, exotic spellings of an
+excluded host that are not URL/domain-shaped (e.g. bare `user@admin.x.test`)
+label `unknown` rather than `out-of-scope`.
+
+## ffuf redirect following is not scope-contained
+
+**Location:** `agents/fuzz_runner.py` `_execute_ffuf` (`-r` when
+`rate_limit_events > 0`).
+
+**Evidence:** after any rate-limit event the fuzz agent passes `-r`, so ffuf
+follows each response's redirects itself. Only the URLs BBH hands to ffuf are
+scope-checked; a redirect from an in-scope URL to an excluded or third-party
+destination is followed without a check.
+
+**Impact:** request containment gap during rate-sensitive fuzzing. Drop `-r`
+(record 3xx `Location` as a finding instead) or verify ffuf's redirect behavior
+under a scope-enforcing proxy, in its own task.
+
+## ScopeValidator accepts only lowercase http(s) schemes
+
+**Location:** `agents/scope_validator.py` `_extract_host` (`startswith("http://")`).
+
+**Evidence:** `HTTPS://api.example.com/` yields no host, so ScopeValidator,
+ScopeManager and every consumer refuse it even when `api.example.com` is in
+scope. HarnessConstraints and asset labels lowercase the scheme first.
+
+**Impact:** fails closed (lost coverage for uppercase-scheme inputs, no escape).
+Lowercase the scheme in `_extract_host` in its own task if those inputs matter.
+
+## ScopeManager URL allows ignore the port
+
+**Location:** `agents/scope_manager.py` `is_in_scope` (base-URL check).
+
+**Evidence:** with allow `https://app.x.org`, ScopeManager accepts
+`https://app.x.org:8443/` because the base URL is rebuilt from scheme and host
+only; ScopeValidator refuses it (allows do not extend to another port).
+
+**Impact:** the two gates disagree on allows. No production caller uses
+`ScopeManager.is_in_scope` (`scripts/program_init.py` reads only
+`domains`/`urls`), so this is latent.
+
+## ScopeManager mixes canonical and legacy allow files
+
+**Location:** `agents/scope_manager.py` `_load_domains` / `_load_urls` /
+`_candidate_files`.
+
+**Evidence:** ScopeManager unions allows from canonical and legacy
+`in-scope.txt`/`domains.txt`/`scope.txt`; ScopeValidator uses only the first
+present allow file. With canonical `in-scope.txt` plus legacy `domains.txt`
+`legacy.x.io`, ScopeManager accepts `legacy.x.io` and ScopeValidator refuses it.
+
+**Impact:** the gates can disagree on allows; latent, since no production caller
+uses `ScopeManager.is_in_scope`. `program_init` recon seeds also include the
+legacy allows. Decide whether ScopeManager should adopt ScopeValidator's
+allow-file selection.
+
 ## Further pre-existing browser/task-proxy suite failures on beta `3f72ed81`
 
 **Location:** `agents/test_browser_selection.py` (15),
@@ -289,7 +426,9 @@ from `require_safe_running_profile` where the test expects selection or
 unfiltered green run; compare failing IDs against the base instead. Repair in a
 separate task on the owning branch.
 
-## Malformed `ledger.json` is silently replaced by an empty ledger on write
+## Malformed `ledger.json` is silently replaced by an empty ledger on write — resolved
+
+**Resolution:** Bounty Core beta `5f5a66ac` (merge `c943ad3`, reviewed) makes every ledger read fail closed with `LedgerReadError` on unreadable, malformed or unsupported-schema storage before any write, preserving the bytes; BBH now pins that revision.
 
 **Location:** Bounty Core `bounty_core/ledger.py` `_read_payload` /
 `_locked_payload` (pinned revision `9db8b23d`), reached from every exclusive
@@ -349,3 +488,16 @@ stored. The shell CLI rejects null and non-string required fields itself.
 **Impact:** Python callers get a confusing error for null fields and can store
 non-string required fields (schema drift). Decide in a separate task whether
 the library should require nonempty strings for the five fields.
+
+## Dormant-split navigation assertion expects a bare-FID packet link
+
+**Location:** `agents/test_dormant_split.py:586`,
+`TestSharedDormantSubtierPreservation.test_promotion_and_reporting_preserve_dormant_subtier_labels`.
+**Evidence:** fails identically on unchanged beta `0821e438` and on
+`fix/ledger-write-hot-path` with Bounty Core at the requirements pin `9db8b23d`.
+The test asserts `D01/EVIDENCE|D01]]`, but the reserved packet is
+`D01-<title-slug>/` and the navigation link is
+`[[../../D01-dormant-active-dom-sink/EVIDENCE|D01]]`.
+**Impact:** one red test in the ledger-adjacent suites. Update the assertion to
+match the titled packet in a separate bounded task. Do not change packet naming
+to satisfy it.

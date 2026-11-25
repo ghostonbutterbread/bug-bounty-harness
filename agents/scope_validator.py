@@ -292,6 +292,8 @@ class ScopeValidator:
         program:  Bug bounty program slug (e.g. "superdrug")
         strict:   If True, validate_or_fail() raises; if False it warns.
                   Defaults to True.
+        scopes_base, legacy_recon_base: override the canonical and legacy
+                  roots (defaults: SCOPES_BASE and LEGACY_RECON_BASE).
     """
 
     SCOPES_BASE = Path.home() / "Shared" / "scopes"
@@ -305,10 +307,12 @@ class ScopeValidator:
         "recon/scope.txt",
     ]
 
-    def __init__(self, program: str, strict: bool = True, scopes_base: Path | None = None):
+    def __init__(self, program: str, strict: bool = True, scopes_base: Path | None = None,
+                 legacy_recon_base: Path | None = None):
         self.program = program
         self.strict = strict
         self.scopes_base = scopes_base or self.SCOPES_BASE
+        self.legacy_recon_base = legacy_recon_base or self.LEGACY_RECON_BASE
         self.policy: dict = {}
         self.platform = "unknown"
         self.source_url = None
@@ -329,7 +333,7 @@ class ScopeValidator:
         Call add_domain() to add entries manually.
         """
         canonical_dir = self.scopes_base / self.program
-        legacy_program_dir = self.LEGACY_RECON_BASE / self.program
+        legacy_program_dir = self.legacy_recon_base / self.program
         self._load_policy(canonical_dir / "rules-of-engagement.json")
         for path in [canonical_dir / "in-scope.txt", *(legacy_program_dir / rel for rel in self.SCOPE_FILE_NAMES)]:
             if self._load_file(path, is_out_of_scope=False, optional=True):

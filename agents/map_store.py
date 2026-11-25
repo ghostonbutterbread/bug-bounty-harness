@@ -307,19 +307,28 @@ def _entry_tags(entry: dict) -> set[str]:
     return {slugify(tag) for tag in entry.get("tags", []) if tag}
 
 
+def _title_key(title: str) -> str:
+    """Compare titles by case and whitespace only (Unicode-aware).
+
+    Punctuation stays significant so semantically different titles such as
+    ``a+b`` and ``a-b`` remain separate facts.
+    """
+    return " ".join(title.casefold().split())
+
+
 def _observation_identity(entry: dict) -> tuple:
-    """Identify one current fact: scope, surface, location, title and exact tags.
+    """Identify one current titled fact: scope, surface, location, title and exact tags.
 
     Run, agent and body are deliberately excluded so a corrected re-write of the
     same fact from a later run supersedes the earlier entry instead of sitting
-    beside it. Case, punctuation and tag order do not distinguish facts.
+    beside it. Callers only apply this to explicitly titled writes.
     """
     url = normalize_url(str(entry.get("url") or "")) if entry.get("url") else ""
     return (
         str(entry.get("scope") or ""),
         slugify(str(entry.get("surface") or ""), fallback=""),
         url.rstrip("/") if url != "/" else url,
-        slugify(str(entry.get("title") or ""), fallback=""),
+        _title_key(str(entry.get("title") or "")),
         tuple(sorted(_entry_tags(entry))),
     )
 
@@ -401,6 +410,7 @@ def build_query_intent_summary(
             "tags": entry.get("tags", []),
             "path": entry.get("path", ""),
             "timestamp": entry.get("timestamp", ""),
+            **({"superseded_by": entry["superseded_by"]} if entry.get("superseded_by") else {}),
         })
 
     if not results:
@@ -924,9 +934,10 @@ class MapStore:
     ) -> Path:
         """Write a surface observation and index it.
 
-        Re-writing the same identity (scope, surface, URL, title and exact tag
-        set) supersedes the prior current entry: it is archived with
-        ``superseded_by`` and kept on disk; the new entry lists ``supersedes``.
+        Re-writing an explicitly titled fact with the same scope, surface, URL,
+        title (case/whitespace-insensitive) and exact tag set supersedes the
+        prior current entry: it is archived with ``superseded_by`` and kept on
+        disk; the new entry lists ``supersedes``. Untitled writes never do.
 
         Args:
             url: Normalised URL (empty for app-wide or surface-wide).
@@ -1149,39 +1160,53 @@ class MapStore:
         }
         if reviewers:
             entry[AI_REVIEWED_BY_FIELD] = reviewers
-        # One current entry per identity: a re-write of the same fact archives
-        # the prior current entries (files and history kept) with explicit links
-        # instead of leaving an identically tagged sibling that reads as current.
-        # Only entries update-status could archive (file present) are eligible.
-        identity = _observation_identity(entry)
-        superseded = [
-            str(old["path"]) for old in self._read_index()
-            if old.get("path") and old.get("path") != entry["path"]
-            and _entry_status(old) != ARCHIVED_STATUS
-            and _observation_identity(old) == identity
-            and (self._maps_root / str(old["path"])).is_file()
-        ]
-        if superseded:
-            entry["supersedes"] = superseded
+        # One current entry per titled identity: a re-write of the same titled
+        # fact archives the prior current entries (files and history kept) with
+        # explicit links instead of leaving a sibling that reads as current.
+        # Untitled writes never supersede: their derived title cannot tell facts
+        # apart. Only entries update-status could archive (file present) qualify.
+        superseded: list[str] = []
+        if _title_key(title):
+            identity = _observation_identity(entry)
+            superseded = [
+                str(old["path"]) for old in self._read_index()
+                if old.get("path") and old.get("path") != entry["path"]
+                and _entry_status(old) != ARCHIVED_STATUS
+                and _observation_identity(old) == identity
+                and (self._maps_root / str(old["path"])).is_file()
+            ]
         self._upsert_entry(entry)
         self._refresh_pointer_index(
             obs_dir.parent,
             self._pointer_heading(scope=scope, surface=surface, url=url),
         )
+        # The new fact is already durable. Like the URL Ingest projection, an
+        # archive failure is reported and left recoverable rather than failing
+        # the write; each archive records both links in one index write.
+        new_path = entry["path"]
         for old_path in superseded:
-            self._update_status_unlocked(
-                path=old_path,
-                status=ARCHIVED_STATUS,
-                reason=f"Superseded by {entry['path']} (same scope, surface, location, title and tags).",
-                agent=agent,
-                model_id=None,
-                superseded_by=entry["path"],
-            )
-            print(
-                f"MapStore: archived superseded entry {old_path} "
-                f"(superseded_by {entry['path']})",
-                file=sys.stderr,
-            )
+            try:
+                self._update_status_unlocked(
+                    path=old_path,
+                    status=ARCHIVED_STATUS,
+                    reason=f"Superseded by {new_path} (same scope, surface, location, title and tags).",
+                    agent=agent,
+                    model_id=None,
+                    superseded_by=new_path,
+                )
+            except (OSError, ValueError) as exc:
+                print(
+                    f"WARNING: MapStore wrote {new_path}, but archiving superseded entry "
+                    f"{old_path} did not complete: {exc}. Recover with: map_store.py "
+                    f"update-status --path {old_path} --status archived "
+                    f"--reason 'Superseded by {new_path}'",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"MapStore: archived superseded entry {old_path} (superseded_by {new_path})",
+                    file=sys.stderr,
+                )
 
         return obs_path
 
@@ -1222,7 +1247,12 @@ class MapStore:
         model_id: str | None,
         superseded_by: str | None = None,
     ) -> dict:
-        """Apply a normalized status change; the caller holds the store lock."""
+        """Apply a normalized status change; the caller holds the store lock.
+
+        The observation file is rewritten before the index, so a failure leaves
+        the index (which queries read) unchanged. ``superseded_by`` also records
+        the reverse ``supersedes`` link on the successor in the same index write.
+        """
         entries = self._read_index()
         match: dict | None = None
         for entry in entries:
@@ -1248,6 +1278,11 @@ class MapStore:
         match["status_reason"] = reason
         if superseded_by:
             match["superseded_by"] = superseded_by
+            successor = next((e for e in entries if e.get("path") == superseded_by), None)
+            if successor is not None:
+                links = successor.get("supersedes")
+                links = list(links) if isinstance(links, list) else []
+                successor["supersedes"] = links if path in links else [*links, path]
         history = match.get("status_history")
         if not isinstance(history, list):
             history = []
@@ -1259,7 +1294,6 @@ class MapStore:
         })
         match["status_history"] = history
         entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-        self._write_index(entries)
 
         content = obs_path.read_text(encoding="utf-8")
         lines = content.splitlines()
@@ -1287,6 +1321,7 @@ class MapStore:
             reason=reason,
         )
         _atomic_write_text(obs_path, content.rstrip() + "\n")
+        self._write_index(entries)
         self._refresh_pointer_index(
             obs_path.parent.parent,
             self._pointer_heading(
@@ -1883,9 +1918,10 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
             print("Pointers:")
             for obs in summary["observations"][: args.limit or 10]:
                 labels = ", ".join(obs.get("tested_for", [])) or "unclassified"
+                successor = f" | superseded by {obs['superseded_by']}" if obs.get("superseded_by") else ""
                 print(
                     f"- {obs.get('status')} | {labels} | "
-                    f"{obs.get('title')} | {obs.get('path')}"
+                    f"{obs.get('title')} | {obs.get('path')}{successor}"
                 )
             return 0
         for entry in results:
@@ -1905,6 +1941,8 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
             print(f"  Path: {path}")
             if entry.get("superseded_by"):
                 print(f"  Superseded by: {entry['superseded_by']}")
+            if entry.get("supersedes"):
+                print(f"  Supersedes: {', '.join(entry['supersedes'])}")
             if tags:
                 print(f"  Tags: {tags}")
             if cf_source:

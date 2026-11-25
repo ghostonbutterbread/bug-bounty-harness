@@ -83,10 +83,10 @@ For a stateful/browser-backed capability, use the mapping evidence checklist in
    missing tag alone is not a reason to duplicate an identical attempt or start
    broad re-testing; preserve normal scope, rate, lifecycle, and dedupe rules.
 6. Do the work.
-7. Write back important positive and negative observations. To correct one,
-   re-write the same title, tags and location; the old entry is archived/linked.
-8. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
-   facts.
+7. Write back important positive and negative observations. Give each distinct
+   fact its own `--title`; only titled writes supersede. To correct one, re-write
+   the same title, tags and location; the old entry is archived and linked.
+8. Use `--scope app` for app-wide and `--scope surface` for surface-wide facts.
 9. Add vuln-class/status tags so specialist agents can filter. For a
    stack-grounded pre-probe class decision, add `class-derivation` and, only for
    a defensible low/not-applicable conclusion, `declined` plus the relevant

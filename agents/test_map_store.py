@@ -1194,10 +1194,10 @@ class TestMapStore:
         pointer = (stale.parent.parent / "index.md").read_text(encoding="utf-8")
         assert current.parent.name in pointer and stale.parent.name not in pointer
 
-    def test_identity_ignores_case_punctuation_and_tag_order(self, store: MapStore):
+    def test_identity_ignores_case_whitespace_and_tag_order(self, store: MapStore):
         store.init()
         first = store.write(
-            url="https://App.com/upload/", surface="API", title="Upload Endpoint: Reachability",
+            url="https://App.com/upload/", surface="API", title="  Upload  Endpoint Reachability",
             tags=["Reachability", "api-upload"], body="One.\n",
         )
         second = store.write(
@@ -1206,6 +1206,96 @@ class TestMapStore:
         )
         assert [e["path"] for e in store.query()] == [self._rel(store, second)]
         assert store.query(include_archived=True, statuses=[ARCHIVED_STATUS])[0]["path"] == self._rel(store, first)
+
+    @pytest.mark.parametrize(
+        "first,second",
+        [
+            # Untitled writes never supersede: their derived title cannot tell
+            # facts apart (host/param usually lives only in the body).
+            ({"scope": APP_SCOPE, "surface": "electron", "body": "Node integration on."},
+             {"scope": APP_SCOPE, "surface": "electron", "body": "Context isolation off."}),
+            ({"scope": SURFACE_SCOPE, "surface": "waf", "tags": ["waf", "cloudflare"], "body": "a.example blocks."},
+             {"scope": SURFACE_SCOPE, "surface": "waf", "tags": ["waf", "cloudflare"], "body": "b.example passes."}),
+            ({"url": "https://app.com/search", "surface": "xss", "tags": ["xss-reflected", "negative"], "body": "q encoded."},
+             {"url": "https://app.com/search", "surface": "xss", "tags": ["xss-reflected", "negative"], "body": "sort encoded."}),
+            ({"url": "https://app.com/api/attachments", "surface": "api", "body": "Upload accepted."},
+             {"url": "https://app.com/api/attachments", "surface": "api", "body": "MIME sniffed."}),
+            ({"url": "https://app.com/x", "surface": "api", "title": "   ", "body": "Blank title one."},
+             {"url": "https://app.com/x", "surface": "api", "title": "   ", "body": "Blank title two."}),
+            # Distinct non-ASCII titles (both slugify to the same fallback) and
+            # punctuation-only differences are different facts.
+            ({"url": "https://app.com/x", "surface": "api", "title": "日本語の検索", "body": "One."},
+             {"url": "https://app.com/x", "surface": "api", "title": "中文搜索", "body": "Two."}),
+            ({"url": "https://app.com/x", "surface": "api", "title": "a+b", "body": "Plus."},
+             {"url": "https://app.com/x", "surface": "api", "title": "a-b", "body": "Minus."}),
+        ],
+        ids=["app-untitled", "surface-untitled-tagged", "url-untitled-tagged", "url-untitled-untagged",
+             "blank-title", "non-ascii-titles", "punctuation-titles"],
+    )
+    def test_writes_that_cannot_prove_same_fact_stay_separate(self, store: MapStore, first, second):
+        store.init()
+        paths = {self._rel(store, store.write(**first)), self._rel(store, store.write(**second))}
+        current = store.query()
+        assert len(paths) == 2 and {e["path"] for e in current} == paths
+        assert not any("supersedes" in e or "superseded_by" in e for e in current)
+
+    def test_same_non_ascii_title_supersedes(self, store: MapStore):
+        store.init()
+        first = store.write(url="https://app.com/x", surface="api", title="日本語の検索", body="Old.")
+        second = store.write(url="https://app.com/x", surface="api", title="日本語の検索", body="New.")
+        assert [e["path"] for e in store.query()] == [self._rel(store, second)]
+        assert store.query()[0]["supersedes"] == [self._rel(store, first)]
+
+    def test_archive_failure_keeps_new_fact_and_leaves_index_consistent(self, store: MapStore, monkeypatch, capsys):
+        from agents import map_store
+
+        store.init()
+        common: dict[str, Any] = dict(url="https://app.com/x", surface="api", title="fact", tags=["a"])
+        old_rel = self._rel(store, store.write(body="Old.", **common))
+        capsys.readouterr()
+        real_write = map_store._atomic_write_text
+
+        def failing_write(path, text):
+            if Path(path) == store.maps_root / old_rel:
+                raise OSError("disk full")
+            real_write(path, text)
+
+        monkeypatch.setattr(map_store, "_atomic_write_text", failing_write)
+        new = store.write(body="New.", **common)
+        new_rel, err = self._rel(store, new), capsys.readouterr().err
+
+        assert new.is_file() and "New." in new.read_text(encoding="utf-8")
+        assert f"MapStore wrote {new_rel}" in err and old_rel in err and "disk full" in err
+        by_path = {e["path"]: e for e in store.query(include_archived=True)}
+        # File is rewritten before the index, so the failed archive changed nothing.
+        assert by_path[old_rel]["status"] == "active" and "superseded_by" not in by_path[old_rel]
+        assert "supersedes" not in by_path[new_rel]
+        assert "Status: active" in (store.maps_root / old_rel).read_text(encoding="utf-8")
+
+    def test_archive_index_failure_reports_and_cli_still_prints_new_path(self, store: MapStore, monkeypatch, capsys):
+        from agents import map_store
+
+        store.init()
+        root = str(store._layout.base_root)
+        argv = ["write", "--program", "testprog", "--root", root, "--url", "https://app.com/x",
+                "--surface", "api", "--title", "fact", "--tags", "a"]
+        assert map_store.main([*argv, "--body", "Old."]) == 0
+        old_rel = Path(capsys.readouterr().out.strip()).relative_to(store.maps_root).as_posix()
+        real_write_index, calls = MapStore._write_index, []
+
+        def flaky_write_index(self, entries):
+            calls.append(1)
+            if len(calls) == 2:  # 1st: new entry upsert; 2nd: the archive step
+                raise OSError("index write failed")
+            real_write_index(self, entries)
+
+        monkeypatch.setattr(MapStore, "_write_index", flaky_write_index)
+        assert map_store.main([*argv, "--body", "New."]) == 0
+        captured = capsys.readouterr()
+        new_rel = Path(captured.out.strip()).relative_to(store.maps_root).as_posix()
+        assert "WARNING" in captured.err and old_rel in captured.err and new_rel in captured.err
+        by_path = {e["path"]: e for e in store.query(include_archived=True)}
+        assert by_path[old_rel]["status"] == "active" and "supersedes" not in by_path[new_rel]
 
     def test_distinct_identities_remain_separate_current_entries(self, store: MapStore):
         store.init()
@@ -1291,8 +1381,13 @@ class TestMapStore:
         assert Path(old).relative_to(store.maps_root).as_posix() in captured.err
         assert "superseded_by" in captured.err
         new_rel = Path(new).relative_to(store.maps_root).as_posix()
-        assert map_store.main(["query", "--program", "testprog", "--root", root, "--include-archived"]) == 0
-        assert f"Superseded by: {new_rel}" in capsys.readouterr().out
+        old_rel = Path(old).relative_to(store.maps_root).as_posix()
+        query = ["query", "--program", "testprog", "--root", root, "--include-archived"]
+        assert map_store.main(query) == 0
+        out = capsys.readouterr().out
+        assert f"Superseded by: {new_rel}" in out and f"Supersedes: {old_rel}" in out
+        assert map_store.main([*query, "--url", "https://app.com/x", "--intent", "dedupe"]) == 0
+        assert f"{old_rel} | superseded by {new_rel}" in capsys.readouterr().out
 
     def test_behavior_detail_links_superseded_evidence_to_current_entry(self, store: MapStore):
         store.init()

@@ -103,13 +103,15 @@ Statuses:
 Archived entries remain in MapStore. Query them explicitly with
 `--include-archived` or `--status archived`.
 
-**Corrections supersede.** A `write` with the same scope, surface, URL, title,
-and exact tag set is the same fact; case, punctuation, tag order, run ID, and
-agent do not distinguish it. The new entry becomes the one current entry and
-lists `supersedes`. Each prior current entry is archived with `superseded_by`
-and a lifecycle note; its file stays on disk as history. Do not hand-archive
-the old copy. Use a distinct title for a genuinely separate fact at the same
-location.
+**Corrections supersede.** Only titled writes supersede. A `write` with the
+same `--title`, scope, surface, URL, and exact tag set is the same fact; case,
+whitespace, tag order, run ID, and agent do not distinguish it (punctuation
+does). The new entry becomes the one current entry and lists `supersedes`.
+Each prior current entry is archived with `superseded_by` and a lifecycle note;
+its file stays on disk as history. Untitled writes always add a separate entry,
+so give each distinct fact its own title. If a correction changes the title or
+tags, archive the old entry with `update-status`, naming the new path in the
+reason.
 
 Use `archived` plus `impact-waiver`/`dead-end` tags when a surface is still
 searchable but should not be selected as an active hunt target without a named

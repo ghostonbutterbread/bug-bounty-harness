@@ -65,16 +65,27 @@ def _pidfd_open(pid):
     """
     if hasattr(os, 'pidfd_open'):
         return os.pidfd_open(pid)
+    # ctypes truncates an out-of-range pid instead of raising, so 2**32+N would
+    # silently return a pidfd for process N. os.pidfd_open raises; match that.
+    if type(pid) is not int or not 0 < pid <= 2 ** 31 - 1:
+        raise Blocked('caller identity unavailable: invalid pid')
     number = _PIDFD_OPEN_NR.get(os.uname().machine) if sys.platform == 'linux' else None
     if number is None:
-        raise Blocked('caller identity unavailable')
+        raise Blocked('caller identity unavailable: no known pidfd_open for this platform')
     libc = ctypes.CDLL(None, use_errno=True)
-    libc.syscall.restype = ctypes.c_int
-    libc.syscall.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_uint)
+    try:
+        syscall = libc.syscall
+    except AttributeError as exc:  # a build where dlopen(NULL) resolves nothing
+        raise Blocked('caller identity unavailable: no syscall symbol') from exc
+    syscall.restype = ctypes.c_long  # glibc declares long syscall(long, ...)
+    syscall.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_uint)
     ctypes.set_errno(0)
-    fd = libc.syscall(number, pid, 0)
+    fd = syscall(number, pid, 0)
     if fd < 0:
-        raise Blocked('caller identity unavailable')
+        # Preserve the cause: ENOSYS, seccomp EPERM and ESRCH are different
+        # operational problems and the native branch distinguishes them.
+        raise Blocked('caller identity unavailable: pidfd_open failed, errno %d'
+                      % ctypes.get_errno())
     return fd
 
 

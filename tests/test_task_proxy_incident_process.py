@@ -1,4 +1,5 @@
 """Real process-boundary regressions; run only in a network-none container."""
+import contextlib
 import ctypes
 import fcntl
 import importlib.util
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 
@@ -42,7 +44,9 @@ def pidfd_send_signal(fd, sig):
         return signal.pidfd_send_signal(fd, sig)
     number = _SEND_SIGNAL_NR.get(os.uname().machine) if sys.platform == 'linux' else None
     if number is None:
-        raise unittest.SkipTest('pidfd_send_signal unavailable on this platform')
+        # Raise rather than skip: this is also called from cleanup, where a
+        # SkipTest would mask failed teardown and leak processes.
+        raise RuntimeError('pidfd_send_signal unavailable on this platform')
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.restype = ctypes.c_int
     libc.syscall.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_int,
@@ -50,6 +54,77 @@ def pidfd_send_signal(fd, sig):
     ctypes.set_errno(0)
     if libc.syscall(number, fd, int(sig), None, 0) < 0:
         raise OSError(ctypes.get_errno(), 'pidfd_send_signal failed')
+
+
+class PidfdFallback(unittest.TestCase):
+    """The ctypes pidfd fallback and its fail-closed branches.
+
+    Without these, each interpreter exercises only one path: one with
+    os.pidfd_open and one without, so half the helper is never covered. These
+    force the fallback on any interpreter.
+    """
+
+    def setUp(self):
+        self.incident = _incident_module()
+
+    @contextlib.contextmanager
+    def without_native(self):
+        """Hide os.pidfd_open so the ctypes path runs on any interpreter."""
+        present = hasattr(os, 'pidfd_open')
+        saved = getattr(os, 'pidfd_open', None)
+        if present:
+            delattr(os, 'pidfd_open')
+        try:
+            yield
+        finally:
+            if present:
+                os.pidfd_open = saved
+
+    def test_fallback_returns_a_pidfd_bound_to_the_caller(self):
+        with self.without_native():
+            fd = self.incident._pidfd_open(os.getpid())
+        try:
+            self.assertEqual(os.readlink('/proc/self/fd/%d' % fd), 'anon_inode:[pidfd]')
+            self.assertIn('Pid:\t%d' % os.getpid(),
+                          Path('/proc/self/fdinfo/%d' % fd).read_text())
+            self.assertFalse(os.get_inheritable(fd), 'fallback fd must not leak on exec')
+        finally:
+            os.close(fd)
+
+    def test_out_of_range_or_non_integer_pid_fails_closed(self):
+        # ctypes truncates, so 2**32+pid would hand back a pidfd for pid: the
+        # fence would then be bound to the wrong process instead of failing.
+        with self.without_native():
+            for bad in (2 ** 32 + os.getpid(), 2 ** 31, 0, -1, True, 'x', None):
+                with self.subTest(pid=bad):
+                    with self.assertRaises(self.incident.Blocked):
+                        self.incident._pidfd_open(bad)
+
+    def test_unknown_architecture_fails_closed(self):
+        fake = os.uname_result(('Linux', 'h', 'r', 'v', 'riscv64'))
+        with self.without_native(), unittest.mock.patch('os.uname', return_value=fake):
+            with self.assertRaises(self.incident.Blocked):
+                self.incident._pidfd_open(os.getpid())
+
+    def test_non_linux_fails_closed(self):
+        with self.without_native(), \
+                unittest.mock.patch.object(sys, 'platform', 'darwin'):
+            with self.assertRaises(self.incident.Blocked):
+                self.incident._pidfd_open(os.getpid())
+
+    def test_unassigned_syscall_fails_closed_and_reports_errno(self):
+        with self.without_native(), unittest.mock.patch.object(
+                self.incident, '_PIDFD_OPEN_NR', {os.uname().machine: 1000}):
+            with self.assertRaises(self.incident.Blocked) as caught:
+                self.incident._pidfd_open(os.getpid())
+        self.assertIn('errno', str(caught.exception))
+
+    def test_dead_pid_fails_closed(self):
+        victim = subprocess.Popen([sys.executable, '-c', ''])
+        victim.wait()
+        with self.without_native():
+            with self.assertRaises(self.incident.Blocked):
+                self.incident._pidfd_open(victim.pid)
 
 
 

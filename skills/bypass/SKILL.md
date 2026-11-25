@@ -5,7 +5,7 @@ description: "Use when testing access, parser, encoding, WAF, redirect, LFI, SSR
 
 # Bypass
 
-Use the unified bypass workflow when a target URL, endpoint, or parameter looks protected by access control, parser validation, filtering, WAF rules, allowlists, or brittle normalization.
+Use the unified bypass workflow when a target URL, endpoint, or parameter looks protected by access control, parser validation, filtering, WAF rules, allowlists, or brittle normalization. Attribute the layer that actually refused and route by it using `references/enforcer-index.md` — route matcher, output encoder, input validator, authorization/query scope, cache key, path resolver, or deserializer — rather than by vulnerability class; the `<type>` below selects a harness family, not the technique set.
 
 If the acting obstacle is an observed WAF, CDN security rule, bot/challenge,
 or application payload filter, use `waf` for its measured-control, app-facts,

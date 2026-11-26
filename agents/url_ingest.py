@@ -886,12 +886,18 @@ def _try_repull_scope(program: str) -> tuple[bool, str]:
     script = Path(__file__).resolve().parent / "scope_puller.py"
     errors: list[str] = []
     for platform in PULLSCOPE_PLATFORMS:
-        result = subprocess.run(
-            [sys.executable, str(script), program, "--platform", platform],
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, str(script), program, "--platform", platform],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            # A hung or unlaunchable pull is a failed pull: fall back to the
+            # next platform and, ultimately, to an unfiltered import.
+            errors.append(f"{platform}: {type(exc).__name__}")
+            continue
         validator = ScopeValidator(program, strict=False)
         if result.returncode == 0 and not validator.is_empty():
             return True, f"pulled scope via {platform}"

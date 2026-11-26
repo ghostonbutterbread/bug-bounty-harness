@@ -116,6 +116,16 @@ class TestIngestRoundtrip(unittest.TestCase):
         self.assertIn("skipped scope pull", note)
         self.assertIn("retry after", note)
 
+    def test_timed_out_pull_counts_as_failed_pull(self):
+        source = TEMP_SHARED / "pull-timeout.txt"
+        source.write_text("https://open.example.test/a\n")
+        with patch.object(M.subprocess, "run", side_effect=M.subprocess.TimeoutExpired(["x"], 90)) as run:
+            M.ingest(self.program, source_file=str(source))
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual(run.call_count, len(M.PULLSCOPE_PLATFORMS))
+        mode, origin, accepted = self._last_import("scope_mode, scope_source, urls_accepted")
+        self.assertEqual((mode, origin, accepted), ("no_scope_after_pull", "no_scope_pull_skipped", 1))
+
     def test_failed_pull_is_retried_after_window(self):
         source = TEMP_SHARED / "backoff-expired.txt"
         source.write_text("https://open.example.test/a\n")

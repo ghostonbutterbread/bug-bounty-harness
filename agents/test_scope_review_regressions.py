@@ -40,6 +40,18 @@ def test_recon_ry_refuses_partially_represented_exclusion(tmp_path):
         validate_recon_scope_containment(v)
 
 
+# F2: allow globs with '*' in the registrable label or TLD grant foreign domains.
+@pytest.mark.parametrize("rule,target", [
+    ("*.*", "https://anything.test/"),
+    ("acme.*", "https://acme.evil/"),
+    ("*acme.example.test", "https://evilacme.example.test/"),
+    ("acme*.test", "https://acme-attacker.test/"),
+    ("https://*acme.example.test/*", "https://evilacme.example.test/x"),
+])
+def test_allow_glob_does_not_cross_registrable_domain(tmp_path, rule, target):
+    assert not _v(tmp_path, rule + "\n").is_in_scope(target)
+
+
 # F3: grant prose ending in a host turns an exception into a grant.
 def test_grant_prose_does_not_grant_excepted_host(tmp_path):
     v = _v(tmp_path, "All assets except admin.acme.example.test\n")
@@ -74,6 +86,31 @@ def test_multi_rule_exclusion_excludes_each_range_and_keeps_others(tmp_path):
     assert not v.is_in_scope("http://10.2.9.9/")
     assert v.is_in_scope("http://10.3.0.1/")
     assert v.lossy_scope_lines == [("exclusion", "Corp - 10.1.0.0/16 and 10.2.0.0/16")]
+
+
+@pytest.mark.parametrize("rule, target", [
+    ("app*.hub.example.test", "https://app1.hub.example.test/"),
+    ("api-*.acme.example.test", "https://api-eu.acme.example.test/"),
+    ("*.acme.example.test", "https://a.acme.example.test/"),
+    ("*.app*.acme.example.test", "https://x.app2.acme.example.test/"),
+    ("https://api-*.acme.example.test/*", "https://api-eu.acme.example.test/x"),
+    ("https://*.acme.example.test/*", "https://a.acme.example.test/x"),
+])
+def test_narrow_allow_globs_still_grant(tmp_path, rule, target):
+    assert _v(tmp_path, rule + "\n").is_in_scope(target)
+
+
+@pytest.mark.parametrize("rule", ["customer.*.acme.example.test", "app*.test", "*-x.acme.example.test"])
+def test_broad_allow_globs_grant_nothing(tmp_path, rule):
+    v = _v(tmp_path, rule + "\n")
+    assert all(e.has_invalid_authority() for e in v._entries)
+
+
+def test_exclusion_globs_stay_wide(tmp_path):
+    v = _v(tmp_path, "*.acme.example.test\n", "*staging.acme.example.test\nacme.*\n")
+    assert not v.is_in_scope("https://old-staging.acme.example.test/")
+    assert not v.is_in_scope("https://acme.example.test/")  # acme.* spans the rest
+    assert all(not e.has_invalid_authority() for e in v._out_of_scope)
 
 
 def test_recon_ry_accepts_named_cidr_grant_and_refuses_skipped(tmp_path):

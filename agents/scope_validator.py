@@ -155,6 +155,28 @@ class _HostGlob:
         return bool((self.deny if exclusion else self.allow).fullmatch(host))
 
 
+def _allow_glob_is_narrow(pattern: str) -> bool:
+    """An allow glob must stay inside one registrable domain.
+
+    Without a public-suffix list: at least two whole literal labels must sit
+    right of the last label containing ``*``, and every such label must start
+    with a literal (a prefix family such as ``app*`` or ``api-*``), so an
+    arbitrary prefix cannot form a lookalike name. ``app*.example.com`` is
+    narrow; ``*.*``, ``acme.*``, ``*acme.example.test`` and ``acme*.test``
+    are not and grant nothing. A leading ``*.`` label is the subdomain
+    wildcard and is exempt; a host whose only ``*`` is that is not a glob.
+    """
+    labels = pattern.lower().rstrip(".").split(".")
+    if labels and labels[0] == "*":
+        labels = labels[1:]
+    starred = [index for index, label in enumerate(labels) if "*" in label]
+    if not starred:
+        return True
+    if any(labels[index].startswith("*") for index in starred):
+        return False
+    return len(labels) - 1 - starred[-1] >= 2
+
+
 def _glob_host_is_valid(pattern: str) -> bool:
     """A glob is usable when replacing each ``*`` with a letter yields a safe host."""
     pattern = pattern.lower().rstrip(".")
@@ -227,7 +249,9 @@ class _ScopeEntry:
             self._host = self.raw
             self._invalid = not _safe_host(self.raw)
         elif kind == "glob":
-            self._invalid = not _glob_host_is_valid(self.raw)
+            self._invalid = not _glob_host_is_valid(self.raw) or (
+                not self.exclusion and not _allow_glob_is_narrow(self.raw)
+            )
             if not self._invalid:
                 self._glob = _HostGlob(self.raw, allow_base=True)
         elif kind == "url_pattern":
@@ -262,6 +286,12 @@ class _ScopeEntry:
         if "*" in raw_host:
             # An allow URL wildcard does not grant the bare base host; an
             # exclusion URL wildcard also covers it.
+            if not self.exclusion and "*" in raw_host[2 if raw_host.startswith("*.") else 0:] \
+                    and not _allow_glob_is_narrow(raw_host):
+                # Infix URL-host globs follow the allow-glob rule; a lone
+                # leading "*." keeps its base behaviour.
+                self._invalid = True
+                return
             self._glob = _HostGlob(raw_host, allow_base=False)
         else:
             self._host = _safe_host(raw_host)

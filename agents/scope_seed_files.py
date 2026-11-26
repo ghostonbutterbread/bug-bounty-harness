@@ -116,6 +116,99 @@ def optional_host_variants(value: str) -> list[str]:
     return variants if all(is_dns_scope_value(variant) for variant in variants) else [value]
 
 
+_PIPE_ANNOTATION_RE = re.compile(r"\s+\|(?:\s+|$)")
+
+
+def _glob_probe_host(host: str) -> str:
+    """Return ``host`` with infix ``*`` globs replaced by a letter for syntax checks."""
+    lead = "*." if host.startswith("*.") else ""
+    return lead + host[len(lead):].replace("*", "a")
+
+
+def is_scope_rule_token(value: str) -> bool:
+    """True when one whitespace-free token is a host, wildcard, glob, IP, CIDR or http(s) URL."""
+    token = str(value or "").strip().rstrip("/")
+    if not token or any(ch.isspace() for ch in token):
+        return False
+    if token.lower().startswith(("http://", "https://")):
+        try:
+            host = (urlparse(token).hostname or "").rstrip(".")
+        except ValueError:
+            return False
+        return bool(host) and is_dns_scope_value(_glob_probe_host(host))
+    if "(" in token:
+        try:
+            variants = optional_host_variants(token)
+        except ValueError:
+            return False
+        return variants != [token] and all(is_scope_rule_token(variant) for variant in variants)
+    return is_dns_scope_value(_glob_probe_host(token.rstrip(".")))
+
+
+_TOKEN_PUNCTUATION = "(),;:"
+_NAMED_RULE_RE = re.compile(r"^(?P<words>.*\S)\s+-\s+(?P<rule>\S+)$")
+# Leftover exclusion prose that still looks like a host or address (a dotted
+# label pair, an IPv6 fragment) is a rule the token stripper could not unwrap,
+# for example "[a.x.test]" or "a.x.test;b.x.test": fail closed as base did.
+_HOSTISH_RE = re.compile(r"[a-z0-9-]\.[a-z0-9-]|[0-9a-f]:[0-9a-f:]|::", re.IGNORECASE)
+# Grant words that negate the rule ("Out of scope - a.x.test") never grant.
+_NEGATING_WORDS_RE = re.compile(r"out[\s-]+of[\s-]+scope|exclud|except", re.IGNORECASE)
+
+
+def parse_scope_line(line: str, *, exclusion: bool = False) -> tuple[list[str], str]:
+    """Return ``(rules, status)`` for one saved scope line.
+
+    Platform exports append `` | type | In Scope | ...`` columns; only the first
+    field is a rule. A whitespace-free first field passes through unchanged so
+    existing validation (including fail-closed invalid exclusions) applies.
+
+    A first field containing whitespace mixes rules and prose:
+
+    - every token is a rule (``a.x.test, b.x.test``): all of them, ``exact``;
+    - exclusion: every token (punctuation ``(),;:`` stripped) that is itself a
+      host, wildcard, glob, IP, CIDR or URL is kept, so exclusions err wide;
+      ``lossy`` when prose remains, ``skipped`` when no token is rule-shaped;
+      prose that still looks like a host or address the stripper could not
+      unwrap (``[a.x.test]``, ``a.x.test;b.x.test``) adds the whole field as
+      an invalid exclusion, so every target is refused (fail closed);
+    - grant: only the export shape ``<words> - <rule>`` with no rule-shaped
+      word and no negating words (out of scope, exclud, except) keeps
+      ``<rule>`` (``exact``); anything else is ``skipped`` so prose
+      such as ``All assets except a.x.test`` never grants.
+
+    ``lossy`` and ``skipped`` lines carry meaning a host filter may not
+    represent; callers needing a faithful scope (the Recon-Ry handoff) refuse.
+    """
+    value = _PIPE_ANNOTATION_RE.split(str(line or "").strip(), maxsplit=1)[0].strip()
+    if not value:
+        return [], "skipped"
+    if not any(ch.isspace() for ch in value):
+        return [value], "exact"
+    raw_tokens = [token for token in re.split(r"[\s,]+", value) if token]
+    if raw_tokens and all(is_scope_rule_token(token) for token in raw_tokens):
+        return raw_tokens, "exact"
+    if exclusion:
+        stripped = [token.strip(_TOKEN_PUNCTUATION) for token in raw_tokens]
+        rules = [token for token in stripped if token and is_scope_rule_token(token)]
+        leftover = [token for token in stripped if token and token not in rules]
+        if any(_HOSTISH_RE.search(token) for token in leftover):
+            # The whole field is an invalid exclusion: every target is refused.
+            return [*rules, value], "lossy"
+        return (rules, "lossy") if rules else ([], "skipped")
+    named = _NAMED_RULE_RE.match(value)
+    if named and is_scope_rule_token(named.group("rule")) and not _NEGATING_WORDS_RE.search(named.group("words")) and not any(
+        is_scope_rule_token(word.strip(_TOKEN_PUNCTUATION))
+        for word in re.split(r"[\s,]+", named.group("words")) if word
+    ):
+        return [named.group("rule")], "exact"
+    return [], "skipped"
+
+
+def scope_line_rules(line: str, *, exclusion: bool = False) -> list[str]:
+    """Rule values carried by one saved scope line; see parse_scope_line."""
+    return parse_scope_line(line, exclusion=exclusion)[0]
+
+
 def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) -> tuple[list[str], list[str]]:
     """Return ``(urls_txt, wild_txt)`` lines for recon-ry-compatible seeds.
 

@@ -1,5 +1,22 @@
 # Known defects awaiting their own task
 
+## test_portable_import_paths pollutes scope_validator for later recon-ry tests
+
+**Location:** `agents/test_portable_import_paths.py` (sys.modules handling) and
+`tests/test_recon_ry_start_ports.py`.
+
+**Evidence:** `pytest agents/test_portable_import_paths.py tests/test_recon_ry_start_ports.py`
+gives 264 failed, 346 passed on beta 1cb7071e and on feat/scope-check-ingest
+alike; `tests/test_recon_ry_start_ports.py` alone passes (608). The start-ports
+tests resolve `sys.modules[recon_ry.ScopeValidator.__module__]` and expect its
+`ScopeFileReadError`, but the earlier test leaves a different `scope_validator`
+module object in `sys.modules`, so the raised error is from another class.
+
+**Impact:** any combined run that orders these files together reports 264
+false failures and can hide a real regression in the recon-ry scope-read path.
+Fix the isolation (restore `sys.modules` entries after the import-path tests)
+as a separate task.
+
 ## Legacy-row CDP probe runs inside the lease write transaction
 
 **Location:** `skills/chromium-test/scripts/browser_profile_lease.py`,

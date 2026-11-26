@@ -4,8 +4,25 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 import agents.recon_store as R
 import agents.url_ingest as U
+
+
+@pytest.fixture(autouse=True)
+def _no_real_scope_or_network(tmp_path: Path):
+    """Ingest filters by scope: isolate saved scopes and never run the puller."""
+    with patch.object(U.ScopeValidator, "SCOPES_BASE", tmp_path / "no-scopes"), patch.object(
+        U.ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "no-legacy"
+    ), patch.object(R.url_ingest.ScopeValidator, "SCOPES_BASE", tmp_path / "no-scopes"), patch.object(
+        R.url_ingest.ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "no-legacy"
+    ), patch.object(U, "_try_repull_scope", return_value=(False, "mock: no network")), patch.object(
+        R.url_ingest, "_try_repull_scope", return_value=(False, "mock: no network")
+    ):
+        # recon_store imports url_ingest by its bare name, a separate module
+        # object from agents.url_ingest; patch both.
+        yield
 
 
 def test_looks_urlish_accepts_urls_and_hosts_only():

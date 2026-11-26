@@ -889,7 +889,7 @@ def _try_repull_scope(program: str) -> tuple[bool, str]:
         try:
             result = subprocess.run(
                 # Release checks add up to 15 s per app; this fallback only needs the scope files.
-                [sys.executable, str(script), program, "--platform", platform, "--no-release-check"],
+                [sys.executable, str(script), program, "--no-release-check", "--platform", platform],
                 capture_output=True,
                 text=True,
                 timeout=90,

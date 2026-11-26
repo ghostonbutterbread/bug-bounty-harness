@@ -283,7 +283,7 @@ def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch
     scope_data = {"domains": {"*.example.com"}, "urls": set(), "out_of_scope": [], "assets": [], "rules": {}}
     monkeypatch.setattr(scope_puller, "fetch_page", lambda url: fetched.append(url) or "<rendered-page>")
     monkeypatch.setattr(scope_puller, "parse_intigriti_public_program", lambda program, page: scope_data)
-    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data: saved.update(program=program, data=data))
+    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data, **_kw: saved.update(program=program, data=data))
 
     assert scope_puller.pull_scope("owner/demo", "intigriti") is scope_data
     assert fetched == ["https://app.intigriti.com/researcher/programs/owner/demo"]
@@ -379,7 +379,7 @@ def test_hackerone_pull_uses_structured_scope_without_page_scrape(monkeypatch) -
         "policy": "No denial of service.", "submission_state": "open", "offers_bounties": True,
         "structured_scopes": {"edges": [{"node": {"asset_type": "URL", "asset_identifier": "https://api.example.com", "eligible_for_submission": True, "eligible_for_bounty": True, "instruction": "", "max_severity": "high"}}]},
     })
-    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data: saved.update(program=program, data=data))
+    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data, **_kw: saved.update(program=program, data=data))
     result = scope_puller.pull_scope("https://hackerone.com/demo/policy_scopes", "hackerone")
     assert saved["program"] == "demo"
     assert result["urls"] == {"https://api.example.com"}

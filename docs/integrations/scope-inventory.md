@@ -197,7 +197,19 @@ files (network guard armed), `--if-older-than` fresh/mtime fallback/failed pull
 keeps files and exits 0/backoff/retry after 24 h/missing dir, success clears
 failure state, atomic write on crash, inventory failure isolation.
 
-Results: see the hand-off report and the Review section below.
+New file after review: 30 tests. Results:
+
+- Full run (19 files touching `scope_puller`/`scope_validator`/`scope_seed_files`/`url_ingest`,
+  plus the new file, `tests/test_program_init.py`, `tests/test_skill_hygiene.py`,
+  `tests/test_recon_ry_start_ports.py`) on d62194bc: 2052 passed, 12 failed, 27 subtests passed (24 min).
+  The failures came from two test assumptions: `url_ingest` tests read the platform as the
+  last argv item (fixed by putting `--no-release-check` before `--platform`), and two puller
+  tests patch `save_scope` with a two-argument lambda (lambdas now accept `**_kw`).
+- After the fixes: `test_scope_puller_seed_files`, `test_scope_inventory`, `test_url_ingest`,
+  `test_scope_review_file`, `test_bugcrowd_scope_review_regressions`, `test_skill_hygiene`:
+  153 passed, 26 subtests passed. `test_base_team_storage`, `test_recon_store`,
+  `test_program_init`, `test_bbh_launcher`: 70 passed. `agents/test_portable_import_paths.py`
+  run on its own (see `BUGFIXES.md`): 2 passed.
 
 ## Gaps
 

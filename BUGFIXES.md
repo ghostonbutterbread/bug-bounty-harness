@@ -1,5 +1,19 @@
 # Known defects awaiting their own task
 
+## Failed-review CLI output stored in the ledger (`review_error`) — resolved
+
+**Location:** `agents/base_team/review.py` (`review_single_finding`, `stage2_review`).
+
+**Evidence:** each failed review stored the whole Codex session output in
+`review_error`; one real lane ledger reached 94 MB, 14 findings × ~6.6 MB
+(about 550 KB without those values). Nothing reads the field back.
+
+**Fix:** the full text goes to `~/.local/state/bug_bounty_harness/logs/review/...`
+(override: `BBH_LOG_DIR`; `XDG_STATE_HOME` honored). The finding keeps a
+summary of at most 2000 characters plus `review_log`. Existing ledgers:
+`manual_hunter.py <program> --lane <lane> --compact-review-errors [--apply]`.
+See `docs/base-team-architecture-spec.md` § Failed-review logs.
+
 ## test_portable_import_paths pollutes scope_validator for later recon-ry tests
 
 **Location:** `agents/test_portable_import_paths.py` (sys.modules handling) and

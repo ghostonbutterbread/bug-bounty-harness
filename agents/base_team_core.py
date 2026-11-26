@@ -603,6 +603,8 @@ class BaseTeam(abc.ABC):
             review_single_finding=self._review_single_finding,
             normalize_review_tier=self._normalize_review_tier,
             set_last_review_error=lambda value: setattr(self, "_last_review_error", value),
+            program=self.program,
+            lane=self.lane,
         )
 
     def write_traces(self, events: list[dict[str, Any]]) -> None:
@@ -902,6 +904,8 @@ class BaseTeam(abc.ABC):
             extract_json_object=_extract_json_object,
             normalize_review_tier=self._normalize_review_tier,
             review_timeout=self.review_timeout,
+            program=self.program,
+            lane=self.lane,
         )
 
     def _run_review_cli(self, cli_name: str, prompt: str, timeout: int) -> str:

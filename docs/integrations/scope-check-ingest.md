@@ -285,4 +285,24 @@ follow-up test commit.
 
 ### Round 2
 
-Independent review: pending.
+Independent re-review of a1cf9450: F1 to F4 fixed; BLOCK on N1. An exclusion
+host wrapped or joined in a shape the token stripper does not unwrap
+(`[a.x] internal`, `"a.x" internal`, `<a.x> internal`, `a.x;b.x internal`,
+`a.x/* internal`, `Mapped ::ffff:10.0.0.1 internal`) was skipped, so the host
+was allowed where base refused everything. Minor: an in-scope line
+`Out of scope - a.x` granted `a.x` through the `<words> - <rule>` path.
+
+Fixes (Hermes): in exclusion mode, leftover prose that still looks like a host
+or address (`[a-z0-9-]\.[a-z0-9-]`, an IPv6 fragment, `::`) adds the whole
+first field as an invalid exclusion, so every target is refused (fail closed,
+as base); pure prose such as `3rd party services` stays skipped. Named grants
+whose words say out of scope, exclud or except grant nothing. `skipped_lines`
+in `classify` counts skipped lines only, not lossy ones.
+
+Tests: `agents/test_scope_review_regressions.py` round-2 cases (the reviewer's
+6 repros plus pure-prose-still-skipped, negated named grants, named grant
+still grants). With a1cf9450's `scope_seed_files.py` swapped in, 9 of the 11
+new cases fail and the reviewer's round-2 repro file fails; on the fix all
+pass. Real-scope survey a1cf9450 vs fix (read-only, all 56 programs): no
+program changes; spacex, rapyd and klaviyo stay open, the rapyd prose
+exclusion stays skipped.

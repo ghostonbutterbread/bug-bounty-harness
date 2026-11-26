@@ -127,3 +127,49 @@ def test_skipped_lines_are_surfaced(tmp_path):
     result = SV.classify_program("p", ["a.acme.example.test"], tmp_path)
     assert result["skipped_lines"] == 2
     assert result["results"][0]["state"] == "in"
+
+
+# Review round 2 (N1): exclusion prose naming a host the token stripper cannot
+# unwrap must fail closed, as base did; pure prose stays skipped.
+def _rv2(tmp_path, inc, out):
+    d = tmp_path / "p"
+    d.mkdir(parents=True)
+    (d / "in-scope.txt").write_text(inc)
+    (d / "out-of-scope.txt").write_text(out)
+    return ScopeValidator("p", strict=False, scopes_base=tmp_path, legacy_recon_base=tmp_path / "none")
+
+
+@pytest.mark.parametrize("line,target", [
+    ("[admin.acme.example.test] internal", "https://admin.acme.example.test/"),
+    ('"admin.acme.example.test" internal', "https://admin.acme.example.test/"),
+    ("<admin.acme.example.test> internal", "https://admin.acme.example.test/"),
+    ("admin.acme.example.test;billing.acme.example.test internal", "https://billing.acme.example.test/"),
+    ("admin.acme.example.test/* internal", "https://admin.acme.example.test/x"),
+])
+def test_round2_hostish_exclusion_prose_fails_closed(tmp_path, line, target):
+    v = _rv2(tmp_path, "*.acme.example.test\n", line + "\n")
+    assert not v.is_in_scope(target)
+    assert not v.is_in_scope("https://www.acme.example.test/")  # whole scope refused, as base
+
+
+def test_round2_ipv6_mapped_exclusion_prose_fails_closed(tmp_path):
+    v = _rv2(tmp_path, "::/0\n", "Mapped ::ffff:10.0.0.1 internal\n")
+    assert not v.is_in_scope("http://[::ffff:10.0.0.1]/")
+
+
+def test_round2_pure_prose_exclusion_is_still_skipped(tmp_path):
+    v = _rv2(tmp_path, "*.acme.example.test\n", "3rd party services | other | Out of Scope Targets | OUT-OF-SCOPE | tags:\n")
+    assert v.is_in_scope("https://www.acme.example.test/")
+    assert [kind for kind, _ in v.skipped_scope_lines] == ["exclusion"]
+
+
+@pytest.mark.parametrize("line", ["Out of scope - admin.acme.example.test", "Excluded - admin.acme.example.test",
+                                  "Everything except - admin.acme.example.test"])
+def test_round2_negated_named_grant_grants_nothing(tmp_path, line):
+    v = _rv2(tmp_path, line + "\n", "")
+    assert not v.is_in_scope("https://admin.acme.example.test/")
+
+
+def test_round2_named_grant_still_grants(tmp_path):
+    v = _rv2(tmp_path, "Acme Infrastructure - 192.0.2.0/28\n", "")
+    assert v.is_in_scope("192.0.2.5")

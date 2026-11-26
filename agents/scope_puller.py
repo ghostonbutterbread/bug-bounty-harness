@@ -10,6 +10,7 @@ import re
 import tempfile
 import unicodedata
 import urllib.request
+from datetime import timedelta
 from html.parser import HTMLParser
 from textwrap import dedent
 from pathlib import Path
@@ -17,8 +18,10 @@ from urllib.parse import urlparse
 
 try:
     from scope_seed_files import recon_seed_lines
+    import scope_inventory
 except ModuleNotFoundError:
     from agents.scope_seed_files import recon_seed_lines
+    from agents import scope_inventory
 
 PLATFORMS = {
     "hackerone": "https://hackerone.com/{program}",
@@ -809,8 +812,18 @@ def initialize_duplicate_intelligence(base: Path) -> bool:
         temporary.unlink(missing_ok=True)
 
 
-def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
-    """Save scope data to the canonical Shared scopes folder."""
+def scopes_root() -> Path:
+    return Path.home() / "Shared" / "scopes"
+
+
+def save_scope(program: str, scope_data: dict, *, legacy: bool = True, release_check: bool = False):
+    """Save scope data to the canonical Shared scopes folder.
+
+    After the scope files are written, the typed inventory files
+    (``scope-items.json``, ``scope-history.jsonl``, ``scope-pull.json``) are
+    rebuilt from them. ``release_check`` adds the per-pull release-changed
+    requests for in-scope app and executable items.
+    """
     slug = canonical_program_slug(program)
     if not scope_data.get("domains") and not scope_data.get("urls"):
         raise RuntimeError(
@@ -822,7 +835,7 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     if any(has_scope_control(str(target.get(field) or ""))
            for target in scope_data.get("out_of_scope", []) for field in ("name", "uri")):
         raise ValueError("control character in scope exclusion; refusing to save")
-    base = Path.home() / "Shared" / "scopes" / slug
+    base = scopes_root() / slug
     raw_base = base / "raw"
 
     in_scope = "# In-scope domains and URLs\n"
@@ -892,23 +905,60 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     print(f"    URLs: {len(scope_data.get('urls', []))}")
     if legacy:
         print(f"    Recon seeds: {seed_counts['urls']} urls, {seed_counts['wildcards']} wildcards")
+    try:
+        summary = scope_inventory.write_inventory(base, source="pull", program=slug, release_check=release_check)
+    except Exception as exc:  # noqa: BLE001 - the inventory never fails a saved pull
+        print(f"[!] Scope saved, but the scope inventory could not be written: {exc}")
+        if not isinstance(exc, scope_inventory.InventoryLockTimeout):
+            try:  # Keep pulled_at current so --if-older-than does not re-pull every run.
+                scope_inventory.record_attempt(base, "ok", program=slug)
+            except OSError:
+                pass
+    else:
+        note = f", history: {summary['history']}" if summary["history"] else ""
+        print(f"    Inventory: {summary['items']} items{note}, release changes: {summary['release_changed']}")
 
 
-def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
-    """Pull scope for a program."""
+def detect_platform(program: str, platform: str | None = None) -> str:
+    """Return the given platform or auto-detect one from the program string."""
+    if platform:
+        return platform
+    if "hackerone" in program.lower() or "h1" in program.lower():
+        return "hackerone"
+    if "bugcrowd" in program.lower() or "bc" in program.lower():
+        return "bugcrowd"
+    if "intigriti" in program.lower():
+        return "intigriti"
+    return "hackerone"  # Default
+
+
+def scope_slug(program: str, platform: str | None = None) -> str:
+    """The scope directory name a pull of this program writes."""
+    if detect_platform(program, platform) == "hackerone":
+        return hackerone_handle(program)
+    return canonical_program_slug(program)
+
+
+def _pin_slug(scope_data: dict, slug: str | None) -> dict:
+    """Keep a refresh's program name on the scope dir it refreshes."""
+    if slug:
+        scope_data["program"] = slug
+        if isinstance(scope_data.get("rules"), dict):
+            scope_data["rules"]["program"] = slug
+    return scope_data
+
+
+def pull_scope(program: str, platform: str = None, *, use_api: bool = False, release_check: bool = True,
+               slug: str | None = None):
+    """Pull scope for a program.
+
+    ``slug`` pins the output directory. A refresh passes the existing dir name
+    with the recorded source URL so the save lands in the dir being refreshed
+    even when its name differs from the URL's last path part.
+    """
     print(f"[*] Pulling scope for: {program}")
-    
-    # Auto-detect platform
-    if not platform:
-        if "hackerone" in program.lower() or "h1" in program.lower():
-            platform = "hackerone"
-        elif "bugcrowd" in program.lower() or "bc" in program.lower():
-            platform = "bugcrowd"
-        elif "intigriti" in program.lower():
-            platform = "intigriti"
-        else:
-            platform = "hackerone"  # Default
-    
+    platform = detect_platform(program, platform)
+
     if use_api and platform != "bugcrowd":
         print("[!] --api is currently only reserved for Bugcrowd API-backed scope pulls")
     if use_api and platform == "bugcrowd":
@@ -935,8 +985,8 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
             ),
             "raw": team,
         })
-        scope_data = apply_scope_review(handle, scope_data)
-        save_scope(handle, scope_data)
+        scope_data = apply_scope_review(slug or handle, _pin_slug(scope_data, slug))
+        save_scope(slug or handle, scope_data, release_check=release_check)
         return scope_data
 
     # Build URL
@@ -987,9 +1037,137 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
         }
     
     # Save
-    scope_data = apply_scope_review(canonical_program_slug(program), scope_data)
-    save_scope(program, scope_data)
+    scope_data = apply_scope_review(slug or canonical_program_slug(program), _pin_slug(scope_data, slug))
+    save_scope(slug or program, scope_data, release_check=release_check)
     return scope_data
+
+
+DAY_SECONDS = 86400
+FAILED_PULL_BACKOFF = timedelta(hours=24)
+
+
+def rebuild_inventory(slug: str) -> int:
+    """Rebuild the inventory for one saved scope dir from its files only."""
+    base = scopes_root() / slug
+    if not base.is_dir():
+        print(f"[!] No saved scope for '{slug}' at {base}")
+        return 1
+    try:
+        summary = scope_inventory.write_inventory(base, source="rebuild", program=slug)
+    except Exception as exc:  # noqa: BLE001 - report one line, not a traceback
+        print(f"[!] {slug}: inventory rebuild failed: {type(exc).__name__}: {exc}")
+        return 1
+    note = f", history: {summary['history']}" if summary["history"] else ""
+    print(f"[+] {slug}: {summary['items']} items{note}")
+    return 0
+
+
+def rebuild_all_inventories() -> int:
+    root = scopes_root()
+    if not root.is_dir():
+        print(f"[!] No scopes directory at {root}")
+        return 1
+    failures = 0
+    for base in sorted(root.iterdir()):
+        # Alias symlinks point at a real program dir that is rebuilt on its own.
+        if base.is_symlink() or not base.is_dir() or base.name.startswith("."):
+            continue
+        failures += rebuild_inventory(base.name)
+    return 1 if failures else 0
+
+
+def _age_days(moment) -> float:
+    return (scope_inventory.utcnow() - moment).total_seconds() / DAY_SECONDS
+
+
+def recorded_origin(base: Path) -> tuple[str | None, str | None]:
+    """Platform and source URL an existing scope dir was pulled from."""
+    platform = source_url = None
+    for name in (scope_inventory.PULL_FILE, "rules-of-engagement.json"):
+        data = scope_inventory.read_json(base / name)
+        if not isinstance(data, dict):
+            continue
+        value = data.get("platform")
+        if platform is None and isinstance(value, str) and value.strip():
+            platform = value.strip().lower()
+        value = data.get("source_url")
+        if source_url is None and isinstance(value, str) and re.match(r"https?://\S+$", value.strip()):
+            source_url = value.strip()
+    return platform, source_url
+
+
+def _record(base: Path, status: str, *, error: str | None = None, program: str) -> None:
+    try:
+        scope_inventory.record_attempt(base, status, error=error, program=program)
+    except OSError as exc:
+        print(f"[!] could not record pull state: {exc}")
+
+
+def run_pull(program: str, platform: str | None, *, use_api: bool, release_check: bool,
+             if_older_than: float | None = None, force_platform: bool = False) -> int:
+    """CLI pull with saved-origin reuse, freshness skip, failure recording and backoff.
+
+    An existing scope dir is refreshed from the platform and source URL it
+    records, never from platform auto-detection. A different explicit
+    ``--platform`` refuses unless ``force_platform``.
+    """
+    slug = scope_slug(program, platform)
+    base = scopes_root() / slug
+    if base.is_symlink():
+        # An alias (e.g. short -> canonical_name) refreshes under the canonical
+        # dir name, so alternating names never flip the recorded program.
+        try:
+            real = base.resolve(strict=True)
+            if real.parent == scopes_root().resolve():
+                slug, base = real.name, real
+        except OSError:
+            pass
+    saved = base.is_dir()
+    target, target_slug = program, None
+    if saved:
+        recorded_platform, recorded_source = recorded_origin(base)
+        if recorded_platform:
+            if platform and platform != recorded_platform and not force_platform:
+                print(f"[!] {slug}: saved scope was pulled from {recorded_platform}; refusing --platform {platform} "
+                      "(pass --force-platform to replace it)")
+                return 1
+            if not (platform and force_platform):
+                platform = recorded_platform
+                target, target_slug = recorded_source or program, slug
+    pulled = scope_inventory.last_pulled(base) if saved else None
+    if if_older_than is not None and saved:
+        if pulled is not None and _age_days(pulled) < if_older_than:
+            print(f"scope fresh (pulled {int(_age_days(pulled))} days ago)")
+            return 0
+        state = scope_inventory.read_json(base / scope_inventory.PULL_FILE)
+        failed_at = scope_inventory.parse_iso(state.get("last_failed_at")) if isinstance(state, dict) else None
+        if failed_at is not None and scope_inventory.utcnow() - failed_at < FAILED_PULL_BACKOFF:
+            retry = scope_inventory.iso(failed_at + FAILED_PULL_BACKOFF)
+            _record(base, "skipped_backoff", program=slug)
+            print(f"[!] scope stale but last pull failed at {scope_inventory.iso(failed_at)}; "
+                  f"not retrying before {retry}; continuing with saved scope")
+            return 0
+
+    if platform is not None and platform not in PLATFORMS:
+        error = f"saved scope platform '{platform}' is not supported by scope_puller; refresh it manually"
+        _record(base, "failed", error=error, program=slug)
+        print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
+        return 0 if if_older_than is not None else 1
+
+    try:
+        result = pull_scope(target, platform, use_api=use_api, release_check=release_check, slug=target_slug)
+        error = None if result is not None else "failed to fetch program page"
+    except Exception as exc:  # noqa: BLE001 - any pull failure keeps the saved scope
+        error = f"{type(exc).__name__}: {exc}"
+    if error is None:
+        return 0
+    _record(base, "failed", error=error, program=slug)
+    if if_older_than is not None and saved:
+        age = f"{int(_age_days(pulled))} days old" if pulled is not None else "of unknown age"
+        print(f"[!] scope refresh failed ({error}); continuing with saved scope ({age})")
+        return 0
+    print(f"[!] {error}")
+    return 1
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1000,6 +1178,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             """\
             Example:
               bbh agents/scope_puller.py canva --platform bugcrowd
+              bbh agents/scope_puller.py canva --if-older-than 7
+              bbh agents/scope_puller.py --rebuild-inventory --all
 
             Output:
               ~/Shared/scopes/<program>/
@@ -1010,7 +1190,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     parser = build_arg_parser()
-    parser.add_argument("program", help="Program handle or full scope page URL")
+    parser.add_argument("program", nargs="?", help="Program handle or full scope page URL")
     parser.add_argument(
         "--platform",
         "-p",
@@ -1022,14 +1202,48 @@ def main() -> int:
         action="store_true",
         help="Use the platform API path where implemented. Bugcrowd defaults to public engagement scraping unless this is set.",
     )
+    parser.add_argument(
+        "--if-older-than",
+        type=float,
+        metavar="DAYS",
+        help="Pull only when the saved scope is at least DAYS old. A failed refresh keeps the saved "
+             "scope, prints a warning and exits 0; retries are skipped for 24 h after a failure.",
+    )
+    parser.add_argument(
+        "--rebuild-inventory",
+        action="store_true",
+        help="Rebuild scope-items.json/scope-history.jsonl/scope-pull.json offline from the saved scope files.",
+    )
+    parser.add_argument(
+        "--force-platform",
+        action="store_true",
+        help="Allow --platform to differ from the platform an existing scope dir was pulled from.",
+    )
+    parser.add_argument("--all", action="store_true", help="With --rebuild-inventory: every saved scope dir.")
+    parser.add_argument(
+        "--no-release-check",
+        action="store_true",
+        help="Skip the per-pull app/executable release-changed requests.",
+    )
     args = parser.parse_args()
 
-    try:
-        pull_scope(args.program, args.platform, use_api=args.api)
-    except RuntimeError as exc:
-        print(f"[!] {exc}")
-        return 1
-    return 0
+    if args.force_platform and not args.platform:
+        parser.error("--force-platform requires --platform")
+    if args.all and not args.rebuild_inventory:
+        parser.error("--all requires --rebuild-inventory")
+    if args.rebuild_inventory:
+        if args.all == bool(args.program):
+            parser.error("--rebuild-inventory needs exactly one of <program> or --all")
+        if args.if_older_than is not None:
+            parser.error("--if-older-than does not apply to --rebuild-inventory")
+        return rebuild_all_inventories() if args.all else rebuild_inventory(scope_slug(args.program, args.platform))
+    if not args.program:
+        parser.error("program is required")
+    if args.if_older_than is not None and args.if_older_than < 0:
+        parser.error("--if-older-than must be >= 0")
+    return run_pull(args.program, args.platform, use_api=args.api,
+                    release_check=not args.no_release_check, if_older_than=args.if_older_than,
+                    force_platform=args.force_platform)
 
 
 if __name__ == "__main__":

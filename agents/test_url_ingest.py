@@ -63,10 +63,106 @@ class TestIngestRoundtrip(unittest.TestCase):
         self.db_path = TEMP_SHARED / self.program / "web" / "recon" / "url_index" / "url_index.sqlite"
         M.SHARED_BASE = TEMP_SHARED
         M.init_db(self.program)
+        # Ingest filters by default: keep every test off real saved scopes and
+        # the network. Tests that need their own scope or puller patch over this.
+        for patcher in (
+            patch.object(M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "empty-scopes"),
+            patch.object(M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"),
+            patch.object(M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "no network")),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def tearDown(self):
         if self.db_path.exists():
             self.db_path.unlink()
+
+    def _last_import(self, columns="urls_accepted, urls_rejected, scope_mode, scope_source"):
+        with M.get_conn(self.program) as conn:
+            return conn.execute(f"SELECT {columns} FROM imports ORDER BY id DESC LIMIT 1").fetchone()
+
+    def test_default_is_auto_and_falls_back_to_unfiltered_after_failed_pull(self):
+        source = TEMP_SHARED / "default-auto.txt"
+        source.write_text("https://unknown.example.test/a\n")
+        with patch.object(M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")) as run:
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list], list(M.PULLSCOPE_PLATFORMS))
+        self.assertEqual(tuple(self._last_import()), (1, 0, "no_scope_after_pull", "no_scope_after_pull"))
+
+    def test_default_filters_with_saved_scope_without_pulling(self):
+        scopes = TEMP_SHARED / "default-saved-scopes"
+        (scopes / self.program).mkdir(parents=True, exist_ok=True)
+        (scopes / self.program / "in-scope.txt").write_text("*.in.example.test\n")
+        source = TEMP_SHARED / "default-saved.txt"
+        source.write_text("https://a.in.example.test/x\nhttps://out.example.test/y\n")
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", scopes), patch.object(M.subprocess, "run") as run:
+            M.ingest(self.program, source_file=str(source))
+        run.assert_not_called()
+        self.assertEqual(tuple(self._last_import()), (1, 1, "saved_scope", "saved_scope"))
+        with M.get_conn(self.program) as conn:
+            self.assertEqual([r[0] for r in conn.execute("SELECT host FROM urls")], ["a.in.example.test"])
+
+    def test_failed_pull_is_not_retried_within_window_and_note_says_so(self):
+        source = TEMP_SHARED / "backoff.txt"
+        source.write_text("https://open.example.test/a\n")
+        failing = M.subprocess.CompletedProcess([], 1, "", "mock")
+        with patch.object(M.subprocess, "run", return_value=failing) as run:
+            M.ingest(self.program, source_file=str(source))
+            M.ingest(self.program, source_file=str(source))
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual(run.call_count, len(M.PULLSCOPE_PLATFORMS))
+        mode, origin, note, accepted = self._last_import("scope_mode, scope_source, scope_note, urls_accepted")
+        self.assertEqual((mode, origin, accepted), ("no_scope_after_pull", "no_scope_pull_skipped", 1))
+        self.assertIn("skipped scope pull", note)
+        self.assertIn("retry after", note)
+
+    def test_failed_pull_is_retried_after_window(self):
+        source = TEMP_SHARED / "backoff-expired.txt"
+        source.write_text("https://open.example.test/a\n")
+        failing = M.subprocess.CompletedProcess([], 1, "", "mock")
+        with patch.object(M.subprocess, "run", return_value=failing) as run:
+            M.ingest(self.program, source_file=str(source))
+            old = (M.datetime.now(M.timezone.utc) - M.SCOPE_PULL_RETRY_AFTER - M.timedelta(minutes=1)).isoformat()
+            with M.get_conn(self.program) as conn:
+                conn.execute("UPDATE imports SET imported_at = ?", (old,))
+                conn.commit()
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual(run.call_count, 2 * len(M.PULLSCOPE_PLATFORMS))
+        self.assertEqual(self._last_import("scope_source")[0], "no_scope_after_pull")
+
+    def test_skipped_imports_do_not_extend_the_window(self):
+        source = TEMP_SHARED / "backoff-no-extend.txt"
+        source.write_text("https://open.example.test/a\n")
+        failing = M.subprocess.CompletedProcess([], 1, "", "mock")
+        with patch.object(M.subprocess, "run", return_value=failing) as run:
+            M.ingest(self.program, source_file=str(source))
+            old = (M.datetime.now(M.timezone.utc) - M.SCOPE_PULL_RETRY_AFTER - M.timedelta(minutes=1)).isoformat()
+            with M.get_conn(self.program) as conn:
+                conn.execute("UPDATE imports SET imported_at = ?", (old,))
+                # A skipped import made after the failure must not count.
+                conn.execute(
+                    "INSERT INTO imports (source_file, program, scope_mode, scope_source, imported_at) "
+                    "VALUES ('x', ?, 'no_scope_after_pull', 'no_scope_pull_skipped', ?)",
+                    (self.program, M.datetime.now(M.timezone.utc).isoformat()),
+                )
+                conn.commit()
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual(run.call_count, 2 * len(M.PULLSCOPE_PLATFORMS))
+
+    def test_scope_saved_during_backoff_is_used_immediately(self):
+        scopes = TEMP_SHARED / "backoff-later-scopes"
+        source = TEMP_SHARED / "backoff-later.txt"
+        source.write_text("https://a.in.example.test/x\nhttps://out.example.test/y\n")
+        failing = M.subprocess.CompletedProcess([], 1, "", "mock")
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", scopes), patch.object(
+            M.subprocess, "run", return_value=failing
+        ) as run:
+            M.ingest(self.program, source_file=str(source))
+            (scopes / self.program).mkdir(parents=True, exist_ok=True)
+            (scopes / self.program / "in-scope.txt").write_text("*.in.example.test\n")
+            M.ingest(self.program, source_file=str(source))
+        self.assertEqual(run.call_count, len(M.PULLSCOPE_PLATFORMS))
+        self.assertEqual(tuple(self._last_import()), (1, 1, "saved_scope", "saved_scope"))
 
     def test_off_implicitly_never_runs_scope_puller(self):
         source = TEMP_SHARED / "off-no-pull.txt"
@@ -111,7 +207,7 @@ class TestIngestRoundtrip(unittest.TestCase):
         source = TEMP_SHARED / "mode-matrix.txt"
         source.write_text("https://unknown.example.test/a\n")
         cases = [
-            ({}, 0, "scope_filter_off", "saved_scope"),
+            ({}, 3, "no_scope_after_pull", "no_scope_after_pull"),
             ({"scope_filter": "off", "repull_scope": False}, 0, "scope_filter_off", "saved_scope"),
             ({"scope_filter": "off", "repull_scope": True}, 3, "scope_filter_off", "no_scope_after_pull"),
             ({"scope_filter": "auto"}, 3, "no_scope_after_pull", "no_scope_after_pull"),
@@ -130,6 +226,10 @@ class TestIngestRoundtrip(unittest.TestCase):
             ), patch.object(M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "empty-legacy"), patch.object(
                 M.subprocess, "run", return_value=M.subprocess.CompletedProcess([], 1, "", "mock")
             ) as run:
+                with M.get_conn(self.program) as conn:
+                    # Each case starts outside the failed-pull retry window.
+                    conn.execute("DELETE FROM imports")
+                    conn.commit()
                 M.ingest(self.program, source_file=str(source), **kwargs)
                 self.assertEqual(run.call_count, count)
                 if count:
@@ -142,7 +242,7 @@ class TestIngestRoundtrip(unittest.TestCase):
                 self.assertEqual(tuple(row), (1, 0, mode, origin))
 
     def test_ingest_cli_repull_defaults_and_overrides(self):
-        cases = [([], False), (["--scope-filter", "off"], False),
+        cases = [([], True), (["--scope-filter", "off"], False),
                  (["--scope-filter", "auto"], True),
                  (["--scope-filter", "off", "--repull-scope"], True),
                  (["--scope-filter", "auto", "--no-repull-scope"], False)]
@@ -854,6 +954,32 @@ class TestAggregateRecon(unittest.TestCase):
                     kwargs = aggregate.call_args.kwargs
                     self.assertEqual(kwargs["source_roots"], [str(self.source_root)])
                     self.assertFalse(kwargs["ingest_outputs"])
+
+    def test_aggregate_cli_defaults_to_auto_filter_with_repull(self):
+        cases = [([], "auto", True), (["--scope-filter", "off"], "off", False),
+                 (["--no-repull-scope"], "auto", False),
+                 (["--scope-filter", "off", "--repull-scope"], "off", True)]
+        for flags, mode, repull in cases:
+            with self.subTest(flags=flags), patch.object(M, "aggregate_recon") as aggregate, patch.object(
+                sys, "argv", ["url_ingest.py", "aggregate", self.program, "--no-ingest", *flags]
+            ):
+                M.main()
+                self.assertEqual(aggregate.call_args.kwargs["scope_filter"], mode)
+                self.assertIs(aggregate.call_args.kwargs["repull_scope"], repull)
+
+    def test_aggregate_default_filters_imports_and_pulls_once_for_open_scope(self):
+        from unittest.mock import Mock
+
+        with patch.object(M.ScopeValidator, "SCOPES_BASE", TEMP_SHARED / "agg-empty-scopes"), patch.object(
+            M.ScopeValidator, "LEGACY_RECON_BASE", TEMP_SHARED / "agg-empty-legacy"
+        ), patch.object(M.subprocess, "run", return_value=Mock(returncode=1)), patch.object(
+            M, "_try_repull_scope", return_value=(False, "mock: no scope")
+        ) as pull:
+            manifest = M.aggregate_recon(self.program, source_roots=[str(self.source_root)], run_id="agg-default")
+        self.assertEqual(pull.call_count, 1)
+        sources = [row["scope_mode"] for row in manifest["imports"]]
+        self.assertTrue(sources)
+        self.assertEqual(set(sources), {"no_scope_after_pull"})
 
 
 class TestQueryStatus(unittest.TestCase):

@@ -4,9 +4,9 @@ url_ingest.py — SQLite-backed URL ingestor and review tracker.
 
 Usage:
     bbh agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
-                                                 [--scope-filter auto] [--no-repull-scope]
+                                                 [--scope-filter auto|off] [--no-repull-scope]
     bbh agents/url_ingest.py aggregate <program> [--input <dir>] [--run-id <id>]
-                                                 [--scope-filter auto] [--no-ingest]
+                                                 [--scope-filter auto|off] [--no-ingest]
     bbh agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
     bbh agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
                                                  [--skill <skill>] [--test-family <family>] \
@@ -31,7 +31,7 @@ import os
 import re
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
 from contextlib import contextmanager
@@ -61,6 +61,10 @@ VALID_LANES = {
 DEFAULT_TEST_SKILL = "manual"
 DEFAULT_TEST_FAMILY = "general-review"
 PULLSCOPE_PLATFORMS = ("hackerone", "bugcrowd", "intigriti")
+# After a failed scope pull, later ingests for the same program skip pulling
+# for this long (open-scope programs never gain a saved scope). The window is
+# read from earlier ``imports`` rows; a scope saved meanwhile is used at once.
+SCOPE_PULL_RETRY_AFTER = timedelta(hours=24)
 PARAM_PRESETS = {
     "xss": (
         "q",
@@ -743,10 +747,15 @@ def aggregate_recon(
     source_roots: list[str] | None = None,
     run_id: str | None = None,
     ingest_outputs: bool = True,
-    scope_filter: str = "off",
-    repull_scope: bool = False,
+    scope_filter: str = "auto",
+    repull_scope: bool | None = None,
 ) -> dict:
-    """Aggregate recon URL files into one program-level recon directory."""
+    """Aggregate recon URL files into one program-level recon directory.
+
+    Imports are scope-filtered by default; see ingest() for the fallback.
+    """
+    if repull_scope is None:
+        repull_scope = scope_filter != "off"
     init_db(program)
     selected_roots = [Path(item).expanduser() for item in source_roots] if source_roots else _default_recon_roots(program)
     selected_roots = [path for path in selected_roots if path.exists()]
@@ -891,6 +900,29 @@ def _try_repull_scope(program: str) -> tuple[bool, str]:
     return False, "; ".join(errors)
 
 
+def _recent_failed_scope_pull(program: str) -> datetime | None:
+    """Return when the last failed scope pull ran, if within SCOPE_PULL_RETRY_AFTER.
+
+    Only rows that actually attempted a pull (``no_scope_after_pull``) count,
+    so skipped imports never extend the window.
+    """
+    with get_conn(program) as conn:
+        row = conn.execute(
+            "SELECT imported_at FROM imports WHERE scope_source = 'no_scope_after_pull' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        when = datetime.fromisoformat(str(row[0]))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    return when if timedelta(0) <= now - when < SCOPE_PULL_RETRY_AFTER else None
+
+
 def _prepare_scope_staging(
     program: str,
     urls: list[str],
@@ -905,10 +937,19 @@ def _prepare_scope_staging(
     scope_note = validator.scope_summary()
 
     if validator.is_empty() and repull_scope:
-        pulled, note = _try_repull_scope(program)
-        validator = ScopeValidator(program, strict=False)
-        scope_source = "pulled_scope" if pulled and not validator.is_empty() else "no_scope_after_pull"
-        scope_note = note
+        last_failure = _recent_failed_scope_pull(program)
+        if last_failure is not None:
+            # Same unfiltered outcome as a failed pull, without re-running it.
+            scope_source = "no_scope_pull_skipped"
+            scope_note = (
+                f"skipped scope pull: last pull failed at {last_failure.isoformat(timespec='seconds')}; "
+                f"retry after {(last_failure + SCOPE_PULL_RETRY_AFTER).isoformat(timespec='seconds')}"
+            )
+        else:
+            pulled, note = _try_repull_scope(program)
+            validator = ScopeValidator(program, strict=False)
+            scope_source = "pulled_scope" if pulled and not validator.is_empty() else "no_scope_after_pull"
+            scope_note = note
 
     if scope_filter == "off":
         accepted = urls
@@ -948,13 +989,17 @@ def ingest(
     source_file: str = None,
     run_id: str = None,
     *,
-    scope_filter: str = "off",
+    scope_filter: str = "auto",
     repull_scope: bool | None = None,
 ):
     """
     Ingest URLs from a source file (or stdin) into the DB.
-    Deduplicates by url_hash. By default, repull unless filtering is off;
-    explicit True requests a pull even when filtering is off.
+    Deduplicates by url_hash. Scope filtering is on by default ("auto"):
+    saved scope filters; with none, try a public scope pull; if that fails,
+    ingest unfiltered and record ``no_scope_after_pull`` on the import row.
+    A failed pull is not retried for SCOPE_PULL_RETRY_AFTER. By default,
+    repull unless filtering is off; explicit True requests a pull even when
+    filtering is off.
     """
     if repull_scope is None:
         repull_scope = scope_filter != "off"
@@ -1791,20 +1836,24 @@ def main():
     parser.add_argument(
         "--scope-filter",
         choices=["off", "auto"],
-        default="off",
-        help="For ingest: write /tmp scoped/rejected files and ingest only scoped URLs when scope exists.",
+        default="auto",
+        help=(
+            "For ingest/aggregate (default: auto): ingest only in-scope URLs when scope exists; with no "
+            "saved scope try a public pull, then ingest unfiltered (a failed pull is not retried for 24 h). "
+            "off disables filtering."
+        ),
     )
     parser.add_argument(
         "--repull-scope",
         action="store_true",
         default=None,
-        help="For ingest: if saved scope is missing, try public scope pulls. Default with auto; explicit use also pulls with off, without filtering.",
+        help="For ingest/aggregate: if saved scope is missing, try public scope pulls. Default with auto; explicit use also pulls with off, without filtering.",
     )
     parser.add_argument(
         "--no-repull-scope",
         action="store_false",
         dest="repull_scope",
-        help="For ingest: do not try pulling scope when saved scope is missing.",
+        help="For ingest/aggregate: do not try pulling scope when saved scope is missing.",
     )
     parser.add_argument(
         "--no-ingest",
@@ -1871,7 +1920,9 @@ def main():
         )
 
     elif cmd == "aggregate":
-        repull_scope = bool(args.repull_scope)
+        repull_scope = args.repull_scope
+        if repull_scope is None:
+            repull_scope = args.scope_filter == "auto"
         aggregate_recon(
             args.program,
             source_roots=args.source_root,

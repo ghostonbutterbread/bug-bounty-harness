@@ -56,10 +56,12 @@ The recorder copies the raw file, extracts URL/host-shaped lines when the artifa
 
 Scope behavior:
 
+- `ingest` and `aggregate` default to `--scope-filter auto`.
 - If saved scope exists, `url-ingest` writes accepted/rejected temp files under `/tmp` and ingests only accepted URLs.
-- If no saved scope exists and `--scope-filter auto` is set, it tries the existing `agents/scope_puller.py` against public HackerOne, Bugcrowd, and Intigriti before fallback.
+- If no saved scope exists under `auto`, it tries the existing `agents/scope_puller.py` against public HackerOne, Bugcrowd, and Intigriti before fallback.
 - If no scope can be found after repull, passive parsing is allowed and the import is labeled `scope_mode=no_scope_after_pull`. Agents must notify Ryushe before live testing because no authoritative scope was established.
-- If scope filtering is intentionally not wanted, omit `--scope-filter auto`; the import will be labeled `scope_filter_off`.
+- After a failed pull, later imports for the program skip pulling for 24 hours (`scope_source=no_scope_pull_skipped`, reason in `scope_note`). A scope saved meanwhile is used immediately.
+- If scope filtering is intentionally not wanted, pass `--scope-filter off`; the import will be labeled `scope_filter_off`.
 - If an agent needs scoped temp files but must intentionally skip repull, use `--no-repull-scope`; this should be rare and treated as passive/import-only.
 
 Inspect import metadata through `stats`; it includes read, accepted, rejected, scope mode, and temp file paths.

@@ -83,7 +83,8 @@ Statuses are per vulnerability lane:
 
 ## Scoped Ingest
 
-Prefer scoped imports for URLs that may feed live testing:
+`ingest` and `aggregate` scope-filter by default (`--scope-filter auto`); the
+flag below is explicit but optional:
 
 ```bash
 bbh agents/url_ingest.py ingest <program> --source urls.txt --run-id <run-id> --scope-filter auto
@@ -94,7 +95,15 @@ URLs are ingested. If no saved scope exists, auto mode tries the existing
 pullscope engine across HackerOne, Bugcrowd, and Intigriti before fallback. If
 scope still cannot be resolved, passive parsing may continue with
 `scope_mode=no_scope_after_pull`; agents must not treat that as live-test
-approval.
+approval. After a failed pull, later imports for that program skip pulling for
+24 hours (`scope_source=no_scope_pull_skipped`, reason in `scope_note`); a
+scope saved in the meantime is used immediately. `--scope-filter off` imports
+everything unfiltered (`scope_mode=scope_filter_off`). Rows already in the
+index are never re-filtered or deleted.
+
+To check hosts or URLs against saved scope without importing (read-only, no
+pull), use `bbh agents/scope_validator.py classify <program> --json` with
+`{"targets": [...]}` on stdin; see `docs/integrations/scope-check-ingest.md`.
 
 ## Marking Coverage
 

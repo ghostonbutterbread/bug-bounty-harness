@@ -116,6 +116,58 @@ def optional_host_variants(value: str) -> list[str]:
     return variants if all(is_dns_scope_value(variant) for variant in variants) else [value]
 
 
+_PIPE_ANNOTATION_RE = re.compile(r"\s+\|(?:\s+|$)")
+
+
+def _glob_probe_host(host: str) -> str:
+    """Return ``host`` with infix ``*`` globs replaced by a letter for syntax checks."""
+    lead = "*." if host.startswith("*.") else ""
+    return lead + host[len(lead):].replace("*", "a")
+
+
+def is_scope_rule_token(value: str) -> bool:
+    """True when one whitespace-free token is a host, wildcard, glob, IP, CIDR or http(s) URL."""
+    token = str(value or "").strip().rstrip("/")
+    if not token or any(ch.isspace() for ch in token):
+        return False
+    if token.lower().startswith(("http://", "https://")):
+        try:
+            host = (urlparse(token).hostname or "").rstrip(".")
+        except ValueError:
+            return False
+        return bool(host) and is_dns_scope_value(_glob_probe_host(host))
+    if "(" in token:
+        try:
+            variants = optional_host_variants(token)
+        except ValueError:
+            return False
+        return variants != [token] and all(is_scope_rule_token(variant) for variant in variants)
+    return is_dns_scope_value(_glob_probe_host(token.rstrip(".")))
+
+
+def scope_line_rules(line: str) -> list[str]:
+    """Return the scope rule value(s) carried by one saved scope line.
+
+    Platform exports append `` | type | In Scope | ...`` columns; only the first
+    field is a rule. A first field containing whitespace is a description,
+    possibly ending in a rule (``Infra - 192.0.2.0/24``). Keep its trailing
+    token, or every token of a comma/space-separated list, only when each kept
+    token is itself a host, wildcard, IP, CIDR or URL. Otherwise the line is
+    prose and yields nothing: description words never become domain entries.
+    Whitespace-free values pass through unchanged so existing validation
+    (including fail-closed invalid exclusions) still applies to them.
+    """
+    value = _PIPE_ANNOTATION_RE.split(str(line or "").strip(), maxsplit=1)[0].strip()
+    if not value:
+        return []
+    if not any(ch.isspace() for ch in value):
+        return [value]
+    tokens = [token for token in re.split(r"[\s,]+", value) if token]
+    if len(tokens) > 1 and all(is_scope_rule_token(token) for token in tokens):
+        return tokens
+    return [tokens[-1]] if tokens and is_scope_rule_token(tokens[-1]) else []
+
+
 def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) -> tuple[list[str], list[str]]:
     """Return ``(urls_txt, wild_txt)`` lines for recon-ry-compatible seeds.
 

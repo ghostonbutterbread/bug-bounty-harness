@@ -4,8 +4,21 @@ Scope Validator — Ensures recon and testing stays within program scope.
 Supports:
   - Exact domains:         example.com
   - Wildcard domains:      *.example.com
-  - URL patterns:          https://api.example.com/v1/*
+  - Host globs:            app*.example.com, customer.*.example.com
+  - URL patterns:          https://api.example.com/v1/*, https://api-*.example.com/*
   - CIDR ranges:           10.0.0.0/8, 192.168.1.0/24
+
+A leading "*." matches the base and any subdomain. Any other "*" in an allow
+matches one or more characters inside one label; in an exclusion it may also
+span dots, so exclusions err wide. Saved lines keep only the first " | "
+column of platform exports; a description ending in a rule keeps that rule
+("Infra - 192.0.2.0/24"), and pure prose lines are skipped (see
+scope_seed_files.scope_line_rules). Rules are parsed once per validator.
+
+CLI (read-only; never writes, pulls scope or uses the network):
+    bbh agents/scope_validator.py classify <program> [--scopes-base DIR] --json
+  reads {"targets": [...]} on stdin and prints one JSON verdict object; see
+  docs/integrations/scope-check-ingest.md for the contract.
 
 Authority spellings with percent escapes, userinfo, malformed ports, non-ASCII
 hosts or backslashes are refused before comparison; an invalid exclusion can
@@ -67,6 +80,7 @@ Usage:
     validator.validate_or_fail("api.target.com")   # raises if not in scope
 """
 
+import hashlib
 import ipaddress
 import json
 import re
@@ -78,9 +92,9 @@ from urllib.parse import urlparse, urlsplit
 import idna
 
 try:
-    from agents.scope_seed_files import optional_host_variants
+    from agents.scope_seed_files import optional_host_variants, scope_line_rules
 except ModuleNotFoundError:
-    from scope_seed_files import optional_host_variants
+    from scope_seed_files import optional_host_variants, scope_line_rules
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -107,18 +121,66 @@ class ScopeExclusionReadError(ScopeFileReadError):
 # Scope entry types
 # ---------------------------------------------------------------------------
 
+_HOST_IN_LABEL = "[a-z0-9-]+"
+_HOST_ACROSS_LABELS = "[a-z0-9.-]+"
+
+
+class _HostGlob:
+    """Precompiled host glob with distinct allow and exclusion semantics.
+
+    A leading ``*.`` keeps the caller's subdomain meaning. Any other ``*``
+    matches one or more characters inside a single label for an allow, so an
+    include stays narrow, and may also span dots for an exclusion, so a denial
+    errs wide.
+    """
+
+    __slots__ = ("allow", "deny")
+
+    def __init__(self, pattern: str, *, allow_base: bool, deny_base: bool = True):
+        pattern = pattern.lower().rstrip(".")
+        lead = pattern.startswith("*.")
+        body = pattern[2:] if lead else pattern
+
+        def compile_(star: str, base: bool) -> "re.Pattern[str]":
+            core = "".join(star if ch == "*" else re.escape(ch) for ch in body)
+            prefix = ""
+            if lead:
+                prefix = f"(?:{_HOST_ACROSS_LABELS}\\.)" + ("?" if base else "")
+            return re.compile(prefix + core)
+
+        self.allow = compile_(_HOST_IN_LABEL, allow_base)
+        self.deny = compile_(_HOST_ACROSS_LABELS, deny_base)
+
+    def matches(self, host: str, *, exclusion: bool) -> bool:
+        return bool((self.deny if exclusion else self.allow).fullmatch(host))
+
+
+def _glob_host_is_valid(pattern: str) -> bool:
+    """A glob is usable when replacing each ``*`` with a letter yields a safe host."""
+    pattern = pattern.lower().rstrip(".")
+    lead = "*." if pattern.startswith("*.") else ""
+    return bool(_safe_host("a." * bool(lead) + pattern[len(lead):].replace("*", "a")))
+
+
 class _ScopeEntry:
     """
     Represents a single scope entry. Can be:
     - Exact domain:   example.com
     - Wildcard:       *.example.com
+    - Host glob:      app*.example.com, customer.*.example.com
     - URL pattern:    https://api.example.com/v1/*
     - CIDR:           10.0.0.0/8
+
+    Rules are parsed once at construction; matching reuses the parsed form.
+    ``source`` is the rule text from the scope line before optional-group
+    expansion, used to report which rule decided a verdict.
     """
 
-    def __init__(self, raw: str):
+    def __init__(self, raw: str, source: Optional[str] = None):
         self.raw = raw.strip()
+        self.source = (source if source is not None else raw).strip()
         self._type = self._classify()
+        self._prepare()
 
     def _classify(self) -> str:
         r = self.raw
@@ -132,11 +194,77 @@ class _ScopeEntry:
                 pass
         if r.startswith("http://") or r.startswith("https://"):
             return "url_pattern"
+        if "*" in (r[2:] if r.startswith("*.") else r):
+            return "glob"
         if r.startswith("*."):
             return "wildcard"
         if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", r):
             return "ip"
         return "domain"
+
+    def _prepare(self) -> None:
+        self._invalid = False
+        self._host = ""
+        self._network = None
+        self._glob: Optional[_HostGlob] = None
+        self._url_parsed = None
+        self._url_path = ""
+        self._url_ambiguous = False
+        kind = self._type
+        if kind == "comment":
+            return
+        if kind == "cidr":
+            self._network = ipaddress.ip_network(self.raw, strict=False)
+        elif kind == "domain":
+            self._host = _safe_host(self.raw)
+            self._invalid = not self._host
+        elif kind == "wildcard":
+            self._host = _safe_host(self.raw[2:])
+            self._invalid = not self._host
+        elif kind == "ip":
+            self._host = self.raw
+            self._invalid = not _safe_host(self.raw)
+        elif kind == "glob":
+            self._invalid = not _glob_host_is_valid(self.raw)
+            if not self._invalid:
+                self._glob = _HostGlob(self.raw, allow_base=True)
+        elif kind == "url_pattern":
+            self._prepare_url()
+
+    def _prepare_url(self) -> None:
+        scheme, sep, rest = self.raw.partition("://")
+        authority_end = len(rest)
+        for ch in "/?#":
+            index = rest.find(ch)
+            if index != -1:
+                authority_end = min(authority_end, index)
+        authority = rest[:authority_end]
+        # Validate the authority with each glob star replaced by a letter so
+        # infix host globs are accepted while every other spelling rule holds.
+        probe = scheme + sep + authority.replace("*", "a") + rest[authority_end:]
+        if not _extract_host(probe):
+            self._invalid = True
+            return
+        try:
+            parsed = urlsplit(self.raw)
+            raw_host = (parsed.hostname or "").rstrip(".")
+            parsed.port
+        except ValueError:
+            self._invalid = True
+            return
+        self._url_parsed = parsed
+        self._url_path = parsed.path.rstrip("*")
+        self._url_ambiguous = _ambiguous_path(self._url_path) or any(
+            ord(c) < 32 or ord(c) == 127 for c in self.raw
+        )
+        if "*" in raw_host:
+            # An allow URL wildcard does not grant the bare base host; an
+            # exclusion URL wildcard also covers it.
+            self._glob = _HostGlob(raw_host, allow_base=False)
+        else:
+            self._host = _safe_host(raw_host)
+
+    # ── Matching ──────────────────────────────────────────────────────────
 
     def matches(self, target: str, *, exclusion: bool = False) -> bool:
         """
@@ -144,77 +272,63 @@ class _ScopeEntry:
 
         Target can be a hostname, IP, or full URL.
         """
+        host = _extract_host(target) if self._type != "comment" and not self._invalid else ""
+        return self._match(target, host, _ip_or_none(host), exclusion=exclusion)
+
+    def _match(self, target: str, host: str, addr, *, exclusion: bool) -> bool:
+        """Match with the target host (and parsed IP, if any) computed once by the caller."""
         if self._type == "comment":
             return False
 
         # An unparseable exclusion could name any destination after another
         # parser normalizes it. Do not silently discard it as a non-match.
-        if self.has_invalid_authority():
+        if self._invalid:
             return exclusion
-
-        # Normalise target: extract hostname/IP from URL if needed
-        host = _extract_host(target)
         if not host:
             return exclusion
 
-        if self._type == "domain":
-            return host == _safe_host(self.raw)
-
-        if self._type == "wildcard":
-            # *.example.com matches api.example.com, x.y.example.com
-            base = _safe_host(self.raw[2:])  # strip "*."
-            h = host.lower()
-            return h == base or h.endswith("." + base)
-
-        if self._type == "ip":
-            return host == self.raw
-
-        if self._type == "cidr":
-            try:
-                network = ipaddress.ip_network(self.raw, strict=False)
-                addr = ipaddress.ip_address(host)
-                return addr in network
-            except ValueError:
-                return False
-
         if self._type == "url_pattern":
             return self._match_url_pattern(target, host, exclusion=exclusion)
+        return self._match_host(host, addr, exclusion=exclusion)
 
+    def _match_host(self, host: str, addr, *, exclusion: bool) -> bool:
+        """Host-level comparison only; for URL rules this ignores scheme, port and path."""
+        kind = self._type
+        if kind in ("domain", "ip"):
+            return host == self._host
+        if kind == "wildcard":
+            # *.example.com matches example.com, api.example.com, x.y.example.com
+            return host == self._host or host.endswith("." + self._host)
+        if kind == "cidr":
+            return addr is not None and addr.version == self._network.version and addr in self._network
+        if kind == "glob":
+            return self._glob.matches(host, exclusion=exclusion)
+        if kind == "url_pattern":
+            if self._glob is not None:
+                return self._glob.matches(host, exclusion=exclusion)
+            return host == self._host
         return False
 
     def has_invalid_authority(self) -> bool:
-        if self._type in {"comment", "cidr"}:
-            return False
-        if self._type == "url_pattern":
-            return not _extract_host(self.raw.replace("*.", "wildcard.", 1))
-        return not _safe_host(self.raw[2:] if self._type == "wildcard" else self.raw)
+        return self._invalid
+
+    @property
+    def path_limited(self) -> bool:
+        """True for a URL rule restricted to a path below the root."""
+        return self._type == "url_pattern" and self._url_path not in ("", "/")
 
     def _match_url_pattern(self, target: str, host: str, *, exclusion: bool) -> bool:
         """Match URL scope conservatively; a path exclusion wins ambiguity."""
-        try:
-            pattern_parsed = urlsplit(self.raw)
-            raw_host = pattern_parsed.hostname or ""
-            pattern_host = (
-                "*." + _safe_host(raw_host[2:])
-                if raw_host.startswith("*.") else _safe_host(raw_host)
-            )
-            pattern_path = pattern_parsed.path.rstrip("*")
-        except ValueError:
-            return False
-
         # Exclusions cover either HTTP scheme and every port; allows must not
         # infer permission for another origin.
-        if host.lower() != pattern_host:
-            wildcard_match = pattern_host.startswith("*.") and (
-                host.lower().endswith(pattern_host[1:])
-                or (exclusion and host.lower() == pattern_host[2:])
-            )
-            if not wildcard_match:
-                return False
+        if not self._match_host(host, None, exclusion=exclusion):
+            return False
 
-        if _ambiguous_path(pattern_path) or any(ord(c) < 32 or ord(c) == 127 for c in self.raw):
+        if self._url_ambiguous:
             return exclusion
 
+        pattern_parsed = self._url_parsed
+        pattern_path = self._url_path
         target = strip_tool_annotation(target)
         if not target.startswith(("http://", "https://")):
             # A bare hostname cannot preserve any URL origin restriction.
@@ -294,6 +408,7 @@ class ScopeValidator:
                   Defaults to True.
         scopes_base, legacy_recon_base: override the canonical and legacy
                   roots (defaults: SCOPES_BASE and LEGACY_RECON_BASE).
+        include_legacy: False reads only the canonical scope directory.
     """
 
     SCOPES_BASE = Path.home() / "Shared" / "scopes"
@@ -308,11 +423,12 @@ class ScopeValidator:
     ]
 
     def __init__(self, program: str, strict: bool = True, scopes_base: Path | None = None,
-                 legacy_recon_base: Path | None = None):
+                 legacy_recon_base: Path | None = None, *, include_legacy: bool = True):
         self.program = program
         self.strict = strict
         self.scopes_base = scopes_base or self.SCOPES_BASE
         self.legacy_recon_base = legacy_recon_base or self.LEGACY_RECON_BASE
+        self.include_legacy = include_legacy
         self.policy: dict = {}
         self.platform = "unknown"
         self.source_url = None
@@ -335,13 +451,14 @@ class ScopeValidator:
         canonical_dir = self.scopes_base / self.program
         legacy_program_dir = self.legacy_recon_base / self.program
         self._load_policy(canonical_dir / "rules-of-engagement.json")
-        for path in [canonical_dir / "in-scope.txt", *(legacy_program_dir / rel for rel in self.SCOPE_FILE_NAMES)]:
+        legacy_allow = [legacy_program_dir / rel for rel in self.SCOPE_FILE_NAMES] if self.include_legacy else []
+        for path in [canonical_dir / "in-scope.txt", *legacy_allow]:
             if self._load_file(path, is_out_of_scope=False, optional=True):
                 break
 
         # Canonical sources take precedence over legacy, including when empty.
         # Within the selected directory both names contribute exclusions.
-        for directory in (canonical_dir, legacy_program_dir / "scope"):
+        for directory in (canonical_dir, legacy_program_dir / "scope")[: 2 if self.include_legacy else 1]:
             present = False
             for name in ("out-of-scope.txt", "excluded.txt"):
                 present = self._load_file(directory / name, is_out_of_scope=True, optional=True) or present
@@ -377,10 +494,13 @@ class ScopeValidator:
                     # Annotations are whitespace-delimited; bare :: may be IPv6
                     # compression or part of a URL and must remain intact.
                     line = re.split(r"\s+::(?:\s+|$)", line, maxsplit=1)[0].strip()
-                    for variant in optional_host_variants(line):
-                        entry = _ScopeEntry(variant)
-                        if entry.entry_type != "comment":
-                            entries.append(entry)
+                    # Platform-export columns (" | ") and prose descriptions
+                    # are not rules; see scope_line_rules.
+                    for rule in scope_line_rules(line):
+                        for variant in optional_host_variants(rule):
+                            entry = _ScopeEntry(variant, source=rule)
+                            if entry.entry_type != "comment":
+                                entries.append(entry)
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
             return True
         except FileNotFoundError as e:
@@ -439,7 +559,7 @@ class ScopeValidator:
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
         """Manually add a domain or pattern to scope."""
         try:
-            entries = [_ScopeEntry(variant) for variant in optional_host_variants(domain.strip())]
+            entries = [_ScopeEntry(variant, source=domain.strip()) for variant in optional_host_variants(domain.strip())]
             entries = [entry for entry in entries if entry.entry_type != "comment"]
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
         except Exception as e:
@@ -480,13 +600,15 @@ class ScopeValidator:
         if getattr(self, "_scope_file_load_error", None):
             return False
 
+        host = _extract_host(target)
+        addr = _ip_or_none(host)
         # Must match at least one in-scope entry
-        in_scope = any(e.matches(target) for e in self._entries)
+        in_scope = any(e._match(target, host, addr, exclusion=False) for e in self._entries)
         if not in_scope:
             return False
 
         # Must not match any exclusion
-        excluded = any(e.matches(target, exclusion=True) for e in self._out_of_scope)
+        excluded = any(e._match(target, host, addr, exclusion=True) for e in self._out_of_scope)
         return not excluded
 
     def is_out_of_scope(self, target: str) -> bool:
@@ -497,7 +619,10 @@ class ScopeValidator:
             return False
         if _unsafe_controls(target):
             return bool(self._out_of_scope)
-        return any(e.matches(target.strip(), exclusion=True) for e in self._out_of_scope)
+        target = target.strip()
+        host = _extract_host(target)
+        addr = _ip_or_none(host)
+        return any(e._match(target, host, addr, exclusion=True) for e in self._out_of_scope)
 
     def is_wildcard_scope(self, domain: str) -> bool:
         """
@@ -536,6 +661,80 @@ class ScopeValidator:
                 if base == domain:
                     return True
         return False
+
+    # ── Display classification ────────────────────────────────────────────
+
+    def classify_target(self, target: str) -> tuple[str, Optional[str], str]:
+        """Return ``(state, rule, reason)`` for one host or full http(s) URL.
+
+        ``state`` is ``in``, ``out`` or ``partial``. A full URL is decided
+        exactly with the same logic as is_in_scope. A bare host is ``partial``
+        when its verdict depends on the path: only path-limited URL rules grant
+        it, or a host rule grants it but a path-limited exclusion applies. A
+        root URL rule (no path) grants its bare host here, because a host
+        cannot carry the scheme or port the rule names; is_in_scope stays
+        stricter for that case. ``rule`` is the deciding rule text or None.
+        """
+        if getattr(self, "_scope_file_load_error", None):
+            raise self._scope_file_load_error
+        text = str(target or "").strip()
+        if not text:
+            return "out", None, "empty target"
+        if _unsafe_controls(text):
+            return "out", None, "target contains control characters"
+        for entry in self._out_of_scope:
+            if entry.has_invalid_authority():
+                return "out", entry.source, f"unusable exclusion {entry.source} refuses all targets"
+
+        if strip_tool_annotation(text).startswith(("http://", "https://")):
+            host = _extract_host(text)
+            if not host:
+                return "out", None, "not a valid host or URL"
+            addr = _ip_or_none(host)
+            for entry in self._out_of_scope:
+                if entry._match(text, host, addr, exclusion=True):
+                    return "out", entry.source, f"excluded by {entry.source}"
+            for entry in self._entries:
+                if entry._match(text, host, addr, exclusion=False):
+                    return "in", entry.source, f"matches {entry.source}"
+            return "out", None, "no in-scope rule matches"
+
+        # Bare host; tolerate a trailing :port on a DNS name.
+        port_match = re.fullmatch(r"([^:/\[\]]+):(\d{1,5})", text)
+        if port_match and int(port_match.group(2)) <= 65535:
+            text = port_match.group(1)
+        host = _extract_host(text)
+        if not host or "/" in text:
+            return "out", None, "not a valid host or URL"
+        addr = _ip_or_none(host)
+
+        path_exclusion = None
+        for entry in self._out_of_scope:
+            if not entry._match_host(host, addr, exclusion=True):
+                continue
+            if entry.path_limited and not entry._url_ambiguous:
+                path_exclusion = path_exclusion or entry
+            else:
+                return "out", entry.source, f"excluded by {entry.source}"
+
+        path_include = None
+        for entry in self._entries:
+            if entry.has_invalid_authority() or entry.entry_type == "comment":
+                continue
+            if not entry._match_host(host, addr, exclusion=False):
+                continue
+            if entry.entry_type != "url_pattern" or not entry.path_limited:
+                if path_exclusion is not None:
+                    return (
+                        "partial", entry.source,
+                        f"in scope except paths under {path_exclusion._url_path} ({path_exclusion.source})",
+                    )
+                return "in", entry.source, f"matches {entry.source}"
+            if not entry._url_ambiguous:
+                path_include = path_include or entry
+        if path_include is not None:
+            return "partial", path_include.source, f"only paths under {path_include._url_path} are in scope"
+        return "out", None, "no in-scope rule matches"
 
     # ── Filtering ─────────────────────────────────────────────────────────
 
@@ -752,6 +951,16 @@ def _extract_host(target: str) -> str:
     return _safe_host(target)
 
 
+def _ip_or_none(host: str):
+    """Parse a canonical host string as an IP address once per target."""
+    if not host or not (host[0].isdigit() or ":" in host):
+        return None
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
 def _safe_host(host: str) -> str:
     """Accept unambiguous ASCII DNS names and canonical IP literals only."""
     host = host.lower()
@@ -803,3 +1012,118 @@ def scope_from_campaign(campaign_state: dict, strict: bool = True) -> ScopeValid
         validator.add_domain(domain)
 
     return validator
+
+
+# ---------------------------------------------------------------------------
+# classify CLI (read-only; never writes, pulls scope, or touches the network)
+# ---------------------------------------------------------------------------
+
+CLASSIFY_VERSION = 1
+CLASSIFY_MAX_TARGETS = 50_000
+_CLASSIFY_SCOPE_FILES = ("in-scope.txt", "out-of-scope.txt", "excluded.txt")
+
+
+class ClassifyUsageError(ValueError):
+    """Bad classify input; the CLI reports it on stderr and exits non-zero."""
+
+
+def classify_program(program: str, targets: list, scopes_base: Path | None = None) -> dict:
+    """Classify targets against one saved program scope for display filtering.
+
+    Reads only ``<scopes_base>/<program>/`` (no legacy fallback). A missing
+    scope directory or one without usable in-scope entries is not an error:
+    every target is reported ``unchecked``. Read or parse failures of a present
+    scope file raise ScopeFileReadError.
+    """
+    if not isinstance(program, str) or not program or program in (".", "..") or "/" in program or "\0" in program:
+        raise ClassifyUsageError("program must be a single scope directory name")
+    if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
+        raise ClassifyUsageError('"targets" must be a list of strings')
+    if len(targets) > CLASSIFY_MAX_TARGETS:
+        raise ClassifyUsageError(f"too many targets: {len(targets)} > {CLASSIFY_MAX_TARGETS}")
+
+    base = Path(scopes_base).expanduser() if scopes_base else ScopeValidator.SCOPES_BASE
+    scope_dir = base / program
+    digest = hashlib.sha256()
+    validator = None
+    if scope_dir.is_dir():
+        scope_dir = scope_dir.resolve()
+        for name in _CLASSIFY_SCOPE_FILES:
+            path = scope_dir / name
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise ScopeFileReadError(f"could not read scope file {path}: {exc}") from exc
+            digest.update(f"{name}\0{len(data)}\0".encode())
+            digest.update(data)
+        validator = ScopeValidator(
+            scope_dir.name, strict=False, scopes_base=scope_dir.parent, include_legacy=False,
+        )
+        validator.is_empty()  # raises on a caught load failure
+        usable = any(not entry.has_invalid_authority() for entry in validator._entries)
+        state = "loaded" if usable else "empty"
+    else:
+        scope_dir = scope_dir.absolute()
+        state = "missing"
+
+    if state == "loaded":
+        results = []
+        for target in targets:
+            verdict, rule, reason = validator.classify_target(target)
+            results.append({"target": target, "state": verdict, "rule": rule, "reason": reason})
+    else:
+        results = [
+            {"target": target, "state": "unchecked", "rule": None, "reason": "no scope on file"}
+            for target in targets
+        ]
+    return {
+        "version": CLASSIFY_VERSION,
+        "program": program,
+        "scope_dir": str(scope_dir),
+        "scope_state": state,
+        "signature": digest.hexdigest(),
+        "entries": len(validator._entries) if validator else 0,
+        "exclusions": len(validator._out_of_scope) if validator else 0,
+        "results": results,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="BBH scope validator tools")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    classify = sub.add_parser(
+        "classify",
+        help='Classify hosts/URLs read as {"targets": [...]} JSON on stdin; prints one JSON object.',
+    )
+    classify.add_argument("program", help="Scope directory name under --scopes-base")
+    classify.add_argument("--scopes-base", type=Path, default=None,
+                          help=f"Scope root (default: {ScopeValidator.SCOPES_BASE})")
+    classify.add_argument("--json", action="store_true", help="Emit JSON (the only output format)")
+    args = parser.parse_args(argv)
+
+    try:
+        try:
+            payload = json.loads(sys.stdin.read())
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ClassifyUsageError(f"stdin is not valid JSON: {exc}") from exc
+        if not isinstance(payload, dict) or "targets" not in payload:
+            raise ClassifyUsageError('stdin must be a JSON object with a "targets" list')
+        result = classify_program(args.program, payload["targets"], args.scopes_base)
+    except ClassifyUsageError as exc:
+        print(f"scope_validator classify: usage error: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"scope_validator classify: {' '.join(str(exc).split())}", file=sys.stderr)
+        return 1
+    json.dump(result, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

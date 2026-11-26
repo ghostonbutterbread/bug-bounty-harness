@@ -855,7 +855,7 @@ def _write_inventory_locked(base: Path, *, source: str, program: str, release_ch
         "version": INVENTORY_VERSION,
         "program": program,
         "platform": rules.get("platform") or state.get("platform"),
-        "source_url": rules.get("source_url") or state.get("source_url"),
+        "source_url": saved_source_url(rules) or saved_source_url(state),
         "items": len(items),
         "items_hash": items_hash(items),
     })
@@ -868,6 +868,21 @@ def _write_inventory_locked(base: Path, *, source: str, program: str, release_ch
     atomic_write_json(base / PULL_FILE, state)
     return {"items": len(items), "history": history["source"] if history else None,
             "release_changed": len(release_changed)}
+
+
+def saved_source_url(data: object) -> str | None:
+    """Program page URL a saved scope file records: ``source_url``, else the legacy ``source``.
+
+    Older Bugcrowd pulls wrote ``source``/``slug`` instead of ``source_url``; the
+    engagement code there can differ from the dir name (``klaviyo`` -> ``klaviyo-og``).
+    """
+    if not isinstance(data, dict):
+        return None
+    for field in ("source_url", "source"):
+        value = data.get(field)
+        if isinstance(value, str) and re.match(r"https?://\S+$", value.strip()):
+            return value.strip()
+    return None
 
 
 def record_attempt(base: Path, status: str, *, error: str | None = None, now: datetime | None = None,

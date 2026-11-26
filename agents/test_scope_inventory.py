@@ -709,7 +709,7 @@ def test_refresh_uses_saved_platform_and_source_url(isolated, monkeypatch):
 
 
 def test_scope_pull_platform_wins_over_rules(isolated, monkeypatch):
-    _origin_dir(isolated, "acme", "hackerone", pull_platform="intigriti")
+    _origin_dir(isolated, "acme", "hackerone", "https://hackerone.com/acme", pull_platform="intigriti")
     calls = []
     monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(platform) or {})
     assert scope_puller.run_pull("acme", None, use_api=False, release_check=False) == 0
@@ -759,6 +759,57 @@ def test_unsupported_saved_platform_does_not_pull(isolated, monkeypatch, capsys)
     assert {k: v for k, v in snapshot(base).items() if k != inv.PULL_FILE} == before
     (base / inv.PULL_FILE).unlink()
     assert run_cli(monkeypatch, "ywh") == 1
+
+
+def _legacy_bugcrowd_dir(isolated, name, code):
+    """An older Bugcrowd pull: engagement URL saved as ``source``/``slug``, no ``source_url``."""
+    base = _origin_dir(isolated, name, "bugcrowd")
+    rules = {"platform": "bugcrowd", "program": name, "slug": code,
+             "source": f"https://bugcrowd.com/engagements/{code}"}
+    (base / "rules-of-engagement.json").write_text(json.dumps(rules))
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+    os.utime(base / "rules-of-engagement.json", (old, old))
+    return base
+
+
+def test_legacy_bugcrowd_source_refreshes_the_engagement_code(isolated, monkeypatch):
+    _legacy_bugcrowd_dir(isolated, "acme", "acme-og")
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(
+        (program, platform, kw["slug"])) or {})
+    assert scope_puller.run_pull("acme", None, use_api=False, release_check=False, if_older_than=7) == 0
+    assert calls == [("https://bugcrowd.com/engagements/acme-og", "bugcrowd", "acme")]
+
+
+def test_rebuild_records_legacy_source_as_source_url(isolated):
+    base = _legacy_bugcrowd_dir(isolated, "acme", "acme-og")
+    assert scope_puller.rebuild_inventory("acme") == 0
+    state = json.loads((base / inv.PULL_FILE).read_text())
+    assert state["source_url"] == "https://bugcrowd.com/engagements/acme-og"
+    assert scope_puller.recorded_origin(base) == ("bugcrowd", "https://bugcrowd.com/engagements/acme-og")
+
+
+def test_saved_dir_without_source_url_is_not_pulled_from_its_name(isolated, monkeypatch, capsys):
+    base = _origin_dir(isolated, "acme", "bugcrowd")
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda *a, **k: pytest.fail("guessed the handle from the dir name"))
+    before = {k: v for k, v in snapshot(base).items() if k != inv.PULL_FILE}
+    assert run_cli(monkeypatch, "acme", "--if-older-than", "7") == 0
+    assert "records no source URL" in capsys.readouterr().out
+    state = json.loads((base / inv.PULL_FILE).read_text())
+    assert state["last_attempt_status"] == "failed" and "no source URL" in state["last_error"]
+    assert {k: v for k, v in snapshot(base).items() if k != inv.PULL_FILE} == before
+    assert run_cli(monkeypatch, "acme") == 1
+
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(
+        (program, platform, kw["slug"])) or {})
+    assert run_cli(monkeypatch, "acme", "--platform", "hackerone", "--force-platform") == 0
+    assert calls == [("acme", "hackerone", None)]
+
+
+def test_bugcrowd_page_without_brief_names_the_url():
+    with pytest.raises(RuntimeError, match=r"engagements/klaviyo \(engagement not found or not public\)"):
+        scope_puller.parse_bugcrowd_public_engagement("klaviyo", "<html><title>Resource not found 404</title></html>")
 
 
 def test_release_values_sanitized_and_capped(monkeypatch):

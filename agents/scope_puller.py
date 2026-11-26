@@ -401,7 +401,8 @@ def parse_bugcrowd_public_engagement(program: str, html_content: str) -> dict:
         .get("getBriefVersionDocument")
     )
     if not brief_path:
-        raise RuntimeError("Bugcrowd public page did not expose engagement brief JSON endpoint")
+        raise RuntimeError(f"no Bugcrowd engagement brief at {default_source_url(program, 'bugcrowd')} "
+                           "(engagement not found or not public)")
     if not brief_path.endswith(".json"):
         brief_path = f"{brief_path}.json"
     brief_url = f"https://bugcrowd.com{brief_path}"
@@ -1090,9 +1091,8 @@ def recorded_origin(base: Path) -> tuple[str | None, str | None]:
         value = data.get("platform")
         if platform is None and isinstance(value, str) and value.strip():
             platform = value.strip().lower()
-        value = data.get("source_url")
-        if source_url is None and isinstance(value, str) and re.match(r"https?://\S+$", value.strip()):
-            source_url = value.strip()
+        if source_url is None:
+            source_url = scope_inventory.saved_source_url(data)
     return platform, source_url
 
 
@@ -1134,6 +1134,12 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
             if not (platform and force_platform):
                 platform = recorded_platform
                 target, target_slug = recorded_source or program, slug
+        if not recorded_source and not force_platform and not program.startswith("http"):
+            # The dir name is not always the platform handle; guessing it can pull another program.
+            error = "saved scope records no source URL; re-pull with the program page URL (/pullscope)"
+            _record(base, "failed", error=error, program=slug)
+            print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
+            return 0 if if_older_than is not None else 1
     pulled = scope_inventory.last_pulled(base) if saved else None
     if if_older_than is not None and saved:
         if pulled is not None and _age_days(pulled) < if_older_than:

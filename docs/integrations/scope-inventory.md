@@ -133,7 +133,8 @@ exists, and now exit 1 when the fetch returns nothing (it exited 0 before).
 **Saved origin (review round 1, blocker).** Every CLI pull of an existing scope
 dir (plain or `--if-older-than`) reads the recorded platform (`scope-pull.json`
 `platform`, else `rules-of-engagement.json` `platform`) and source URL (the
-first http(s) `source_url` of the same two files):
+first http(s) `source_url`, else legacy `source`, of the same two files;
+`scope_inventory.saved_source_url`):
 
 - no `--platform`: pull the recorded platform from the recorded source URL,
   and write into **this** dir (`pull_scope(..., slug=<dir>)`; `program` in the
@@ -152,6 +153,21 @@ URL; 5 of those do not map back to their dir name (3 dirs renamed by hand,
 output dir instead of re-deriving it from the URL. 4 Bugcrowd dirs record no
 `source_url` and refresh from the handle as typed; 2 dirs have no rules file
 and keep the old auto-detect behaviour; 1 is YesWeHack.
+
+**Legacy Bugcrowd source (fix, 2026-11-26).** The 4 Bugcrowd dirs without
+`source_url` record the engagement URL as `source` (older format). Refreshing
+them "from the handle as typed" fetched `engagements/klaviyo` (a 404 page) for a
+dir whose engagement is `klaviyo-og`, and `vinted` would fetch the wrong code too.
+Now:
+
+- `saved_source_url` reads `source_url`, then `source`; both the refresh and
+  `write_inventory` (so `--rebuild-inventory` fills `scope-pull.json`
+  `source_url`) use it;
+- an existing dir with no saved source URL is not pulled from its name (no
+  request; `failed` recorded with the reason; exit 0 under `--if-older-than`,
+  1 otherwise). Passing the page URL or `--platform P --force-platform` is the
+  explicit way to pull it;
+- a Bugcrowd page without a brief endpoint names the URL fetched.
 
 ## Decisions
 

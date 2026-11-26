@@ -909,6 +909,10 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True, release_c
         summary = scope_inventory.write_inventory(base, source="pull", program=slug, release_check=release_check)
     except Exception as exc:  # noqa: BLE001 - the inventory never fails a saved pull
         print(f"[!] Scope saved, but the scope inventory could not be written: {exc}")
+        try:  # Keep pulled_at current so --if-older-than does not re-pull every run.
+            scope_inventory.record_attempt(base, "ok", program=slug)
+        except OSError:
+            pass
     else:
         note = f", history: {summary['history']}" if summary["history"] else ""
         print(f"    Inventory: {summary['items']} items{note}, release changes: {summary['release_changed']}")
@@ -1032,7 +1036,11 @@ def rebuild_inventory(slug: str) -> int:
     if not base.is_dir():
         print(f"[!] No saved scope for '{slug}' at {base}")
         return 1
-    summary = scope_inventory.write_inventory(base, source="rebuild", program=slug)
+    try:
+        summary = scope_inventory.write_inventory(base, source="rebuild", program=slug)
+    except Exception as exc:  # noqa: BLE001 - report one line, not a traceback
+        print(f"[!] {slug}: inventory rebuild failed: {type(exc).__name__}: {exc}")
+        return 1
     note = f", history: {summary['history']}" if summary["history"] else ""
     print(f"[+] {slug}: {summary['items']} items{note}")
     return 0
@@ -1048,11 +1056,7 @@ def rebuild_all_inventories() -> int:
         # Alias symlinks point at a real program dir that is rebuilt on its own.
         if base.is_symlink() or not base.is_dir() or base.name.startswith("."):
             continue
-        try:
-            rebuild_inventory(base.name)
-        except Exception as exc:  # noqa: BLE001 - one bad dir must not stop the backfill
-            failures += 1
-            print(f"[!] {base.name}: inventory rebuild failed: {exc}")
+        failures += rebuild_inventory(base.name)
     return 1 if failures else 0
 
 

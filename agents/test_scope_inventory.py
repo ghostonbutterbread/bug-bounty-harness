@@ -626,3 +626,50 @@ def test_history_lines_are_append_only(isolated, monkeypatch):
     save_h1([h1_node("URL", "https://b.example.test")])
     text = (base / inv.HISTORY_FILE).read_text()
     assert text.startswith(first) and text.count("\n") == 2
+
+
+# --------------------------------------------------------------------------
+# Review round 1 regressions
+
+
+def test_malformed_saved_shapes_do_not_crash_or_explode(isolated, monkeypatch):
+    base = scope_dir(isolated)
+    write_scope(base, assets={"web": {"hosts": "app.example.test", "url_endpoints": 5}, "mobile": {"ios": 7}},
+                in_lines=["app.example.test"])
+    assert run_cli(monkeypatch, "--rebuild-inventory", "demo") == 0
+    assert list(items_by_key(base)) == ["web_host:app.example.test"]  # rule-line fallback, no per-char junk
+
+
+def test_reordered_assets_write_no_history_line(isolated):
+    base = scope_dir(isolated)
+    groups = [
+        {"name": "Tier 1", "targets": [{"name": "api.example.test", "category": "api", "group": "Tier 1"}]},
+        {"name": "Tier 3", "targets": [{"name": "https://api.example.test", "category": "website",
+                                        "group": "Tier 3"}]},
+    ]
+    write_scope(base, platform="bugcrowd", assets=groups, in_lines=["api.example.test"])
+    inv.write_inventory(base, source="pull", program="demo", now=T0)
+    first = items_by_key(base)["web_host:api.example.test"]
+    write_scope(base, platform="bugcrowd", assets=list(reversed(groups)), in_lines=["api.example.test"])
+    inv.write_inventory(base, source="pull", program="demo", now=T0 + timedelta(days=1))
+    assert items_by_key(base)["web_host:api.example.test"]["tier"] == first["tier"] == "1"
+    assert len(history(base)) == 1
+
+
+def test_inventory_failure_still_records_pulled_at(isolated, monkeypatch):
+    monkeypatch.setattr(inv, "utcnow", lambda: T0)
+    monkeypatch.setattr(inv, "build_items", lambda base: (_ for _ in ()).throw(ValueError("fixture")))
+    save_h1()
+    state = json.loads((scope_dir(isolated) / inv.PULL_FILE).read_text())
+    assert state["pulled_at"] == "2026-11-01T10:00:00Z" and state["last_attempt_status"] == "ok"
+
+
+def test_non_string_first_seen_is_replaced(isolated):
+    base = scope_dir(isolated)
+    write_scope(base, assets=[{"name": "g", "targets": [{"name": "a.example.test", "asset_type": "URL"}]}],
+                in_lines=["a.example.test"])
+    (base / inv.ITEMS_FILE).write_text(json.dumps({"items": [{"key": "web_host:a.example.test", "first_seen": 123,
+                                                              "kind": "web_host", "name": "a.example.test",
+                                                              "in_scope": True}]}))
+    inv.write_inventory(base, source="pull", program="demo", now=T0)
+    assert items_by_key(base)["web_host:a.example.test"]["first_seen"] == "2026-11-01T10:00:00Z"

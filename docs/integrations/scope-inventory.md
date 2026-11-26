@@ -155,7 +155,11 @@ exists, and now exit 1 when the fetch returns nothing (it exited 0 before).
    readable on the Board. An `android_app` with a non-file URL (a landing page)
    gets `no package id` rather than a HEAD on a page whose ETag changes with
    every deploy.
-9. **`executable` download URL** comes only from the item's identifier or `uri`,
+9. **A scheme-only exclusion excludes the host item.** In-scope
+   `https://a.x` plus out-of-scope `http://a.x` becomes one
+   `web_host:a.x` with `in_scope: false`. That matches the checker, because
+   `out-of-scope.txt` reduces an exclusion URL to its host.
+10. **`executable` download URL** comes only from the item's identifier or `uri`,
    not from prose descriptions, which often link to docs pages.
 
 ## Read-only survey (shapes and counts only)
@@ -210,4 +214,26 @@ Results: see the hand-off report and the Review section below.
 
 ## Review
 
-Pending independent review.
+### Builder-side review (fresh subagent, before hand-off)
+
+Five findings, fixed in the review commit with regression tests:
+
+1. A malformed hand-made `web` block (string or int instead of a list) made
+   per-character junk items or crashed the rebuild. Now non-lists are ignored,
+   and a single-program rebuild reports one line and exits 1 instead of
+   printing a traceback.
+2. Duplicate records (the same host in several Bugcrowd groups) merged in file
+   order, so reordering `assets.json` logged a false tier/name change. Records
+   are now sorted before merging (lowest tier label first).
+3. `http://` exclusion vs `https://` grant: kept, see decision 9.
+4. If the inventory write failed, `pulled_at` was never updated and every
+   `--if-older-than` run pulled again. The except branch now records `ok`
+   and `pulled_at`.
+5. `scope-items.json` was replaced before the history append, so a failed
+   append lost the change. History is appended first; a failure after it
+   repeats a line on the next run rather than dropping one.
+
+Minor: a non-ISO `first_seen`/`last_seen` in a hand-edited items file is
+replaced.
+
+Independent review: pending (Hermes).

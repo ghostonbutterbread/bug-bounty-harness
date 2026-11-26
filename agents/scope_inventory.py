@@ -362,7 +362,8 @@ def iter_asset_records(assets):
         web = assets.get("web")
         if isinstance(web, dict):
             for field in ("hosts", "url_endpoints"):
-                for entry in web.get(field) or []:
+                entries = web.get(field)
+                for entry in entries if isinstance(entries, list) else []:
                     if isinstance(entry, str):
                         yield {"name": entry}, None
 
@@ -452,6 +453,9 @@ def build_items(base: Path) -> list[dict]:
         if item := normalize_record(record, group=group, default_in_scope=False, force_out=True):
             raw.append(item)
 
+    # Merge in a fixed order so reordering assets.json never reads as a change.
+    raw.sort(key=lambda i: (i["key"], not i["in_scope"], i["tier"] or "~", i["name"],
+                            i["max_severity"] or "", i["platform_type"] or "", i["description"]))
     items: dict[str, dict] = {}
     for item in raw:
         if item["in_scope"]:
@@ -660,8 +664,10 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
     release_changed = []
     for item in items:
         prior = (previous or {}).get(item["key"], {})
-        item["first_seen"] = prior.get("first_seen") or iso(seen)
-        item["last_seen"] = iso(seen) if source == "pull" else (prior.get("last_seen") or iso(seen))
+        prior_first = prior.get("first_seen") if parse_iso(prior.get("first_seen")) else None
+        prior_last = prior.get("last_seen") if parse_iso(prior.get("last_seen")) else None
+        item["first_seen"] = prior_first or iso(seen)
+        item["last_seen"] = iso(seen) if source == "pull" else (prior_last or iso(seen))
         item["release"] = None
         if item["kind"] in RELEASE_KINDS and item["in_scope"]:
             if source == "pull" and release_check:
@@ -673,14 +679,6 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
 
     rules = read_json(base / "rules-of-engagement.json")
     rules = rules if isinstance(rules, dict) else {}
-    atomic_write_json(base / ITEMS_FILE, {
-        "version": INVENTORY_VERSION,
-        "program": program,
-        "generated_at": iso(now),
-        "source": source,
-        "items": items,
-    })
-
     history = None
     if previous is None:
         history = {"at": iso(now), "source": "baseline", "added": [_summary(i) for i in items],
@@ -702,8 +700,17 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
         if added or removed or changed or release_changed:
             history = {"at": iso(now), "source": source, "added": added, "removed": removed,
                        "changed": changed, "release_changed": release_changed}
+    # History first: if the items replace then fails, the next run re-diffs
+    # (a repeated line) instead of silently losing the change.
     if history:
         append_jsonl(base / HISTORY_FILE, history)
+    atomic_write_json(base / ITEMS_FILE, {
+        "version": INVENTORY_VERSION,
+        "program": program,
+        "generated_at": iso(now),
+        "source": source,
+        "items": items,
+    })
 
     state = read_json(base / PULL_FILE)
     state = state if isinstance(state, dict) else {}
@@ -728,7 +735,7 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
 
 def record_attempt(base: Path, status: str, *, error: str | None = None, now: datetime | None = None,
                    program: str | None = None) -> None:
-    """Record a failed or skipped pull attempt in an existing scope dir only."""
+    """Record a pull attempt in an existing scope dir only (``ok`` when the inventory itself failed)."""
     if not base.is_dir():
         return
     now = now or utcnow()
@@ -740,6 +747,8 @@ def record_attempt(base: Path, status: str, *, error: str | None = None, now: da
         state.setdefault(field, None)
     state["last_attempt_at"] = iso(now)
     state["last_attempt_status"] = status
+    if status == "ok":
+        state.update({"pulled_at": iso(now), "last_error": None, "last_failed_at": None})
     if status == "failed":
         state["last_error"] = (error or "unknown error")[:300]
         state["last_failed_at"] = iso(now)

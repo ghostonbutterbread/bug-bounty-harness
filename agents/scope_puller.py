@@ -909,10 +909,11 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True, release_c
         summary = scope_inventory.write_inventory(base, source="pull", program=slug, release_check=release_check)
     except Exception as exc:  # noqa: BLE001 - the inventory never fails a saved pull
         print(f"[!] Scope saved, but the scope inventory could not be written: {exc}")
-        try:  # Keep pulled_at current so --if-older-than does not re-pull every run.
-            scope_inventory.record_attempt(base, "ok", program=slug)
-        except OSError:
-            pass
+        if not isinstance(exc, scope_inventory.InventoryLockTimeout):
+            try:  # Keep pulled_at current so --if-older-than does not re-pull every run.
+                scope_inventory.record_attempt(base, "ok", program=slug)
+            except OSError:
+                pass
     else:
         note = f", history: {summary['history']}" if summary["history"] else ""
         print(f"    Inventory: {summary['items']} items{note}, release changes: {summary['release_changed']}")
@@ -938,8 +939,23 @@ def scope_slug(program: str, platform: str | None = None) -> str:
     return canonical_program_slug(program)
 
 
-def pull_scope(program: str, platform: str = None, *, use_api: bool = False, release_check: bool = True):
-    """Pull scope for a program."""
+def _pin_slug(scope_data: dict, slug: str | None) -> dict:
+    """Keep a refresh's program name on the scope dir it refreshes."""
+    if slug:
+        scope_data["program"] = slug
+        if isinstance(scope_data.get("rules"), dict):
+            scope_data["rules"]["program"] = slug
+    return scope_data
+
+
+def pull_scope(program: str, platform: str = None, *, use_api: bool = False, release_check: bool = True,
+               slug: str | None = None):
+    """Pull scope for a program.
+
+    ``slug`` pins the output directory. A refresh passes the existing dir name
+    with the recorded source URL so the save lands in the dir being refreshed
+    even when its name differs from the URL's last path part.
+    """
     print(f"[*] Pulling scope for: {program}")
     platform = detect_platform(program, platform)
 
@@ -969,8 +985,8 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False, rel
             ),
             "raw": team,
         })
-        scope_data = apply_scope_review(handle, scope_data)
-        save_scope(handle, scope_data, release_check=release_check)
+        scope_data = apply_scope_review(slug or handle, _pin_slug(scope_data, slug))
+        save_scope(slug or handle, scope_data, release_check=release_check)
         return scope_data
 
     # Build URL
@@ -1021,8 +1037,8 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False, rel
         }
     
     # Save
-    scope_data = apply_scope_review(canonical_program_slug(program), scope_data)
-    save_scope(program, scope_data, release_check=release_check)
+    scope_data = apply_scope_review(slug or canonical_program_slug(program), _pin_slug(scope_data, slug))
+    save_scope(slug or program, scope_data, release_check=release_check)
     return scope_data
 
 
@@ -1064,12 +1080,51 @@ def _age_days(moment) -> float:
     return (scope_inventory.utcnow() - moment).total_seconds() / DAY_SECONDS
 
 
+def recorded_origin(base: Path) -> tuple[str | None, str | None]:
+    """Platform and source URL an existing scope dir was pulled from."""
+    platform = source_url = None
+    for name in (scope_inventory.PULL_FILE, "rules-of-engagement.json"):
+        data = scope_inventory.read_json(base / name)
+        if not isinstance(data, dict):
+            continue
+        value = data.get("platform")
+        if platform is None and isinstance(value, str) and value.strip():
+            platform = value.strip().lower()
+        value = data.get("source_url")
+        if source_url is None and isinstance(value, str) and re.match(r"https?://\S+$", value.strip()):
+            source_url = value.strip()
+    return platform, source_url
+
+
+def _record(base: Path, status: str, *, error: str | None = None, program: str) -> None:
+    try:
+        scope_inventory.record_attempt(base, status, error=error, program=program)
+    except OSError as exc:
+        print(f"[!] could not record pull state: {exc}")
+
+
 def run_pull(program: str, platform: str | None, *, use_api: bool, release_check: bool,
-             if_older_than: float | None = None) -> int:
-    """CLI pull with freshness skip, failure recording and failed-pull backoff."""
+             if_older_than: float | None = None, force_platform: bool = False) -> int:
+    """CLI pull with saved-origin reuse, freshness skip, failure recording and backoff.
+
+    An existing scope dir is refreshed from the platform and source URL it
+    records, never from platform auto-detection. A different explicit
+    ``--platform`` refuses unless ``force_platform``.
+    """
     slug = scope_slug(program, platform)
     base = scopes_root() / slug
     saved = base.is_dir()
+    target, target_slug = program, None
+    if saved:
+        recorded_platform, recorded_source = recorded_origin(base)
+        if recorded_platform:
+            if platform and platform != recorded_platform and not force_platform:
+                print(f"[!] {slug}: saved scope was pulled from {recorded_platform}; refusing --platform {platform} "
+                      "(pass --force-platform to replace it)")
+                return 1
+            if not (platform and force_platform):
+                platform = recorded_platform
+                target, target_slug = recorded_source or program, slug
     pulled = scope_inventory.last_pulled(base) if saved else None
     if if_older_than is not None and saved:
         if pulled is not None and _age_days(pulled) < if_older_than:
@@ -1079,19 +1134,25 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
         failed_at = scope_inventory.parse_iso(state.get("last_failed_at")) if isinstance(state, dict) else None
         if failed_at is not None and scope_inventory.utcnow() - failed_at < FAILED_PULL_BACKOFF:
             retry = scope_inventory.iso(failed_at + FAILED_PULL_BACKOFF)
-            scope_inventory.record_attempt(base, "skipped_backoff", program=slug)
+            _record(base, "skipped_backoff", program=slug)
             print(f"[!] scope stale but last pull failed at {scope_inventory.iso(failed_at)}; "
                   f"not retrying before {retry}; continuing with saved scope")
             return 0
 
+    if platform is not None and platform not in PLATFORMS:
+        error = f"saved scope platform '{platform}' is not supported by scope_puller; refresh it manually"
+        _record(base, "failed", error=error, program=slug)
+        print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
+        return 0 if if_older_than is not None else 1
+
     try:
-        result = pull_scope(program, platform, use_api=use_api, release_check=release_check)
+        result = pull_scope(target, platform, use_api=use_api, release_check=release_check, slug=target_slug)
         error = None if result is not None else "failed to fetch program page"
     except Exception as exc:  # noqa: BLE001 - any pull failure keeps the saved scope
         error = f"{type(exc).__name__}: {exc}"
     if error is None:
         return 0
-    scope_inventory.record_attempt(base, "failed", error=error, program=slug)
+    _record(base, "failed", error=error, program=slug)
     if if_older_than is not None and saved:
         age = f"{int(_age_days(pulled))} days old" if pulled is not None else "of unknown age"
         print(f"[!] scope refresh failed ({error}); continuing with saved scope ({age})")
@@ -1144,6 +1205,11 @@ def main() -> int:
         action="store_true",
         help="Rebuild scope-items.json/scope-history.jsonl/scope-pull.json offline from the saved scope files.",
     )
+    parser.add_argument(
+        "--force-platform",
+        action="store_true",
+        help="Allow --platform to differ from the platform an existing scope dir was pulled from.",
+    )
     parser.add_argument("--all", action="store_true", help="With --rebuild-inventory: every saved scope dir.")
     parser.add_argument(
         "--no-release-check",
@@ -1152,6 +1218,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.force_platform and not args.platform:
+        parser.error("--force-platform requires --platform")
     if args.all and not args.rebuild_inventory:
         parser.error("--all requires --rebuild-inventory")
     if args.rebuild_inventory:
@@ -1165,7 +1233,8 @@ def main() -> int:
     if args.if_older_than is not None and args.if_older_than < 0:
         parser.error("--if-older-than must be >= 0")
     return run_pull(args.program, args.platform, use_api=args.api,
-                    release_check=not args.no_release_check, if_older_than=args.if_older_than)
+                    release_check=not args.no_release_check, if_older_than=args.if_older_than,
+                    force_platform=args.force_platform)
 
 
 if __name__ == "__main__":

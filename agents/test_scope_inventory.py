@@ -30,6 +30,7 @@ def isolated(monkeypatch, tmp_path):
         raise AssertionError("unexpected network call")
 
     monkeypatch.setattr(inv, "http_request", no_network)
+    monkeypatch.setattr(inv, "lock_dir", lambda: tmp_path / "locks")
     monkeypatch.setattr(inv.urllib.request, "urlopen", no_network)
     monkeypatch.setattr(scope_puller.urllib.request, "urlopen", no_network)
     monkeypatch.setattr(scope_puller, "fetch_page", no_network)
@@ -526,7 +527,7 @@ def test_if_older_than_falls_back_to_file_mtime(isolated, monkeypatch, capsys):
     called = []
     monkeypatch.setattr(scope_puller, "pull_scope", lambda *a, **k: called.append(k) or {})
     assert run_cli(monkeypatch, "demo", "--if-older-than", "7", "--no-release-check") == 0
-    assert called == [{"use_api": False, "release_check": False}]
+    assert called == [{"use_api": False, "release_check": False, "slug": "demo"}]
     called.clear()
     assert run_cli(monkeypatch, "demo", "--if-older-than", "30") == 0
     assert called == [] and "scope fresh (pulled 10 days ago)" in capsys.readouterr().out
@@ -673,3 +674,182 @@ def test_non_string_first_seen_is_replaced(isolated):
                                                               "in_scope": True}]}))
     inv.write_inventory(base, source="pull", program="demo", now=T0)
     assert items_by_key(base)["web_host:a.example.test"]["first_seen"] == "2026-11-01T10:00:00Z"
+
+
+# --------------------------------------------------------------------------
+# Independent review (BLOCK) regressions
+
+
+def _origin_dir(isolated, name, platform, source_url=None, pull_platform=None, age_days=30):
+    base = scope_dir(isolated, name)
+    write_scope(base, assets=[], in_lines=["app.example.test"], platform=platform)
+    rules = {"platform": platform}
+    if source_url:
+        rules["source_url"] = source_url
+    (base / "rules-of-engagement.json").write_text(json.dumps(rules))
+    if pull_platform:
+        (base / inv.PULL_FILE).write_text(json.dumps({"platform": pull_platform, "pulled_at": None}))
+    old = (datetime.now(timezone.utc) - timedelta(days=age_days)).timestamp()
+    for path in base.iterdir():
+        os.utime(path, (old, old))
+    return base
+
+
+def test_refresh_uses_saved_platform_and_source_url(isolated, monkeypatch):
+    _origin_dir(isolated, "acme", "bugcrowd", "https://bugcrowd.com/engagements/acme")
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(
+        (program, platform, kw["slug"])) or {})
+    assert scope_puller.run_pull("acme", None, use_api=False, release_check=False, if_older_than=7) == 0
+    assert scope_puller.run_pull("acme", None, use_api=False, release_check=False) == 0
+    assert calls == [("https://bugcrowd.com/engagements/acme", "bugcrowd", "acme")] * 2
+
+
+def test_scope_pull_platform_wins_over_rules(isolated, monkeypatch):
+    _origin_dir(isolated, "acme", "hackerone", pull_platform="intigriti")
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(platform) or {})
+    assert scope_puller.run_pull("acme", None, use_api=False, release_check=False) == 0
+    assert calls == ["intigriti"]
+
+
+def test_renamed_dir_refresh_queries_recorded_handle_and_writes_same_dir(isolated, monkeypatch):
+    base = _origin_dir(isolated, "short", "hackerone", "https://hackerone.com/long_handle/policy_scopes")
+    asked = []
+
+    def team(handle):
+        asked.append(handle)
+        return {"policy": "", "submission_state": "open", "offers_bounties": True,
+                **h1_team([h1_node("URL", "https://new.example.test")])}
+
+    monkeypatch.setattr(scope_puller, "fetch_hackerone_team", team)
+    assert scope_puller.run_pull("short", None, use_api=False, release_check=False, if_older_than=7) == 0
+    assert asked == ["long_handle"]
+    assert "new.example.test" in (base / "in-scope.txt").read_text()
+    assert not (isolated / "Shared" / "scopes" / "long_handle").exists()
+    assert json.loads((base / "rules-of-engagement.json").read_text())["program"] == "short"
+
+
+def test_explicit_platform_mismatch_refuses_unless_forced(isolated, monkeypatch, capsys):
+    base = _origin_dir(isolated, "acme", "bugcrowd", "https://bugcrowd.com/engagements/acme")
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(
+        (program, platform, kw["slug"])) or {})
+    before = snapshot(base)
+    assert run_cli(monkeypatch, "acme", "--platform", "hackerone", "--if-older-than", "7") == 1
+    assert calls == [] and snapshot(base) == before
+    assert "refusing --platform hackerone" in capsys.readouterr().out
+    assert run_cli(monkeypatch, "acme", "--platform", "hackerone", "--force-platform") == 0
+    assert calls == [("acme", "hackerone", None)]
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, "acme", "--force-platform")
+
+
+def test_unsupported_saved_platform_does_not_pull(isolated, monkeypatch, capsys):
+    base = _origin_dir(isolated, "ywh", "yeswehack", "https://yeswehack.example.test/programs/ywh")
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda *a, **k: pytest.fail("pulled unsupported platform"))
+    before = {k: v for k, v in snapshot(base).items() if k != inv.PULL_FILE}
+    assert run_cli(monkeypatch, "ywh", "--if-older-than", "7") == 0
+    assert "platform 'yeswehack' is not supported" in capsys.readouterr().out
+    state = json.loads((base / inv.PULL_FILE).read_text())
+    assert state["last_attempt_status"] == "failed" and "yeswehack" in state["last_error"]
+    assert {k: v for k, v in snapshot(base).items() if k != inv.PULL_FILE} == before
+    (base / inv.PULL_FILE).unlink()
+    assert run_cli(monkeypatch, "ywh") == 1
+
+
+def test_release_values_sanitized_and_capped(monkeypatch):
+    ios = {"key": "ios_app:123456", "kind": "ios_app", "identifier": "123456", "name": "x"}
+    body = json.dumps({"results": [{"version": "1\x1b[31m" + "A" * 5000,
+                                    "currentVersionReleaseDate": "2026-01-01\x85T00:00:00Z"}]}).encode()
+    monkeypatch.setattr(inv, "http_request", lambda url, method="GET": (200, {}, body))
+    release, _ = inv.check_release(ios, None, T0)
+    assert len(release["version"]) == 64 and len(release["signal"]) <= 200
+    assert not inv._UNSAFE_CHARS.search(release["signal"] + release["version"])
+
+    exe = {"key": "executable:https://dl.example.test/a.exe", "kind": "executable",
+           "identifier": "https://dl.example.test/a.exe", "name": "a"}
+    monkeypatch.setattr(inv, "http_request", lambda url, method="GET": (200, {"etag": "x" * 20000,
+                                                                              "last-modified": "a\x07b"}, b""))
+    release, _ = inv.check_release(exe, None, T0)
+    assert len(release["signal"]) == 200 and "\x07" not in release["signal"]
+
+    play = {"key": "android_app:com.example.test.app", "kind": "android_app",
+            "identifier": "com.example.test.app", "name": "p"}
+    monkeypatch.setattr(inv, "http_request", lambda url, method="GET": (
+        200, {}, b'<div>Updated on</div><div>Nov\x1b 20, 2026\x7f</div>'))
+    release, event = inv.check_release(play, {"signal": "Updated on Nov 20,\x1b 2026"}, T0)
+    assert release["signal"] == "Updated on Nov 20, 2026"
+    assert event is None  # compared after sanitizing both sides
+
+
+def test_lost_items_file_resyncs_from_history(isolated, monkeypatch, capsys):
+    base = scope_dir(isolated)
+    monkeypatch.setattr(inv, "utcnow", lambda: T0)
+    save_h1([h1_node("URL", "https://a.example.test"), h1_node("URL", "https://b.example.test")])
+    (base / inv.ITEMS_FILE).unlink()
+    monkeypatch.setattr(inv, "utcnow", lambda: T0 + timedelta(days=2))
+    save_h1([h1_node("URL", "https://a.example.test", submit=False), h1_node("URL", "https://c.example.test")])
+    assert "resyncing" in capsys.readouterr().out
+    lines = history(base)
+    assert [l["source"] for l in lines] == ["baseline", "rebuild"]
+    resync = lines[-1]
+    assert resync["resync"] is True and resync["items"] == 2
+    assert [e["key"] for e in resync["added"]] == ["web_host:c.example.test"]
+    assert [e["key"] for e in resync["removed"]] == ["web_host:b.example.test"]
+    assert resync["changed"] == [{"key": "web_host:a.example.test", "field": "in_scope", "from": True, "to": False}]
+    items = items_by_key(base)
+    assert items["web_host:a.example.test"]["first_seen"] == "2026-11-01T10:00:00Z"  # recovered
+    assert items["web_host:c.example.test"]["first_seen"] == "2026-11-03T10:00:00Z"
+
+    (base / inv.ITEMS_FILE).write_text("{not json")
+    save_h1([h1_node("URL", "https://a.example.test", submit=False), h1_node("URL", "https://c.example.test")])
+    assert [l["source"] for l in history(base)].count("baseline") == 1
+
+    # An empty history file still means first inventory.
+    other = scope_dir(isolated, "fresh")
+    (other / inv.HISTORY_FILE).write_text("")
+    write_scope(other, assets=[], in_lines=["x.example.test"])
+    inv.write_inventory(other, source="rebuild", program="fresh", now=T0)
+    assert [l["source"] for l in history(other)] == ["baseline"]
+
+
+def test_stale_items_read_does_not_duplicate_history(isolated, monkeypatch):
+    base = scope_dir(isolated)
+    write_scope(base, assets=[{"name": "g", "targets": [{"name": "app.example.test", "category": "website"}]}],
+                in_lines=["app.example.test"])
+    inv.write_inventory(base, source="pull", program="demo", now=T0)
+    stale = json.loads((base / inv.ITEMS_FILE).read_text())
+    write_scope(base, assets=[{"name": "g", "targets": [{"name": "app.example.test", "category": "website"},
+                                                         {"name": "new.example.test", "category": "website"}]}],
+                in_lines=["app.example.test"])
+    inv.write_inventory(base, source="pull", program="demo", now=T0)
+    real = inv.read_json
+    monkeypatch.setattr(inv, "read_json", lambda p: stale if p.name == inv.ITEMS_FILE else real(p))
+    inv.write_inventory(base, source="pull", program="demo", now=T0)
+    assert sum("new.example.test" in line for line in (base / inv.HISTORY_FILE).read_text().splitlines()) == 1
+
+
+def test_inventory_lock_is_outside_scope_dir_and_times_out(isolated, monkeypatch, capsys):
+    import fcntl
+
+    monkeypatch.setattr(inv, "lock_dir", lambda: isolated / "locks")
+    monkeypatch.setattr(inv, "LOCK_TIMEOUT", 0.3)
+    save_h1()
+    base = scope_dir(isolated)
+    assert not any(p.name.endswith(".lock") for p in base.iterdir())
+    (lock,) = (isolated / "locks").iterdir()
+    before = {k: v for k, v in snapshot(base).items() if k in inv.INVENTORY_FILES}
+    holder = os.open(lock, os.O_RDWR)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        with pytest.raises(inv.InventoryLockTimeout, match="locked by another writer"):
+            inv.write_inventory(base, source="rebuild", program="demo")
+        with pytest.raises(inv.InventoryLockTimeout):
+            inv.record_attempt(base, "failed", error="x")
+        save_h1([h1_node("URL", "https://changed.example.test")])  # scope files still save
+        assert "changed.example.test" in (base / "in-scope.txt").read_text()
+        assert "inventory could not be written" in capsys.readouterr().out
+    finally:
+        os.close(holder)
+    assert {k: v for k, v in snapshot(base).items() if k in inv.INVENTORY_FILES} == before

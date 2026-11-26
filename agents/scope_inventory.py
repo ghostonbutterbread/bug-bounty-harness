@@ -15,15 +15,18 @@ See ``docs/integrations/scope-inventory.md`` for the contract.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import ipaddress
 import json
 import os
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +40,10 @@ RELEASE_KINDS = {"android_app", "ios_app", "executable"}
 RELEASE_TIMEOUT = 15
 RELEASE_MAX_BODY = 3_000_000
 DESCRIPTION_MAX = 500
+SIGNAL_MAX = 200
+VERSION_MAX = 64
+LOCK_TIMEOUT = 30.0
+_UNSAFE_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 IDENTIFIER_MAX = 200
 CHANGE_FIELDS = ("in_scope", "tier", "max_severity", "eligible_for_bounty", "name")
 HASH_FIELDS = (
@@ -557,11 +564,25 @@ def release_target(item: dict) -> tuple[str | None, str | None, str | None]:
     return None, None, "no download URL"
 
 
+def clean_release_value(value, cap: int) -> str:
+    """Untrusted release text: drop C0/DEL/C1 control characters, trim, cap."""
+    return _UNSAFE_CHARS.sub("", str(value)).strip()[:cap]
+
+
 def fetch_release_signal(method: str, url: str) -> tuple[str, str | None]:
-    """Return (signal, version); raise on any failure."""
+    """Return a sanitized (signal, version); raise on any failure."""
+    signal, version = _fetch_release_signal_raw(method, url)
+    signal = clean_release_value(signal, SIGNAL_MAX)
+    if not signal:
+        raise ValueError("empty release signal")
+    return signal, (clean_release_value(version, VERSION_MAX) or None) if version is not None else None
+
+
+def _fetch_release_signal_raw(method: str, url: str) -> tuple[str, str | None]:
     if method == "download_head":
         _status, headers, _ = http_request(url, "HEAD")
-        parts = [f"{name}={headers[name]}" for name in ("etag", "last-modified", "content-length") if headers.get(name)]
+        parts = [f"{name}={clean_release_value(headers[name], SIGNAL_MAX)}"
+                 for name in ("etag", "last-modified", "content-length") if headers.get(name)]
         if not parts:
             raise ValueError("no ETag, Last-Modified or Content-Length")
         return "; ".join(parts), None
@@ -576,7 +597,9 @@ def fetch_release_signal(method: str, url: str) -> tuple[str, str | None]:
         released = results[0].get("currentVersionReleaseDate")
         if not version and not released:
             raise ValueError("iTunes lookup returned no version")
-        return " ".join(str(part) for part in (version, released) if part), (str(version) if version else None)
+        version = clean_release_value(version, VERSION_MAX) if version else None
+        released = clean_release_value(released, SIGNAL_MAX) if released else None
+        return " ".join(part for part in (version, released) if part), version
     match = PLAY_UPDATED.search(text)
     if not match:
         raise ValueError("no 'Updated on' text on Play page")
@@ -597,7 +620,7 @@ def _short_error(exc: Exception) -> str:
 def check_release(item: dict, previous: dict | None, now: datetime) -> tuple[dict, dict | None]:
     """Check one item; return (release, release_changed_event_or_None). Never raises."""
     previous = previous if isinstance(previous, dict) else {}
-    previous_signal = previous.get("signal")
+    previous_signal = clean_release_value(previous["signal"], SIGNAL_MAX) if previous.get("signal") else None
     method, url, error = release_target(item)
     release = {
         "method": method,
@@ -641,16 +664,121 @@ def _source_mtime(base: Path) -> datetime | None:
     return None
 
 
+class InventoryLockTimeout(TimeoutError):
+    """Another writer held the program's inventory lock past LOCK_TIMEOUT."""
+
+
+def lock_dir() -> Path:
+    """Per-user lock directory outside the Syncthing-shared scope tree."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    root = Path(runtime) if runtime and os.path.isdir(runtime) else Path(tempfile.gettempdir())
+    return root / f"bbh-scope-inventory-{os.getuid()}"
+
+
+@contextmanager
+def inventory_lock(base: Path, timeout: float | None = None):
+    """Serialize read -> append -> replace for one scope dir (keyed by resolved path)."""
+    timeout = LOCK_TIMEOUT if timeout is None else timeout
+    directory = lock_dir()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    key = hashlib.sha256(str(base.resolve()).encode("utf-8")).hexdigest()[:32]
+    fd = os.open(directory / f"{key}.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise InventoryLockTimeout(
+                        f"scope inventory for {base.name} is locked by another writer (waited {timeout:g} s); "
+                        "inventory files left unchanged") from None
+                time.sleep(0.1)
+        yield
+    finally:
+        os.close(fd)  # closing the descriptor releases the lock
+
+
+def read_history(base: Path) -> list[dict] | None:
+    """Parsed history lines; None when the file is absent or empty."""
+    try:
+        text = (base / HISTORY_FILE).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not text.strip():
+        return None
+    lines = []
+    for line in text.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict):
+            lines.append(record)
+    return lines
+
+
+def replay_history(lines: list[dict]) -> tuple[dict[str, dict], dict[str, str]]:
+    """Rebuild the last logged item state and each key's first logged time."""
+    state: dict[str, dict] = {}
+    first_seen: dict[str, str] = {}
+    for line in lines:
+        at = line.get("at") if parse_iso(line.get("at")) else None
+        for entry in line.get("added") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str):
+                state[entry["key"]] = {f: entry.get(f) for f in ("kind", "name", "in_scope") if f in entry}
+                if at:
+                    first_seen.setdefault(entry["key"], at)
+        for entry in line.get("removed") or []:
+            if isinstance(entry, dict):
+                state.pop(entry.get("key"), None)
+        for entry in line.get("changed") or []:
+            if isinstance(entry, dict) and entry.get("key") in state and entry.get("field") in CHANGE_FIELDS:
+                state[entry["key"]][entry["field"]] = entry.get("to")
+    return state, first_seen
+
+
+def _diff(previous: dict[str, dict], items: list[dict], *, known_fields_only: bool = False):
+    current = {item["key"]: item for item in items}
+    added = [_summary(current[k]) for k in sorted(current.keys() - previous.keys())]
+    removed = [
+        {"key": k, "kind": previous[k].get("kind"), "name": previous[k].get("name"),
+         "in_scope": previous[k].get("in_scope")}
+        for k in sorted(previous.keys() - current.keys())
+    ]
+    changed = [
+        {"key": k, "field": field, "from": previous[k].get(field), "to": current[k].get(field)}
+        for k in sorted(current.keys() & previous.keys())
+        for field in CHANGE_FIELDS
+        if (field in previous[k] or not known_fields_only) and previous[k].get(field) != current[k].get(field)
+    ]
+    return added, removed, changed
+
+
+def _same_change(a: dict, b: dict) -> bool:
+    fields = ("added", "removed", "changed", "release_changed")
+    return all((a.get(f) or []) == (b.get(f) or []) for f in fields)
+
+
 def write_inventory(base: Path, *, source: str, program: str, release_check: bool = False,
                     now: datetime | None = None) -> dict:
     """Build and write the three inventory files from the saved scope under ``base``.
 
     ``source`` is ``pull`` (just saved by a real pull) or ``rebuild`` (offline).
-    Release checks run only for ``pull`` with ``release_check``. Returns a
+    Release checks run only for ``pull`` with ``release_check``. Holds the
+    program's inventory lock for the whole read -> append -> replace. Returns a
     short summary dict.
     """
     if source not in ("pull", "rebuild"):
         raise ValueError(f"unknown inventory source: {source}")
+    with inventory_lock(base):
+        return _write_inventory_locked(base, source=source, program=program, release_check=release_check,
+                                       now=now)
+
+
+def _write_inventory_locked(base: Path, *, source: str, program: str, release_check: bool,
+                            now: datetime | None) -> dict:
     now = now or utcnow()
     seen = now if source == "pull" else (_source_mtime(base) or now)
     previous_doc = read_json(base / ITEMS_FILE)
@@ -659,12 +787,20 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
         item["key"]: item for item in previous_items or []
         if isinstance(item, dict) and isinstance(item.get("key"), str)
     } if isinstance(previous_items, list) else None
+    logged = read_history(base)
+    recovered_first: dict[str, str] = {}
+    resync = previous is None and logged is not None
+    if resync:
+        # Items file lost or unreadable but history exists: never re-baseline.
+        previous_logged, recovered_first = replay_history(logged)
+        print(f"[!] {program}: {ITEMS_FILE} missing or unreadable; resyncing from {HISTORY_FILE} "
+              "(first_seen recovered where logged)")
 
     items = build_items(base)
     release_changed = []
     for item in items:
         prior = (previous or {}).get(item["key"], {})
-        prior_first = prior.get("first_seen") if parse_iso(prior.get("first_seen")) else None
+        prior_first = prior.get("first_seen") if parse_iso(prior.get("first_seen")) else recovered_first.get(item["key"])
         prior_last = prior.get("last_seen") if parse_iso(prior.get("last_seen")) else None
         item["first_seen"] = prior_first or iso(seen)
         item["last_seen"] = iso(seen) if source == "pull" else (prior_last or iso(seen))
@@ -680,28 +816,26 @@ def write_inventory(base: Path, *, source: str, program: str, release_check: boo
     rules = read_json(base / "rules-of-engagement.json")
     rules = rules if isinstance(rules, dict) else {}
     history = None
-    if previous is None:
+    if resync:
+        added, removed, changed = _diff(previous_logged, items, known_fields_only=True)
+        history = {"at": iso(now), "source": "rebuild", "resync": True,
+                   "note": f"{ITEMS_FILE} was missing or unreadable; state compared with the replayed history",
+                   "items": len(items), "added": added, "removed": removed, "changed": changed,
+                   "release_changed": release_changed}
+    elif previous is None:
         history = {"at": iso(now), "source": "baseline", "added": [_summary(i) for i in items],
                    "removed": [], "changed": [], "release_changed": []}
     else:
-        current = {item["key"]: item for item in items}
-        added = [_summary(current[k]) for k in sorted(current.keys() - previous.keys())]
-        removed = [
-            {"key": k, "kind": previous[k].get("kind"), "name": previous[k].get("name"),
-             "in_scope": previous[k].get("in_scope")}
-            for k in sorted(previous.keys() - current.keys())
-        ]
-        changed = [
-            {"key": k, "field": field, "from": previous[k].get(field), "to": current[k].get(field)}
-            for k in sorted(current.keys() & previous.keys())
-            for field in CHANGE_FIELDS
-            if previous[k].get(field) != current[k].get(field)
-        ]
+        added, removed, changed = _diff(previous, items)
         if added or removed or changed or release_changed:
             history = {"at": iso(now), "source": source, "added": added, "removed": removed,
                        "changed": changed, "release_changed": release_changed}
+            # The same transition twice in a row means this writer diffed a
+            # stale items file (an earlier writer already logged it).
+            if logged and _same_change(logged[-1], history):
+                history = None
     # History first: if the items replace then fails, the next run re-diffs
-    # (a repeated line) instead of silently losing the change.
+    # (a repeated line, suppressed above) instead of silently losing the change.
     if history:
         append_jsonl(base / HISTORY_FILE, history)
     atomic_write_json(base / ITEMS_FILE, {
@@ -738,6 +872,12 @@ def record_attempt(base: Path, status: str, *, error: str | None = None, now: da
     """Record a pull attempt in an existing scope dir only (``ok`` when the inventory itself failed)."""
     if not base.is_dir():
         return
+    with inventory_lock(base):
+        _record_attempt_locked(base, status, error=error, now=now, program=program)
+
+
+def _record_attempt_locked(base: Path, status: str, *, error: str | None, now: datetime | None,
+                           program: str | None) -> None:
     now = now or utcnow()
     state = read_json(base / PULL_FILE)
     state = state if isinstance(state, dict) else {}

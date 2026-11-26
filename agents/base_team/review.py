@@ -681,6 +681,8 @@ def stage2_ghost_review(
                 extract_json_object=_extract_json_object_for_review,
                 normalize_review_tier=normalize_review_tier,
                 review_timeout=review_timeout,
+                program=program,
+                lane=hunt_type,
             )
         review_single = _default_review
 

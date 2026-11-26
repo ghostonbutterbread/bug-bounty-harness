@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agents.base_team import review_logs
-from agents.base_team.review import review_single_finding, stage2_review
+from agents.base_team import review as review_module
+from agents.base_team.review import review_single_finding, stage2_ghost_review, stage2_review
 from agents.base_team.review_logs import (
     ENTRY_CAP,
     SUMMARY_CAP,
@@ -180,6 +181,19 @@ class ReviewWriterTests(_TempLogDir):
         self.assertEqual(Path(reviewed["review_log"]).read_text(encoding="utf-8"), blob)
         self.assertEqual(last, [None, reviewed["review_error"]])
         self.assertLessEqual(len(last[-1]), SUMMARY_CAP)
+
+    def test_ghost_review_default_reviewer_logs_under_program_and_lane(self) -> None:
+        def fail(cli, _prompt, _timeout, *, workdir):
+            raise RuntimeError(f"{cli} broke " + "z" * 10_000)
+
+        with patch.object(review_module, "run_review_cli", side_effect=fail):
+            _, dormant, _ = stage2_ghost_review(
+                [{"fid": "F3", "severity": "high", "description": "d", "type": "idor", "file": "a.py:1"}],
+                self.tmp, "prog", "web", write_reports=False,
+            )
+        reviewed = dormant[0]
+        self.assertLessEqual(len(reviewed["review_error"]), SUMMARY_CAP)
+        self.assertEqual(Path(reviewed["review_log"]).parent, self.logs / "review" / "prog" / "web")
 
 
 class CompactReviewErrorsTests(_LaneCase):

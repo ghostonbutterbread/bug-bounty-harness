@@ -306,3 +306,16 @@ new cases fail and the reviewer's round-2 repro file fails; on the fix all
 pass. Real-scope survey a1cf9450 vs fix (read-only, all 56 programs): no
 program changes; spacex, rapyd and klaviyo stay open, the rapyd prose
 exclusion stays skipped.
+
+### Round 3
+
+Independent re-review of c6013a9a: ACCEPT. Should-fix (pre-existing, base
+behaves the same): when the exclusion field starts with `http(s)://`, the
+whole-field sentinel parsed as a valid URL pattern with the prose in its path
+(`https://a.x/admin [b.x]` left `b.x` allowed). Fix (Hermes): a URL rule that
+contains whitespace is invalid, so the exclusion refuses every target and a
+grant grants nothing. Tests: round-3 cases in
+`agents/test_scope_review_regressions.py` (3 fail with c6013a9a's validator,
+pass on the fix; a plain path exclusion stays narrow). Validator, classify,
+seed-file and review tests plus the reviewer's three repro files: 331 passed.
+Real-scope survey c6013a9a vs fix: no program changes.

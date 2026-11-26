@@ -173,3 +173,22 @@ def test_round2_negated_named_grant_grants_nothing(tmp_path, line):
 def test_round2_named_grant_still_grants(tmp_path):
     v = _rv2(tmp_path, "Acme Infrastructure - 192.0.2.0/28\n", "")
     assert v.is_in_scope("192.0.2.5")
+
+
+# Review round 3 (pre-existing on base): a URL rule with trailing prose must not
+# become a narrow, valid path exclusion; whitespace makes a URL rule invalid.
+@pytest.mark.parametrize("line,target", [
+    ("https://a.acme.example.test/admin [b.acme.example.test]", "https://b.acme.example.test/"),
+    ("https://a.acme.example.test/ <b.acme.example.test>", "https://b.acme.example.test/"),
+    ("http://a.acme.example.test/x b.acme.example.test;c.acme.example.test", "https://c.acme.example.test/"),
+])
+def test_round3_url_sentinel_with_prose_refuses(tmp_path, line, target):
+    v = _rv2(tmp_path, "*.acme.example.test\n", line + "\n")
+    assert not v.is_in_scope(target)
+    assert not v.is_in_scope("https://www.acme.example.test/")
+
+
+def test_round3_plain_url_exclusion_still_narrow(tmp_path):
+    v = _rv2(tmp_path, "*.acme.example.test\n", "https://a.acme.example.test/admin/*\n")
+    assert not v.is_in_scope("https://a.acme.example.test/admin/x")
+    assert v.is_in_scope("https://a.acme.example.test/home")

@@ -258,6 +258,13 @@ class _ScopeEntry:
             self._prepare_url()
 
     def _prepare_url(self) -> None:
+        if any(ch.isspace() for ch in self.raw):
+            # A URL rule never contains whitespace; trailing prose (for example
+            # the whole-field exclusion sentinel "https://a.x/ [b.x]") would
+            # otherwise become part of a narrow, valid path. Invalid instead:
+            # an exclusion refuses every target, a grant grants nothing.
+            self._invalid = True
+            return
         scheme, sep, rest = self.raw.partition("://")
         authority_end = len(rest)
         for ch in "/?#":

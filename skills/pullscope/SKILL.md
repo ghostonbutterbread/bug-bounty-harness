@@ -4,21 +4,16 @@ description: Use when pulling scope or recording target duplicate risk.
 ---
 # Pullscope — Fetch Bug Bounty Scope
 
-## What It Does
-Fetches and parses scope from bug bounty platforms (HackerOne, Bugcrowd, Intigriti).
+Fetches and parses scope from HackerOne, Bugcrowd and Intigriti.
 
-## Invocation
-```
-/pullscope <program>
-```
+**Agent rule:** before starting work on a program, run
+`bbh agents/scope_puller.py <program> --if-older-than 7`. It pulls only when the saved
+scope is 7+ days old; a failed refresh keeps the saved scope, warns and exits 0 (no retry for 24 h).
 
-## Usage
 ```
-/pullscope superdrug
-/pullscope h1/superdrug
-/pullscope superdrug --platform hackerone
-/pullscope canva --platform bugcrowd
-/pullscope intigriti/intigriti --platform intigriti
+/pullscope superdrug --platform hackerone      # also: h1/superdrug, canva --platform bugcrowd
+bbh agents/scope_puller.py <program> [--platform P] [--if-older-than DAYS] [--no-release-check]
+bbh agents/scope_puller.py --rebuild-inventory <program>|--all   # offline, inventory files only
 ```
 
 ## Output
@@ -30,15 +25,18 @@ Fetches and parses scope from bug bounty platforms (HackerOne, Bugcrowd, Intigri
 ├── assets.json                  # Normalized target groups/assets
 ├── rules-of-engagement.json     # Platform, source URL, rules text, machine tags
 ├── program-policy.md            # Human-readable policy summary
+├── scope-items.json             # Typed inventory: apps, exes, source, hosts; enforced flag, release signal
+├── scope-history.jsonl          # Append-only: added/removed/changed items, release_changed
+├── scope-pull.json              # Last pull: pulled_at, last_attempt_status, last_error
 ├── duplicate-intelligence.md    # Manual, non-authoritative risk observations
 └── raw/                         # Raw platform response snapshots
 ```
 
-## How It Works
-1. Fetches program page from platform
-2. Parses domains, URLs, target groups, platform metadata, and rules-of-engagement when available
-3. Saves to canonical scope directory
-4. Scope readers prefer `~/Shared/scopes/{program}/` and fall back to legacy `~/Shared/bounty_recon/{program}/scope/`
+Scope readers prefer `~/Shared/scopes/{program}/` and fall back to legacy `~/Shared/bounty_recon/{program}/scope/`.
+Only `in-scope.txt`/`out-of-scope.txt` feed the scope checker; inventory `enforced: false` items
+(apps, exes, prose) are not host-checked. A pull also makes one public release request per in-scope
+app/exe (iTunes lookup, Play page, download HEAD); `--no-release-check` skips them. Contract and kinds:
+`references/scope-inventory.md`.
 
 For Bugcrowd, public `/engagements/<program>` scraping is the default. Intigriti uses public rendered program pages (normally `owner/program` or a full program URL), not an authenticated API. Use `--api` only when an authenticated API path is intentionally implemented and configured.
 
@@ -51,7 +49,3 @@ Keep program totals separate from exact target or wildcard and vulnerability-cat
 For a pair Ryu identifies as accepted and total submissions, use the chart's labels when visible: labels override layout. Ryu may present accepted first (left or top) and total second (right or bottom). If labels are missing and both counts cover the same target and period, the larger count is a useful clue for total submissions (for example, `5 1000` suggests 5 accepted and 1000 total); record that mapping as inferred, not confirmed. If the pair, cohort, or mapping is ambiguous, preserve the raw values and ask for clarification. Total minus accepted is not the duplicate count: submissions can have other outcomes.
 
 Use this record to inform target selection and report triage, not as scope authorization or proof that a finding is a duplicate. Do not abandon a strong signal solely because a target is crowded; compare functionality and root cause. Pass relevant observations and provenance to hunting children.
-
-## Related
-- scope_manager.py — validates targets against scope
-- All harnesses check scope before testing

@@ -22,6 +22,9 @@ from agents import scope_puller
 T0 = datetime(2026, 11, 1, 10, 0, 0, tzinfo=timezone.utc)
 
 
+_REAL_LOCK_DIR = inv.lock_dir  # captured before the autouse fixture replaces it
+
+
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
@@ -853,3 +856,42 @@ def test_inventory_lock_is_outside_scope_dir_and_times_out(isolated, monkeypatch
     finally:
         os.close(holder)
     assert {k: v for k, v in snapshot(base).items() if k in inv.INVENTORY_FILES} == before
+
+
+# Review round 2 (minor): one lock path per user regardless of XDG_RUNTIME_DIR,
+# so interactive shells and cron/ssh/systemd jobs contend for the same lock.
+def test_lock_dir_is_independent_of_xdg_runtime_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(inv.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(inv, "lock_dir", _REAL_LOCK_DIR)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    with_xdg = inv.lock_dir()
+    monkeypatch.delenv("XDG_RUNTIME_DIR")
+    assert inv.lock_dir() == with_xdg == tmp_path / ".cache" / "bbh" / "scope-locks"
+    d = tmp_path / "acme"
+    d.mkdir()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    with inv.inventory_lock(d):
+        monkeypatch.delenv("XDG_RUNTIME_DIR")
+        with pytest.raises(inv.InventoryLockTimeout):
+            with inv.inventory_lock(d, timeout=0.3):
+                pass
+
+
+# Review round 2 (minor): a refresh through an alias dir records the canonical
+# program name, so alternating names never flip the recorded program.
+def test_alias_refresh_records_canonical_program(isolated, monkeypatch):
+    base = _origin_dir(isolated, "acme_corp", "hackerone", "https://hackerone.com/acme_corp")
+    (isolated / "Shared" / "scopes" / "acme").symlink_to("acme_corp")
+    calls = []
+
+    def team(handle):
+        calls.append(handle)
+        return {"policy": "", "submission_state": "open", "offers_bounties": True,
+                **h1_team([h1_node("URL", "https://new.example.test")])}
+
+    monkeypatch.setattr(scope_puller, "fetch_hackerone_team", team)
+    assert scope_puller.run_pull("acme", None, use_api=False, release_check=False) == 0
+    assert calls == ["acme_corp"]
+    assert json.loads((base / "rules-of-engagement.json").read_text())["program"] == "acme_corp"
+    assert json.loads((base / inv.ITEMS_FILE).read_text())["program"] == "acme_corp"
+    assert (isolated / "Shared" / "scopes" / "acme").is_symlink()

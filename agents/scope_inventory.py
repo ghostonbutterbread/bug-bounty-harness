@@ -669,10 +669,13 @@ class InventoryLockTimeout(TimeoutError):
 
 
 def lock_dir() -> Path:
-    """Per-user lock directory outside the Syncthing-shared scope tree."""
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    root = Path(runtime) if runtime and os.path.isdir(runtime) else Path(tempfile.gettempdir())
-    return root / f"bbh-scope-inventory-{os.getuid()}"
+    """Per-user lock directory outside the Syncthing-shared scope tree.
+
+    One fixed path per user, independent of the environment, so an interactive
+    shell and a cron/ssh/systemd job (with or without XDG_RUNTIME_DIR) contend
+    for the same lock. It cannot serialize writers on different hosts.
+    """
+    return Path.home() / ".cache" / "bbh" / "scope-locks"
 
 
 @contextmanager

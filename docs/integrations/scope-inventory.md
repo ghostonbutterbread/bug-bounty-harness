@@ -253,7 +253,8 @@ New file after review: 30 tests. Results:
 ## Gaps
 
 - The inventory lock is a per-host `fcntl.flock`. It lives in
-  `$XDG_RUNTIME_DIR/bbh-scope-inventory-<uid>/` (else the system temp dir),
+  `~/.cache/bbh/scope-locks/` (one fixed per-user path, so interactive shells and
+  cron/ssh/systemd jobs share it regardless of `XDG_RUNTIME_DIR`),
   keyed by sha256 of the resolved scope dir path, so nothing is added to the
   Syncthing-shared tree and no ignore rule is needed. It does not serialize
   writers on two different Syncthing hosts; the history tail check (decision
@@ -318,3 +319,17 @@ in the round-1 commit; the reviewer's 5 repros are copied into
 3. Second baseline and `first_seen` reset when the items file was lost:
    decision 5.
 4. Concurrent pulls duplicated history lines: decision 11 and the lock gap note.
+
+### Independent re-review round 1: ACCEPT, two minors fixed (Hermes)
+
+- Lock path depended on `XDG_RUNTIME_DIR` (interactive vs cron/ssh contexts did
+  not contend). Now `~/.cache/bbh/scope-locks/` for every context. Test:
+  `test_lock_dir_is_independent_of_xdg_runtime_dir`.
+- A pull through an alias dir name recorded the alias as the program. A refresh
+  through a symlink that resolves to a sibling dir under the scopes root now
+  uses the canonical dir name. Test: `test_alias_refresh_records_canonical_program`.
+- Both tests fail with 172c71bd's `scope_inventory.py`/`scope_puller.py` and pass
+  on the fix. `agents/test_scope_inventory.py` plus the reviewer's two repro
+  files: 50 passed.
+- Note, unchanged from base: a dir that records no platform (only
+  `in-scope.txt`) still uses platform auto-detection on refresh.

@@ -1113,6 +1113,15 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
     """
     slug = scope_slug(program, platform)
     base = scopes_root() / slug
+    if base.is_symlink():
+        # An alias (e.g. short -> canonical_name) refreshes under the canonical
+        # dir name, so alternating names never flip the recorded program.
+        try:
+            real = base.resolve(strict=True)
+            if real.parent == scopes_root().resolve():
+                slug, base = real.name, real
+        except OSError:
+            pass
     saved = base.is_dir()
     target, target_slug = program, None
     if saved:

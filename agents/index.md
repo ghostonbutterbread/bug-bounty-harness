@@ -94,8 +94,8 @@ is selected, the normal published scope and AI Policies gates below still apply.
    registration does not submit. Do not generate a rough `REPORT.md` or a
    competing `SUBMISSION.md` for new findings. Do not delete or replace
    older packet files. Any later edit to a report loads
-   `bunny-report-and-triage` first: a targeted revision keeps every
-   unrequested fact, proof value and negative control, and that skill decides
+   `bunny-report-and-triage` first: a targeted revision keeps every proof
+   value, negative control and reproduction step, and that skill decides
    when to bring the structure up to the current template (archiving a copy
    first). Any PoC, including an inline `curl`, loads `poc-tooling-policy` and
    `triager-first-poc-authoring` in the same package as the report; finish

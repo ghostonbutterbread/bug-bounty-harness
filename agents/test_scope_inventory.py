@@ -807,6 +807,41 @@ def test_saved_dir_without_source_url_is_not_pulled_from_its_name(isolated, monk
     assert calls == [("acme", "hackerone", None)]
 
 
+def test_fresh_dir_without_source_url_stays_fresh(isolated, monkeypatch, capsys):
+    base = _origin_dir(isolated, "acme", "bugcrowd", age_days=1)
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda *a, **k: pytest.fail("pulled a fresh dir"))
+    before = snapshot(base)
+    assert run_cli(monkeypatch, "acme", "--if-older-than", "7") == 0
+    assert "scope fresh" in capsys.readouterr().out
+    assert snapshot(base) == before
+
+
+def test_no_source_refusal_backs_off_and_unsupported_platform_reports_first(isolated, monkeypatch, capsys):
+    base = _origin_dir(isolated, "acme", "bugcrowd")
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda *a, **k: pytest.fail("guessed the handle"))
+    assert run_cli(monkeypatch, "acme", "--if-older-than", "7") == 0
+    failed_at = json.loads((base / inv.PULL_FILE).read_text())["last_failed_at"]
+    capsys.readouterr()
+    assert run_cli(monkeypatch, "acme", "--if-older-than", "7") == 0
+    assert "not retrying before" in capsys.readouterr().out
+    assert json.loads((base / inv.PULL_FILE).read_text())["last_failed_at"] == failed_at
+
+    _origin_dir(isolated, "ywh", "yeswehack")
+    assert run_cli(monkeypatch, "ywh") == 1
+    assert "platform 'yeswehack' is not supported" in capsys.readouterr().out
+
+
+def test_no_source_dir_explicit_routes(isolated, monkeypatch, capsys):
+    _origin_dir(isolated, "acme", "bugcrowd")
+    calls = []
+    monkeypatch.setattr(scope_puller, "pull_scope", lambda program, platform, **kw: calls.append(
+        (program, platform, kw["slug"])) or {})
+    assert run_cli(monkeypatch, "acme", "--platform", "bugcrowd") == 1  # same platform, still no guess
+    assert calls == [] and "--force-platform" in capsys.readouterr().out
+    assert run_cli(monkeypatch, "https://bugcrowd.com/engagements/acme") == 0
+    assert calls == [("https://bugcrowd.com/engagements/acme", "bugcrowd", "acme")]
+
+
 def test_bugcrowd_page_without_brief_names_the_url():
     with pytest.raises(RuntimeError, match=r"engagements/klaviyo \(engagement not found or not public\)"):
         scope_puller.parse_bugcrowd_public_engagement("klaviyo", "<html><title>Resource not found 404</title></html>")

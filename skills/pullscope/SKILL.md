@@ -13,7 +13,8 @@ An existing scope dir is always refreshed from the platform and source URL it re
 dir; omit `--platform`. A different `--platform` refuses unless `--force-platform` (it would replace
 the program's scope). A recorded platform the puller cannot pull (e.g. `yeswehack`) is not pulled:
 the reason is recorded and the saved scope stays as it is. A saved dir with no recorded source URL is
-not pulled either (the dir name may not be the platform handle): re-pull it with the program page URL.
+not pulled either (the dir name may not be the platform handle): `--platform P --force-platform` pulls it by
+name, or pass the program page URL (that writes the dir named by its handle).
 
 ```
 /pullscope superdrug --platform hackerone      # also: h1/superdrug, canva --platform bugcrowd

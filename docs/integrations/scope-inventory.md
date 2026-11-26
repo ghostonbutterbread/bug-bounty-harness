@@ -152,7 +152,8 @@ URL; 5 of those do not map back to their dir name (3 dirs renamed by hand,
 2 Intigriti URLs ending in `/detail`), which is why the refresh pins the
 output dir instead of re-deriving it from the URL. 4 Bugcrowd dirs record no
 `source_url` and refresh from the handle as typed; 2 dirs have no rules file
-and keep the old auto-detect behaviour; 1 is YesWeHack.
+and keep the old auto-detect behaviour; 1 is YesWeHack. (Superseded for the
+4 Bugcrowd and 2 origin-less dirs by the legacy-source fix below.)
 
 **Legacy Bugcrowd source (fix, 2026-11-26).** The 4 Bugcrowd dirs without
 `source_url` record the engagement URL as `source` (older format). Refreshing
@@ -165,8 +166,14 @@ Now:
   `source_url`) use it;
 - an existing dir with no saved source URL is not pulled from its name (no
   request; `failed` recorded with the reason; exit 0 under `--if-older-than`,
-  1 otherwise). Passing the page URL or `--platform P --force-platform` is the
-  explicit way to pull it;
+  1 otherwise). It is checked after the freshness skip, the backoff and the
+  unsupported-platform check, so a fresh dir still prints `scope fresh` and a
+  refused dir backs off for 24 h like any failure. `--platform P
+  --force-platform` pulls it by name into the same dir; a page URL as program
+  pulls into the dir named by the URL's handle;
+- the `url_ingest` empty-scope fallback (`--platform P`, no force) is refused
+  for such a dir, so the import continues unfiltered with the usual warning;
+  pulling by name there would be the same guess this fix removes;
 - a Bugcrowd page without a brief endpoint names the URL fetched.
 
 ## Decisions

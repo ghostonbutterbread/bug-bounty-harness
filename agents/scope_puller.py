@@ -1124,6 +1124,7 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
             pass
     saved = base.is_dir()
     target, target_slug = program, None
+    recorded_source = None
     if saved:
         recorded_platform, recorded_source = recorded_origin(base)
         if recorded_platform:
@@ -1134,12 +1135,6 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
             if not (platform and force_platform):
                 platform = recorded_platform
                 target, target_slug = recorded_source or program, slug
-        if not recorded_source and not force_platform and not program.startswith("http"):
-            # The dir name is not always the platform handle; guessing it can pull another program.
-            error = "saved scope records no source URL; re-pull with the program page URL (/pullscope)"
-            _record(base, "failed", error=error, program=slug)
-            print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
-            return 0 if if_older_than is not None else 1
     pulled = scope_inventory.last_pulled(base) if saved else None
     if if_older_than is not None and saved:
         if pulled is not None and _age_days(pulled) < if_older_than:
@@ -1156,6 +1151,14 @@ def run_pull(program: str, platform: str | None, *, use_api: bool, release_check
 
     if platform is not None and platform not in PLATFORMS:
         error = f"saved scope platform '{platform}' is not supported by scope_puller; refresh it manually"
+        _record(base, "failed", error=error, program=slug)
+        print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
+        return 0 if if_older_than is not None else 1
+
+    if saved and not recorded_source and not force_platform and not program.startswith("http"):
+        # The dir name is not always the platform handle; guessing it can pull another program.
+        error = (f"saved scope records no source URL; pull it explicitly: --platform P --force-platform "
+                 f"pulls '{slug}' by name, or pass the program page URL (writes the dir named by its handle)")
         _record(base, "failed", error=error, program=slug)
         print(f"[!] {slug}: {error}" + ("; continuing with saved scope" if if_older_than is not None else ""))
         return 0 if if_older_than is not None else 1
@@ -1223,7 +1226,8 @@ def main() -> int:
     parser.add_argument(
         "--force-platform",
         action="store_true",
-        help="Allow --platform to differ from the platform an existing scope dir was pulled from.",
+        help="Pull an existing scope dir with --platform as typed: replaces a different recorded platform, "
+             "and is the way to pull a saved dir that records no source URL by its name.",
     )
     parser.add_argument("--all", action="store_true", help="With --rebuild-inventory: every saved scope dir.")
     parser.add_argument(

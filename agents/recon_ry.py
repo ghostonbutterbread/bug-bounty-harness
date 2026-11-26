@@ -214,6 +214,13 @@ def ssh_command(remote: str, ssh_key: Path | None, command: str) -> list[str]:
 
 def validate_recon_scope_containment(validator: ScopeValidator) -> None:
     """Refuse saved origin/path restrictions that host filters cannot enforce."""
+    # Prose lines are skipped by the matcher but still unreviewed scope text;
+    # a launch must not proceed past an exclusion it cannot represent.
+    for kind, line in getattr(validator, "skipped_scope_lines", []):
+        raise SystemExit(
+            f"Recon-Ry refused: saved scope {kind} is invalid or unrepresentable "
+            f"({line}); correct or review it before launch."
+        )
     for kind, entries in (("grant", validator._entries), ("exclusion", getattr(validator, "_out_of_scope", []))):
         for entry in entries:
             raw = str(getattr(entry, "raw", "")).split("#", 1)[0].strip()

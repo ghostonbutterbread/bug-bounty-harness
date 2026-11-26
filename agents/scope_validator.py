@@ -436,6 +436,9 @@ class ScopeValidator:
         self.blocked_or_sensitive_classes: list[str] = []
         self._entries: list[_ScopeEntry] = []
         self._out_of_scope: list[_ScopeEntry] = []
+        # (kind, line) for saved lines skipped as prose; callers that need
+        # every line represented (e.g. the Recon-Ry handoff) refuse on these.
+        self.skipped_scope_lines: list[tuple[str, str]] = []
         self._scope_file_load_error: ScopeFileReadError | None = None
         self.load_scope()
 
@@ -484,6 +487,7 @@ class ScopeValidator:
         opened = False
         try:
             entries = []
+            skipped = []
             f = open(path, encoding="utf-8")
             opened = True
             with f as source:
@@ -496,12 +500,19 @@ class ScopeValidator:
                     line = re.split(r"\s+::(?:\s+|$)", line, maxsplit=1)[0].strip()
                     # Platform-export columns (" | ") and prose descriptions
                     # are not rules; see scope_line_rules.
-                    for rule in scope_line_rules(line):
+                    rules = scope_line_rules(line)
+                    if not rules and line:
+                        skipped.append(("exclusion" if is_out_of_scope else "grant", line))
+                    for rule in rules:
                         for variant in optional_host_variants(rule):
                             entry = _ScopeEntry(variant, source=rule)
                             if entry.entry_type != "comment":
                                 entries.append(entry)
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
+            if skipped:
+                if not hasattr(self, "skipped_scope_lines"):
+                    self.skipped_scope_lines = []
+                self.skipped_scope_lines.extend(skipped)
             return True
         except FileNotFoundError as e:
             if optional and not opened:

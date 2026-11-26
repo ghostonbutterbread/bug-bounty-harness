@@ -80,6 +80,10 @@ def test_pipe_annotated_export_rules_are_live(tmp_path):
     # Description words never become domain entries.
     assert [e.raw for e in v._entries if e.entry_type == "domain"] == []
     assert len(v._out_of_scope) == 1
+    assert v.skipped_scope_lines == [
+        ("grant", "Acme AWS/S3 Assets | other | In Scope | in-scope"),
+        ("exclusion", "Social engineering of staff"),
+    ]
 
 
 def test_whitespace_free_invalid_exclusion_still_denies_all(tmp_path):

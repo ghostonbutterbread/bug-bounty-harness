@@ -28,21 +28,37 @@ out-of-scope URLs, and no out-of-scope URLs entering the URL index by default.
 
 Files: `agents/scope_validator.py`, `agents/scope_seed_files.py`,
 `agents/url_ingest.py`, new `agents/test_scope_classify.py`,
+new `agents/test_scope_review_regressions.py`,
 `agents/test_url_ingest.py`, `agents/test_recon_store.py`, `agents/recon_ry.py`,
 `prompts/url-ingest-playbook.md`,
 `skills/url-ingest/references/url-ingest-reference.md`.
 
 ### 1. Matcher fixes
 
-- **Platform-export lines.** `scope_seed_files.scope_line_rules()` keeps only
-  the first ` | ` column. If that column still has whitespace it is a
-  description: keep its trailing token only when the token is a host,
-  wildcard, glob, IP, CIDR or http(s) URL (`Infra - 192.0.2.0/28` gives
-  `192.0.2.0/28`); otherwise skip the line (`Acme AWS/S3 Assets`). Applied to
-  in-scope and exclusion files in `ScopeValidator._load_file`.
+- **Platform-export lines** (`scope_seed_files.parse_scope_line`, revised
+  after review). Only the first ` | ` column counts. A whitespace-free value
+  passes through unchanged. A column with whitespace mixes rules and prose:
+  - every token a rule (`a.x.test, b.x.test`): keep all;
+  - **exclusions**: keep every token that is itself a host, wildcard, glob, IP,
+    CIDR or URL, after stripping `(),;:`, so `admin.x (legacy)` and
+    `Corp - 10.1.0.0/16 and 10.2.0.0/16` still exclude everything they name.
+    Such lines are recorded as *lossy*. A line with no rule-shaped token is
+    skipped;
+  - **grants**: keep a rule only from the exact `<words> - <rule>` export
+    shape, where the words contain no rule (`Infra - 192.0.2.0/28` gives
+    `192.0.2.0/28`). Anything else is skipped, so `All assets except
+    admin.x` grants nothing.
+  - Skipped lines are counted in `scope_summary()` and in classify's
+    `skipped_lines`.
 - **Host globs.** New `glob` entry type and URL-host globs. A leading `*.`
   keeps its meaning. Any other `*` matches 1+ characters inside one label for
-  an allow and may span dots for an exclusion.
+  an allow and may span dots for an exclusion. An **allow** glob is valid only
+  if (a) at least two whole literal labels sit right of its last `*` label and
+  (b) every starred label starts with a literal (a prefix family such as
+  `app*` or `api-*`). Otherwise it grants nothing, as on base: `*.*`,
+  `acme.*`, `*acme.example.test`, `acme*.test`,
+  `https://*acme.example.test/*`. Exclusion globs stay wide. No public-suffix
+  list is a dependency, so none is used.
 - **Speed.** Rules are parsed once (`ip_network`, safe host, compiled globs,
   parsed URL pattern). The target host and IP are worked out once per target,
   not once per rule.
@@ -78,7 +94,8 @@ of 5,000.
 stdin `{"targets": [...]}`. Implements the shared contract as written:
 `version`, `program`, `scope_dir` (resolved, so alias symlinks show the real
 directory), `scope_state` (`loaded`/`empty`/`missing`), `signature`,
-`entries`, `exclusions`, and one `results` item per target in input order,
+`entries`, `exclusions`, `skipped_lines` (additive field: prose lines that
+yielded no rule), and one `results` item per target in input order,
 with the target echoed back unchanged. States are `in`/`out`/`partial`/`unchecked`.
 Full URLs are never `partial`. Exit 2 for usage errors (bad JSON, wrong
 shape, more than 50,000 targets, bad program name). Exit 1 for an unreadable
@@ -100,7 +117,9 @@ and `classify_program(program, targets, scopes_base)`.
 - Pull backoff: if an `imports` row with `scope_source=no_scope_after_pull`
   is less than 24 h old (`SCOPE_PULL_RETRY_AFTER`), skip the pull. Record
   `scope_source=no_scope_pull_skipped` and a `scope_note` with the failure
-  time and retry time. Skipped rows do not extend the window. A scope saved
+  time and retry time. The row's `scope_mode` is also
+  `no_scope_pull_skipped` (same unfiltered outcome). Skipped rows do not
+  extend the window. A scope saved
   in the meantime is used at once, because the saved-scope check runs first.
   No new files; existing index rows are untouched.
 - `agents/recon/bus.py::index_delta` still passes `off` on purpose.
@@ -120,11 +139,11 @@ and `classify_program(program, targets, scopes_base)`.
 3. **`partial` reason** for a host rule plus a path exclusion: `in scope except
    paths under /admin/ (<rule>)`.
 4. **Comma or space-separated host lists** (`a.x.test, b.x.test`, seen once in
-   real data) keep every token only if every token is a valid rule. Otherwise
-   the trailing-token rule applies.
-5. **Prose lines are skipped in exclusion files too.** Before, they denied the
-   whole program. A whitespace-free invalid exclusion (`bad_host!.x`) still
-   denies all, as before.
+   real data) keep every token when every token is a rule.
+5. **Pure-prose exclusion lines are skipped.** Before, they denied the whole
+   program. No host matcher could enforce lines such as `3rd party services`.
+   A line naming any rule-shaped token still excludes it. A whitespace-free
+   invalid exclusion (`bad_host!.x`) still denies all, as before.
 6. **`classify` reads only `<scopes-base>/<program>/`.** It never reads the
    legacy `~/Shared/bounty_recon` fallback, so the Board's
    `--scopes-base <board-root>/scopes` never mixes in another root. This is the
@@ -145,15 +164,26 @@ and `classify_program(program, targets, scopes_base)`.
 11. A platform pull that times out (90 s) or cannot launch now counts as a
     failed pull. Before, `TimeoutExpired` aborted the whole ingest; with
     `auto` as the default, that would have broken the fallback.
-12. **Recon-Ry still refuses prose scope lines.** Its launch guard relied on
-    prose becoming invalid entries. `ScopeValidator.skipped_scope_lines` now
-    records skipped `(kind, line)` pairs, and
-    `recon_ry.validate_recon_scope_containment` refuses on them with the same
-    message. Infix globs are still refused there too, because Recon-Ry cannot
+12. **Recon-Ry refuses prose-bearing scope lines.** Its launch guard relied on
+    prose becoming invalid entries. `ScopeValidator` now records
+    `skipped_scope_lines` and `lossy_scope_lines` (exclusion lines that kept
+    rules beside prose), and `recon_ry.validate_recon_scope_containment`
+    refuses on both. Refusing on any lossy exclusion line is slightly stricter
+    than "fewer rules than rule-shaped tokens". Exclusion parsing keeps every
+    rule-shaped token, so that count never differs for exclusions, and the
+    reviewer's repro (`Corp - 10.1.0.0/16 and 10.2.0.0/16`) requires a refusal.
+    The prose may qualify scope in ways host filters cannot represent. A grant
+    in the `<words> - <rule>` shape keeps its only rule-shaped token and does
+    not refuse. Infix globs are still refused, because Recon-Ry cannot
     represent them.
-13. Skipped-pull imports keep `scope_mode=no_scope_after_pull` so existing
-    status readers see the same unfiltered outcome. `scope_source` tells the
-    two apart.
+13. Skipped-pull imports record `scope_mode=no_scope_pull_skipped` (review F4);
+    the backoff keys on `scope_source` of real failed pulls.
+14. **Allow-glob rule (b)** goes slightly beyond the reviewer's two-label
+    rule. `*acme.example.test` has two literal labels right of its `*` label,
+    yet the repro requires it to grant nothing (arbitrary-prefix lookalikes).
+    All 4 real allow globs are `prefix*.x.x` and still grant. The cost: an
+    allow such as `customer.*.x.y.z` (whole-label `*`) now grants nothing;
+    real data only has that shape as an exclusion.
 
 ## Tests
 
@@ -188,9 +218,11 @@ patched the wrong module object) and 3 in `test_recon_ry_handoff_safety`
 
 ## Gaps
 
-- A description ending in a parenthetical after a real host
-  (`a.x.test (production)`) is skipped as prose. No real scope line has this
-  shape today; the rule follows the spec's trailing-token wording.
+- A *grant* like `a.x.test (production)` is skipped as prose (by the review's
+  F3 rule). No real in-scope line has this shape today; the line is counted
+  in `skipped_lines`.
+- Without a public-suffix list, a narrow-looking allow glob under a
+  multi-label public suffix (`app*.co.uk`) still passes the two-label rule.
 - Mid-label globs in optional-group patterns (`app*(-eu)?.x`) are not
   expanded into seeds. The matcher handles each expanded variant.
 - Recon seed and scope-file writers (`recon_seed_lines`,
@@ -209,5 +241,48 @@ patched the wrong module object) and 3 in `test_recon_ry_handoff_safety`
   now reach hosts that were wrongly blocked before.
 
 ## Review
+
+### Round 1: BLOCK (F1, F2 blockers; F3, F4, skip-surfacing should-fix)
+
+Fixed in `cf912641` (F1, F3, skipped-line surfacing), `a29592d0` (F2) and
+`45daa463` (F4). Each commit has regression tests.
+`agents/test_scope_review_regressions.py` copies the reviewer's 12 repros
+verbatim (only `mkdir(parents=True)` added) plus 24 cases of its own. The
+reviewer's repro file at its original path passes 12/12.
+
+### Real-scope survey after the fixes
+
+Read-only, on copies of each program's `in-scope.txt` and `out-of-scope.txt`.
+For each program, probe targets were derived from every rule-shaped token
+(literal host, `zprobe.` subdomain, glob instantiation, CIDR addresses, URL
+path and a sibling path). Each probe was checked with `is_in_scope` on base
+`1cb7071e` and on the new tip. 56 programs; 6 change, every change out to in,
+**none in to out**:
+
+| Program (anonymised) | Probes changed | Cause |
+|---|---|---|
+| A | 61 | export-pipe CIDR and URL grants now live (45 dead grants revived) |
+| B | 51 | infix-glob exclusion no longer denies all; the glob still excludes its hosts |
+| C | 48 | prose exclusion line no longer denies all (1 skipped exclusion line) |
+| D | 21 | export-pipe URL grants now live |
+| E | 6 | `prefix*.x.x` allow globs now grant |
+| F | 2 | export-pipe URL grant now live |
+
+No real line is *lossy*. Skipped line shapes (letters/digits masked as `x`):
+grants `x x x` x3, `x x x x` x2, `x (x)` x2, `x x`, `x x x x x`,
+`x (x: x, x, x)`, `x x (x)x x x x x x x`, `x x/x x | ...`, and one long
+sentence; one exclusion `x x x | x | ...`. All are pure prose with no
+rule-shaped token.
+
+### Tests after round 1 fixes
+
+Same file set as the first final run, plus `agents/test_scope_review_regressions.py`
+and the reviewer's repro file: **1502 passed, 63 subtests passed** (818 s,
+loaded box). The network guard recorded 0 scope-puller calls. The reviewer's
+repro file on its own: 12 passed. One intermediate failure, the aggregate
+test still expecting the old skipped-pull `scope_mode`, was fixed in a
+follow-up test commit.
+
+### Round 2
 
 Independent review: pending.

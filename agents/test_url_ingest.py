@@ -987,9 +987,11 @@ class TestAggregateRecon(unittest.TestCase):
         ) as pull:
             manifest = M.aggregate_recon(self.program, source_roots=[str(self.source_root)], run_id="agg-default")
         self.assertEqual(pull.call_count, 1)
-        sources = [row["scope_mode"] for row in manifest["imports"]]
-        self.assertTrue(sources)
-        self.assertEqual(set(sources), {"no_scope_after_pull"})
+        modes = [row["scope_mode"] for row in manifest["imports"]]
+        self.assertGreater(len(modes), 1)
+        # Imports run in order: the first pulls and fails, the rest skip.
+        self.assertEqual(sorted(set(modes)), ["no_scope_after_pull", "no_scope_pull_skipped"])
+        self.assertEqual(modes.count("no_scope_after_pull"), 1)
 
 
 class TestQueryStatus(unittest.TestCase):

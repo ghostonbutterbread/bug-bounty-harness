@@ -292,6 +292,19 @@ Five findings, fixed in the review commit with regression tests:
 Minor: a non-ISO `first_seen`/`last_seen` in a hand-edited items file is
 replaced.
 
+### Tests after review round 1 (on f593c6d4 + docs)
+
+- 23 files touching `scope_puller`, `scope_inventory`, `scope_validator`,
+  `scope_seed_files`, `url_ingest`, `program_init`, plus `tests/test_skill_hygiene.py`
+  and the reviewer's repro file: **1499 passed, 36 subtests passed** (3 min 39 s).
+- `agents/test_portable_import_paths.py` alone: 2 passed.
+- `tests/test_recon_ry_start_ports.py` alone: 608 passed.
+- `agents/test_scope_inventory.py`: 39 tests (9 new); reviewer repros: 5 passed (all failed on 74a46b7d).
+- Offline rebuild survey re-run on a fresh copy: 56 inventories, 1,346 items,
+  same kind split. Per platform: hackerone 557, bugcrowd 425, intigriti 359,
+  yeswehack 3, no rules 2. Running the 74a46b7d code on a second copy gave
+  identical items and `items_hash` for all 56 dirs. Scratch copies were deleted.
+
 ### Independent review round 1: BLOCK
 
 Verbatim findings: `bbh-review-findings-full.md` (Hermes scratch). All four fixed

@@ -11,6 +11,7 @@ and files 0600, because review output can contain target data.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
@@ -27,6 +28,7 @@ SUMMARY_CAP = 2000
 _REASON_CAP = 200
 _COMPONENT_MAX = 80
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+_NO_HARDLINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EMLINK, errno.ENOSYS}
 
 
 def log_root() -> Path:
@@ -104,10 +106,31 @@ def write_log(text: str, *, category: str, program: Any, lane: Any, name: str) -
                 os.link(temp, final)  # fails if final exists: never overwrites
             except FileExistsError:
                 continue
+            except OSError as exc:
+                if exc.errno not in _NO_HARDLINKS:
+                    raise
+                # No hard links here (some FUSE/SMB/vfat mounts): create the
+                # final name exclusively instead; still never overwrites.
+                try:
+                    _write_exclusive(final, data)
+                except FileExistsError:
+                    continue
             return final
         raise FileExistsError("could not pick an unused log file name")
     finally:
         temp.unlink(missing_ok=True)
+
+
+def _write_exclusive(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _clip(text: str, limit: int) -> str:
@@ -117,7 +140,10 @@ def _clip(text: str, limit: int) -> str:
 def capped_summary(errors: Iterable[str], suffix: str) -> str:
     """Each error clipped to ENTRY_CAP; the whole value (with suffix) at most SUMMARY_CAP."""
     body = "; ".join(_clip(str(error), ENTRY_CAP) for error in errors)
-    return _clip(body, SUMMARY_CAP - len(suffix)) + suffix
+    room = SUMMARY_CAP - len(suffix)
+    if room < 1:  # absurdly long log path: keep the cap; review_log still holds the full path
+        return _clip(suffix.strip(), SUMMARY_CAP)
+    return _clip(body, room) + suffix
 
 
 def _short_reason(exc: BaseException) -> str:

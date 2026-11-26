@@ -117,6 +117,28 @@ def _review(finding, run_review_cli, **kwargs):
     )
 
 
+class ReviewFixTests(_TempLogDir):
+    """Independent review of 9e3f9684: R1 (no hard links), R2 (cap with long paths)."""
+
+    def test_log_saved_without_hard_links(self) -> None:
+        import errno as _errno
+        with patch.object(review_logs.os, "link", side_effect=OSError(_errno.EPERM, "Operation not permitted")):
+            summary, path = review_logs.summarize_review_failure(
+                ["codex: " + "x" * 5000], {"fid": "F1"}, program="p", lane="web")
+        self.assertIsNotNone(path, summary)
+        self.assertEqual(Path(path).read_text(), "codex: " + "x" * 5000)
+        self.assertEqual(stat.S_IMODE(Path(path).stat().st_mode), 0o600)
+        self.assertEqual([p.name for p in Path(path).parent.iterdir() if p.name.startswith(".tmp-")], [])
+
+    def test_summary_capped_with_very_long_log_root(self) -> None:
+        root = Path(os.environ["BBH_LOG_DIR"]).joinpath(*["d" * 200] * 9)
+        with patch.dict(os.environ, {"BBH_LOG_DIR": str(root)}):
+            summary, path = review_logs.summarize_review_failure(
+                ["claude: " + "y" * 3000], {"fid": "F1"}, program="p" * 80, lane="l" * 80)
+        self.assertTrue(path)
+        self.assertLessEqual(len(summary), SUMMARY_CAP)
+
+
 class ReviewWriterTests(_TempLogDir):
     def failing(self, blobs: dict[str, str]):
         def run(cli, _prompt, timeout):

@@ -112,7 +112,7 @@ class TestIngestRoundtrip(unittest.TestCase):
             M.ingest(self.program, source_file=str(source))
         self.assertEqual(run.call_count, len(M.PULLSCOPE_PLATFORMS))
         mode, origin, note, accepted = self._last_import("scope_mode, scope_source, scope_note, urls_accepted")
-        self.assertEqual((mode, origin, accepted), ("no_scope_after_pull", "no_scope_pull_skipped", 1))
+        self.assertEqual((mode, origin, accepted), ("no_scope_pull_skipped", "no_scope_pull_skipped", 1))
         self.assertIn("skipped scope pull", note)
         self.assertIn("retry after", note)
 
@@ -124,7 +124,7 @@ class TestIngestRoundtrip(unittest.TestCase):
             M.ingest(self.program, source_file=str(source))
         self.assertEqual(run.call_count, len(M.PULLSCOPE_PLATFORMS))
         mode, origin, accepted = self._last_import("scope_mode, scope_source, urls_accepted")
-        self.assertEqual((mode, origin, accepted), ("no_scope_after_pull", "no_scope_pull_skipped", 1))
+        self.assertEqual((mode, origin, accepted), ("no_scope_pull_skipped", "no_scope_pull_skipped", 1))
 
     def test_failed_pull_is_retried_after_window(self):
         source = TEMP_SHARED / "backoff-expired.txt"

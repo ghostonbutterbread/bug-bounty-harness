@@ -966,7 +966,9 @@ def _prepare_scope_staging(
         rejected = []
         mode = "no_saved_scope"
         if repull_scope:
-            mode = "no_scope_after_pull"
+            # A pull skipped inside the retry window is labelled as such; the
+            # backoff itself keys on scope_source of real failed pulls only.
+            mode = scope_source if scope_source == "no_scope_pull_skipped" else "no_scope_after_pull"
     else:
         accepted, rejected = validator.partition(urls)
         mode = "saved_scope" if scope_source == "saved_scope" else "pulled_scope"

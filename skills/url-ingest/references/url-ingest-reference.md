@@ -96,7 +96,7 @@ pullscope engine across HackerOne, Bugcrowd, and Intigriti before fallback. If
 scope still cannot be resolved, passive parsing may continue with
 `scope_mode=no_scope_after_pull`; agents must not treat that as live-test
 approval. After a failed pull, later imports for that program skip pulling for
-24 hours (`scope_source=no_scope_pull_skipped`, reason in `scope_note`); a
+24 hours (`scope_mode=no_scope_pull_skipped`, equally unscoped; reason in `scope_note`); a
 scope saved in the meantime is used immediately. `--scope-filter off` imports
 everything unfiltered (`scope_mode=scope_filter_off`). Rows already in the
 index are never re-filtered or deleted.

@@ -92,11 +92,14 @@ is selected, the normal published scope and AI Policies gates below still apply.
    rather than using a deprecated BBH writer or inventing another final file.
    After independent review, register the existing final path with `agents/finding_report.py`;
    registration does not submit. Do not generate a rough `REPORT.md` or a
-   competing `SUBMISSION.md` for new findings. Preserve
-   older packet files and every unrequested region in a targeted revision. Any PoC, including an inline `curl`, loads `poc-tooling-policy` and
+   competing `SUBMISSION.md` for new findings. Do not delete or replace
+   older packet files. Any later edit to a report loads
+   `bunny-report-and-triage` first: a targeted revision keeps every
+   unrequested fact, proof value and negative control, and that skill decides
+   when to bring the structure up to the current template (archiving a copy
+   first). Any PoC, including an inline `curl`, loads `poc-tooling-policy` and
    `triager-first-poc-authoring` in the same package as the report; finish
-   them together. Any later edit to the report loads
-   `bunny-report-and-triage` first.
+   them together.
    Live execution remains governed by the policy chain above.
    When security testing needs a browser, use `/chromium-test` and request it
    through `browser_provisioner.py` on the browser node. Its default `--proxy

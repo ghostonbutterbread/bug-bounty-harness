@@ -36,7 +36,9 @@ Checked only during a real pull, one request per in-scope item, 15 s timeout:
 - `executable` with an http(s) URL: HEAD; signal from ETag / Last-Modified / Content-Length.
 
 `changed_at` and `previous_signal` are set when the signal differs from the last
-one. A failed check sets `error` and keeps the last known `signal`. No checkable
+one. Values from the store or server are stripped of control characters and
+capped (`signal` 200, `version` 64 characters). A failed check sets `error` and
+keeps the last known `signal`. No checkable
 identifier: `method: null` and `error` says why (`no download URL`,
 `no package id`, `no App Store id`). A changed signal means "new build to look
 at" for the binaries lane, not a confirmed version bump.
@@ -45,8 +47,10 @@ at" for the binaries lane, not a confirmed version bump.
 
 One line per pull or rebuild that changed something: `added`, `removed`,
 `changed` (`in_scope`, `tier`, `max_severity`, `eligible_for_bounty`, `name`),
-`release_changed`. The first inventory writes one `baseline` line listing every
-item. Tail the last lines; never rewrite.
+`release_changed`. The first inventory (no history yet) writes one `baseline` line
+listing every item. If `scope-items.json` is lost while history exists, the next
+run appends one `source: "rebuild"` line with `resync: true` (diffed against the
+replayed history) instead of a second baseline. Tail the last lines; never rewrite.
 
 ## `scope-pull.json` — last pull state
 

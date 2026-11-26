@@ -9,6 +9,10 @@ Fetches and parses scope from HackerOne, Bugcrowd and Intigriti.
 **Agent rule:** before starting work on a program, run
 `bbh agents/scope_puller.py <program> --if-older-than 7`. It pulls only when the saved
 scope is 7+ days old; a failed refresh keeps the saved scope, warns and exits 0 (no retry for 24 h).
+An existing scope dir is always refreshed from the platform and source URL it records, into the same
+dir; omit `--platform`. A different `--platform` refuses unless `--force-platform` (it would replace
+the program's scope). A recorded platform the puller cannot pull (e.g. `yeswehack`) is not pulled:
+the reason is recorded and the saved scope stays as it is.
 
 ```
 /pullscope superdrug --platform hackerone      # also: h1/superdrug, canva --platform bugcrowd

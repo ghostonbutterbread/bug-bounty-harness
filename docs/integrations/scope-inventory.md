@@ -130,6 +130,29 @@ needs the scope files.
 Plain pulls (no `--if-older-than`) also record `failed` when a scope dir
 exists, and now exit 1 when the fetch returns nothing (it exited 0 before).
 
+**Saved origin (review round 1, blocker).** Every CLI pull of an existing scope
+dir (plain or `--if-older-than`) reads the recorded platform (`scope-pull.json`
+`platform`, else `rules-of-engagement.json` `platform`) and source URL (the
+first http(s) `source_url` of the same two files):
+
+- no `--platform`: pull the recorded platform from the recorded source URL,
+  and write into **this** dir (`pull_scope(..., slug=<dir>)`; `program` in the
+  saved rules is pinned to the dir name). Platform auto-detection is never used
+  for a dir with a recorded platform;
+- `--platform` equal to the recorded one: same as above;
+- `--platform` different: refuse, exit 1, write nothing, unless
+  `--force-platform` (then the given program and platform are used as typed);
+- recorded platform the puller cannot pull (`yeswehack`): no request; record
+  `failed` with `last_error` naming the platform, keep every scope file; exit 0
+  under `--if-older-than`, 1 for a plain pull. Backoff then applies as usual.
+
+Real data (read-only): 49 of 56 dirs record a supported platform with a source
+URL; 5 of those do not map back to their dir name (3 dirs renamed by hand,
+2 Intigriti URLs ending in `/detail`), which is why the refresh pins the
+output dir instead of re-deriving it from the URL. 4 Bugcrowd dirs record no
+`source_url` and refresh from the handle as typed; 2 dirs have no rules file
+and keep the old auto-detect behaviour; 1 is YesWeHack.
+
 ## Decisions
 
 1. **`scope-pull.json` gains `last_failed_at`** (additive). The backoff keys on
@@ -142,9 +165,13 @@ exists, and now exit 1 when the fetch returns nothing (it exited 0 before).
    `key, kind, identifier, name, in_scope, tier, max_severity,
    eligible_for_bounty, enforced, platform_type, description` (no timestamps,
    no release), so it changes only when the listed scope changes.
-5. **Baseline** is written when there is no readable `scope-items.json`, not
-   when the history file is empty. Deleting `scope-items.json` produces a
-   second baseline instead of a full removed/added diff.
+5. **Baseline** only when `scope-history.jsonl` is absent or empty (review
+   round 1). A missing or unreadable `scope-items.json` with history present
+   replays the history (added/removed/changed) to get the last logged state,
+   recovers `first_seen` from the first logged `added`, prints a warning and
+   appends one `source: "rebuild"`, `resync: true` line with `items`, a `note`
+   and the diff against the replayed state (only fields the history logged are
+   compared). Release state is not in history, so `previous_signal` restarts.
 6. **A rebuild-then-pull can log one spurious diff** where the saved files and
    a fresh platform response normalize differently (e.g. a hand-made
    `assets.json` replaced by a real pull). That is the real file change.
@@ -161,6 +188,18 @@ exists, and now exit 1 when the fetch returns nothing (it exited 0 before).
    `out-of-scope.txt` reduces an exclusion URL to its host.
 10. **`executable` download URL** comes only from the item's identifier or `uri`,
    not from prose descriptions, which often link to docs pages.
+11. **Lock plus history tail check** (review round 1). `write_inventory` and
+   `record_attempt` hold the program's lock for read → append → replace (30 s
+   bounded wait; then `InventoryLockTimeout`, nothing written; `save_scope`
+   keeps the saved scope files and prints a warning). A lock alone does not
+   help when a writer diffs a stale items file, so a non-baseline line whose
+   added/removed/changed/release_changed equal the last history line is not
+   appended: the same transition twice in a row cannot be real.
+12. **Release values are sanitized** (review round 1): one helper drops
+   U+0000–U+001F, U+007F and U+0080–U+009F, trims, and caps `signal` at 200 and
+   `version` at 64 characters, applied inside `fetch_release_signal` (per
+   header and per iTunes field, then the whole signal) and to the stored
+   previous signal before comparing.
 
 ## Read-only survey (shapes and counts only)
 
@@ -213,8 +252,13 @@ New file after review: 30 tests. Results:
 
 ## Gaps
 
-- No lock: two concurrent pulls of the same program could interleave history
-  lines (each line stays whole). Agents rarely pull the same program at once.
+- The inventory lock is a per-host `fcntl.flock`. It lives in
+  `$XDG_RUNTIME_DIR/bbh-scope-inventory-<uid>/` (else the system temp dir),
+  keyed by sha256 of the resolved scope dir path, so nothing is added to the
+  Syncthing-shared tree and no ignore rule is needed. It does not serialize
+  writers on two different Syncthing hosts; the history tail check (decision
+  11) still drops a repeated transition, but two hosts can still produce a
+  Syncthing conflict copy of the JSON files.
 - Release checks are sequential; a program with many apps adds up to 15 s per
   unreachable item.
 - The Play page format can change; that shows up as `release.error`, not a
@@ -248,4 +292,16 @@ Five findings, fixed in the review commit with regression tests:
 Minor: a non-ISO `first_seen`/`last_seen` in a hand-edited items file is
 replaced.
 
-Independent review: pending (Hermes).
+### Independent review round 1: BLOCK
+
+Verbatim findings: `bbh-review-findings-full.md` (Hermes scratch). All four fixed
+in the round-1 commit; the reviewer's 5 repros are copied into
+`agents/test_scope_inventory.py` and pass (they failed on 74a46b7d).
+
+1. Blocker: `--if-older-than` without `--platform` refreshed Bugcrowd and
+   Intigriti dirs from HackerOne under the same handle. Fixed by saved-origin
+   reuse (section 4), `--force-platform`, unsupported-platform refusal.
+2. Release values stored uncapped with control characters: decision 12.
+3. Second baseline and `first_seen` reset when the items file was lost:
+   decision 5.
+4. Concurrent pulls duplicated history lines: decision 11 and the lock gap note.

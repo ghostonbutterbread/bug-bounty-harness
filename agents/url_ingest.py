@@ -888,7 +888,8 @@ def _try_repull_scope(program: str) -> tuple[bool, str]:
     for platform in PULLSCOPE_PLATFORMS:
         try:
             result = subprocess.run(
-                [sys.executable, str(script), program, "--platform", platform],
+                # Release checks add up to 15 s per app; this fallback only needs the scope files.
+                [sys.executable, str(script), program, "--platform", platform, "--no-release-check"],
                 capture_output=True,
                 text=True,
                 timeout=90,

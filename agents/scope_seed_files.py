@@ -145,27 +145,54 @@ def is_scope_rule_token(value: str) -> bool:
     return is_dns_scope_value(_glob_probe_host(token.rstrip(".")))
 
 
-def scope_line_rules(line: str) -> list[str]:
-    """Return the scope rule value(s) carried by one saved scope line.
+_TOKEN_PUNCTUATION = "(),;:"
+_NAMED_RULE_RE = re.compile(r"^(?P<words>.*\S)\s+-\s+(?P<rule>\S+)$")
+
+
+def parse_scope_line(line: str, *, exclusion: bool = False) -> tuple[list[str], str]:
+    """Return ``(rules, status)`` for one saved scope line.
 
     Platform exports append `` | type | In Scope | ...`` columns; only the first
-    field is a rule. A first field containing whitespace is a description,
-    possibly ending in a rule (``Infra - 192.0.2.0/24``). Keep its trailing
-    token, or every token of a comma/space-separated list, only when each kept
-    token is itself a host, wildcard, IP, CIDR or URL. Otherwise the line is
-    prose and yields nothing: description words never become domain entries.
-    Whitespace-free values pass through unchanged so existing validation
-    (including fail-closed invalid exclusions) still applies to them.
+    field is a rule. A whitespace-free first field passes through unchanged so
+    existing validation (including fail-closed invalid exclusions) applies.
+
+    A first field containing whitespace mixes rules and prose:
+
+    - every token is a rule (``a.x.test, b.x.test``): all of them, ``exact``;
+    - exclusion: every token (punctuation ``(),;:`` stripped) that is itself a
+      host, wildcard, glob, IP, CIDR or URL is kept, so exclusions err wide;
+      ``lossy`` when prose remains, ``skipped`` when no token is rule-shaped;
+    - grant: only the export shape ``<words> - <rule>`` with no rule-shaped
+      word keeps ``<rule>`` (``exact``); anything else is ``skipped`` so prose
+      such as ``All assets except a.x.test`` never grants.
+
+    ``lossy`` and ``skipped`` lines carry meaning a host filter may not
+    represent; callers needing a faithful scope (the Recon-Ry handoff) refuse.
     """
     value = _PIPE_ANNOTATION_RE.split(str(line or "").strip(), maxsplit=1)[0].strip()
     if not value:
-        return []
+        return [], "skipped"
     if not any(ch.isspace() for ch in value):
-        return [value]
-    tokens = [token for token in re.split(r"[\s,]+", value) if token]
-    if len(tokens) > 1 and all(is_scope_rule_token(token) for token in tokens):
-        return tokens
-    return [tokens[-1]] if tokens and is_scope_rule_token(tokens[-1]) else []
+        return [value], "exact"
+    raw_tokens = [token for token in re.split(r"[\s,]+", value) if token]
+    if raw_tokens and all(is_scope_rule_token(token) for token in raw_tokens):
+        return raw_tokens, "exact"
+    if exclusion:
+        stripped = [token.strip(_TOKEN_PUNCTUATION) for token in raw_tokens]
+        rules = [token for token in stripped if token and is_scope_rule_token(token)]
+        return (rules, "lossy") if rules else ([], "skipped")
+    named = _NAMED_RULE_RE.match(value)
+    if named and is_scope_rule_token(named.group("rule")) and not any(
+        is_scope_rule_token(word.strip(_TOKEN_PUNCTUATION))
+        for word in re.split(r"[\s,]+", named.group("words")) if word
+    ):
+        return [named.group("rule")], "exact"
+    return [], "skipped"
+
+
+def scope_line_rules(line: str, *, exclusion: bool = False) -> list[str]:
+    """Rule values carried by one saved scope line; see parse_scope_line."""
+    return parse_scope_line(line, exclusion=exclusion)[0]
 
 
 def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) -> tuple[list[str], list[str]]:

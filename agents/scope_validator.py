@@ -13,7 +13,7 @@ matches one or more characters inside one label; in an exclusion it may also
 span dots, so exclusions err wide. Saved lines keep only the first " | "
 column of platform exports; a description ending in a rule keeps that rule
 ("Infra - 192.0.2.0/24"), and pure prose lines are skipped (see
-scope_seed_files.scope_line_rules). Rules are parsed once per validator.
+scope_seed_files.parse_scope_line). Rules are parsed once per validator.
 
 CLI (read-only; never writes, pulls scope or uses the network):
     bbh agents/scope_validator.py classify <program> [--scopes-base DIR] --json
@@ -92,9 +92,9 @@ from urllib.parse import urlparse, urlsplit
 import idna
 
 try:
-    from agents.scope_seed_files import optional_host_variants, scope_line_rules
+    from agents.scope_seed_files import optional_host_variants, parse_scope_line
 except ModuleNotFoundError:
-    from scope_seed_files import optional_host_variants, scope_line_rules
+    from scope_seed_files import optional_host_variants, parse_scope_line
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -176,9 +176,11 @@ class _ScopeEntry:
     expansion, used to report which rule decided a verdict.
     """
 
-    def __init__(self, raw: str, source: Optional[str] = None):
+    def __init__(self, raw: str, source: Optional[str] = None, *, exclusion: bool = False):
         self.raw = raw.strip()
         self.source = (source if source is not None else raw).strip()
+        # Exclusion globs may be wide; allow globs must stay narrow.
+        self.exclusion = exclusion
         self._type = self._classify()
         self._prepare()
 
@@ -436,9 +438,11 @@ class ScopeValidator:
         self.blocked_or_sensitive_classes: list[str] = []
         self._entries: list[_ScopeEntry] = []
         self._out_of_scope: list[_ScopeEntry] = []
-        # (kind, line) for saved lines skipped as prose; callers that need
-        # every line represented (e.g. the Recon-Ry handoff) refuse on these.
+        # (kind, line) for saved lines skipped as prose, and for exclusion
+        # lines whose rules were kept but prose remained ("lossy"). Callers
+        # needing every line represented (the Recon-Ry handoff) refuse on both.
         self.skipped_scope_lines: list[tuple[str, str]] = []
+        self.lossy_scope_lines: list[tuple[str, str]] = []
         self._scope_file_load_error: ScopeFileReadError | None = None
         self.load_scope()
 
@@ -488,6 +492,7 @@ class ScopeValidator:
         try:
             entries = []
             skipped = []
+            lossy = []
             f = open(path, encoding="utf-8")
             opened = True
             with f as source:
@@ -499,20 +504,24 @@ class ScopeValidator:
                     # compression or part of a URL and must remain intact.
                     line = re.split(r"\s+::(?:\s+|$)", line, maxsplit=1)[0].strip()
                     # Platform-export columns (" | ") and prose descriptions
-                    # are not rules; see scope_line_rules.
-                    rules = scope_line_rules(line)
-                    if not rules and line:
-                        skipped.append(("exclusion" if is_out_of_scope else "grant", line))
+                    # are not rules; see parse_scope_line.
+                    rules, status = parse_scope_line(line, exclusion=is_out_of_scope)
+                    kind = "exclusion" if is_out_of_scope else "grant"
+                    if status == "skipped":
+                        skipped.append((kind, line))
+                    elif status == "lossy":
+                        lossy.append((kind, line))
                     for rule in rules:
                         for variant in optional_host_variants(rule):
-                            entry = _ScopeEntry(variant, source=rule)
+                            entry = _ScopeEntry(variant, source=rule, exclusion=is_out_of_scope)
                             if entry.entry_type != "comment":
                                 entries.append(entry)
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
-            if skipped:
-                if not hasattr(self, "skipped_scope_lines"):
-                    self.skipped_scope_lines = []
-                self.skipped_scope_lines.extend(skipped)
+            if skipped or lossy:
+                for name, found in (("skipped_scope_lines", skipped), ("lossy_scope_lines", lossy)):
+                    if not hasattr(self, name):
+                        setattr(self, name, [])
+                    getattr(self, name).extend(found)
             return True
         except FileNotFoundError as e:
             if optional and not opened:
@@ -570,7 +579,10 @@ class ScopeValidator:
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
         """Manually add a domain or pattern to scope."""
         try:
-            entries = [_ScopeEntry(variant, source=domain.strip()) for variant in optional_host_variants(domain.strip())]
+            entries = [
+                _ScopeEntry(variant, source=domain.strip(), exclusion=is_out_of_scope)
+                for variant in optional_host_variants(domain.strip())
+            ]
             entries = [entry for entry in entries if entry.entry_type != "comment"]
             (self._out_of_scope if is_out_of_scope else self._entries).extend(entries)
         except Exception as e:
@@ -818,11 +830,13 @@ class ScopeValidator:
         """Return a short human-readable summary of in-scope entries."""
         if getattr(self, "_scope_file_load_error", None):
             return "(unusable scope: load failed)"
+        skipped = len(getattr(self, "skipped_scope_lines", []))
+        note = f" ({skipped} saved scope line(s) skipped as prose)" if skipped else ""
         if not self._entries:
-            return "(no scope loaded)"
+            return "(no scope loaded)" + note
         entries = [e.raw for e in self._entries[:10]]
         suffix = f" (+{len(self._entries)-10} more)" if len(self._entries) > 10 else ""
-        return ", ".join(entries) + suffix
+        return ", ".join(entries) + suffix + note
 
     def get_domains(self) -> list[str]:
         """Return all in-scope domain entries (exact + wildcard base domains)."""
@@ -1097,6 +1111,7 @@ def classify_program(program: str, targets: list, scopes_base: Path | None = Non
         "signature": digest.hexdigest(),
         "entries": len(validator._entries) if validator else 0,
         "exclusions": len(validator._out_of_scope) if validator else 0,
+        "skipped_lines": len(validator.skipped_scope_lines) if validator else 0,
         "results": results,
     }
 

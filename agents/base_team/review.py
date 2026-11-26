@@ -11,6 +11,7 @@ from typing import Any, Callable, Sequence
 
 from agents.base_team.reporting_compat import display_file_reference, is_placeholder_finding, split_file_reference
 from agents.base_team.reports import write_report_indexes
+from agents.base_team.review_logs import summarize_review_failure
 from agents.base_team.storage import resolve_team_storage
 
 ReviewSingleFn = Callable[[dict[str, Any], Path], dict[str, Any]]
@@ -37,6 +38,18 @@ def _normalize_chain_requirements(value: Any) -> str:
     return str(value).strip()
 
 
+def _store_review_failure(
+    reviewed: dict[str, Any], errors: list[str], *, program: str | None, lane: str | None
+) -> None:
+    """Store a capped ``review_error``; the full text goes to the review log folder."""
+    summary, log_path = summarize_review_failure(errors, reviewed, program=program, lane=lane)
+    reviewed["review_error"] = summary
+    if log_path:
+        reviewed["review_log"] = log_path
+    else:
+        reviewed.pop("review_log", None)
+
+
 def stage2_review(
     findings: list[dict[str, Any]],
     target_path: Path,
@@ -44,6 +57,8 @@ def stage2_review(
     review_single_finding: ReviewSingleFn,
     normalize_review_tier: NormalizeTierFn,
     set_last_review_error: Callable[[str | None], None],
+    program: str | None = None,
+    lane: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Review findings with Claude first and Codex as fallback."""
     confirmed: list[dict[str, Any]] = []
@@ -57,8 +72,8 @@ def stage2_review(
         except Exception as exc:
             reviewed = dict(finding)
             reviewed["review_tier"] = "INCONCLUSIVE"
-            reviewed["review_error"] = str(exc)
-            set_last_review_error(str(exc))
+            _store_review_failure(reviewed, [str(exc)], program=program, lane=lane)
+            set_last_review_error(reviewed["review_error"])
 
         category = str(reviewed.get("category") or "").strip().lower()
         tier = normalize_review_tier(reviewed.get("review_tier"))
@@ -85,6 +100,8 @@ def review_single_finding(
     extract_json_object: ExtractJsonFn,
     normalize_review_tier: NormalizeTierFn,
     review_timeout: int,
+    program: str | None = None,
+    lane: str | None = None,
 ) -> dict[str, Any]:
     prompt = build_review_prompt(finding, target_path)
     review_data: dict[str, Any] | None = None
@@ -109,7 +126,7 @@ def review_single_finding(
     if review_data is None:
         reviewed = dict(finding)
         reviewed["review_tier"] = "INCONCLUSIVE"
-        reviewed["review_error"] = "; ".join(errors) if errors else "All review CLIs failed"
+        _store_review_failure(reviewed, errors or ["All review CLIs failed"], program=program, lane=lane)
         return reviewed
 
     reviewed = dict(finding)

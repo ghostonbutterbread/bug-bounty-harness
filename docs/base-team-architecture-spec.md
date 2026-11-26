@@ -94,6 +94,40 @@ BaseTeam should own the shared review pipeline:
 - intended-behavior / assumption-break doctrine
 - routing to confirmed/dormant/novel outputs
 
+#### Failed-review logs
+When every review CLI fails, the finding is marked `review_tier: INCONCLUSIVE`
+and the CLIs' full error output (it can be megabytes of Codex session text) is
+written to a log file, not to the ledger:
+
+```text
+$BBH_LOG_DIR                                 # if set, else
+$XDG_STATE_HOME/bug_bounty_harness/logs      # if XDG_STATE_HOME is set, else
+~/.local/state/bug_bounty_harness/logs
+  review/<program>/<lane>/<fid>-<UTC YYYYmmddTHHMMSSZ>-<rand>.log
+```
+
+Directories are created 0700 and files 0600, because review output can contain
+target data. Files are written atomically and never overwritten. The finding
+keeps `review_error`, a summary of at most 2000 characters (each CLI's error
+cut to about 500) that ends with ` (full log: <path>)`, and `review_log`, the
+path. If the log cannot be written, the review still completes and the summary
+ends with ` (full log not saved: <reason>)` and has no `review_log`. The run
+summary's `review_error` is the same capped summary.
+Code: `agents/base_team/review_logs.py`.
+
+To move oversized values out of an existing ledger:
+
+```bash
+bbh agents/manual_hunter.py <program> --lane <lane> --compact-review-errors          # dry run: counts and bytes only
+bbh agents/manual_hunter.py <program> --lane <lane> --compact-review-errors --apply  # write logs, verify, rewrite ledger once
+```
+
+`--apply` writes each full value to `review/<program>/<lane>/<fid>-compacted-<UTC>-<rand>.log`,
+checks its sha256, and then replaces the field in one locked Bounty Core
+ledger write. If any log fails or the ledger changes mid-run, it writes nothing
+to the ledger. Running it again does nothing. `--root` and `--family` work as
+they do for `--repair-report-dirs`.
+
 ### 5. Agent runtime lifecycle
 BaseTeam should own:
 - agent workspace creation

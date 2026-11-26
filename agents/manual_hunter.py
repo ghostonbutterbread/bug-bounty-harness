@@ -34,6 +34,7 @@ from agents.ledger import (
     update_team_finding,
 )
 from agents.ledger_report_dirs import repair_report_dirs
+from agents.ledger_review_errors import CompactAborted, compact_review_errors
 from agents.ledger_tombstones import (
     EXIT_OK,
     EXIT_PARTIAL,
@@ -1744,6 +1745,12 @@ def build_parser() -> argparse.ArgumentParser:
         "packet path under the ledger lock. Exit 0 clean/repaired, 2 issues remain.",
     )
     mode.add_argument(
+        "--compact-review-errors", action="store_true",
+        help="Count findings whose review_error is longer than 2000 characters (dry run, the default). "
+        "With --apply, move each full value to the review log folder (sha256-verified), keep a capped "
+        "summary plus review_log, and rewrite the ledger once under the ledger lock. Exit 0 ok, 1 refused.",
+    )
+    mode.add_argument(
         "--hunt",
         action="store_true",
         help="Hunt with Codex using current Ghost state as coordination context. Loads coverage/unexplored "
@@ -1782,9 +1789,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
     repair_mode = parser.add_mutually_exclusive_group()
     repair_mode.add_argument("--dry-run", action="store_true",
-                             help="With --repair-report-dirs: only list (the default).")
+                             help="With --repair-report-dirs/--compact-review-errors: only report (the default).")
     repair_mode.add_argument("--apply", action="store_true",
-                             help="With --repair-report-dirs: rewrite repairable pointers.")
+                             help="With --repair-report-dirs/--compact-review-errors: write the changes.")
     parser.add_argument("--actor", help="Agent/user label recorded as deleted_by (default: manual_hunter).")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
@@ -1857,6 +1864,38 @@ def repair_report_dirs_cli(args: argparse.Namespace) -> int:
     return 2 if remaining else EXIT_OK
 
 
+def compact_review_errors_cli(args: argparse.Namespace) -> int:
+    """``--compact-review-errors`` without ManualHunter's storage/context side effects."""
+    try:
+        family, lane = resolve_family_lane(
+            family=_normalize_text(args.family) or None,
+            lane=_normalize_text(args.lane) or None,
+            hunt_type=args.hunt_type or args.lane,
+        )
+        storage_root = Path(args.storage_root).expanduser().resolve(strict=False) if args.storage_root else None
+        result = compact_review_errors(
+            _sanitize_program_name(args.program), family=family, lane=lane,
+            root_override=storage_root, apply=bool(args.apply),
+        )
+    except (CompactAborted, ValueError, OSError) as exc:
+        print(f"[manual_hunter] {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    mode = "apply" if args.apply else "dry-run"
+    if not result.items:
+        print(f"[{mode}] No oversized review_error values; nothing to do (ledger {result.ledger_bytes_before} bytes).")
+        return EXIT_OK
+    for item in result.items:
+        if result.applied:
+            print(f"Compacted: {item.fid} ({item.original_bytes} bytes) -> {item.log_path}")
+        else:
+            print(f"Would compact: {item.fid} ({item.original_bytes} bytes)")
+    after = "after" if result.applied else "estimated after"
+    print(f"[{mode}] {len(result.items)} finding(s), {result.bytes_moved} bytes moved to logs; "
+          f"ledger {result.ledger_bytes_before} -> {result.ledger_bytes_after} bytes ({after})"
+          + ("; ledger rewritten" if result.applied else "; nothing written"))
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1864,12 +1903,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--actor is only valid with --delete-finding")
     if bool(args.edit_finding) != bool(args.patch_file):
         raise ValueError("--edit-finding and --patch-file must be used together")
-    if (args.dry_run or args.apply) and not args.repair_report_dirs:
-        parser.error("--dry-run/--apply are only valid with --repair-report-dirs")
+    if (args.dry_run or args.apply) and not (args.repair_report_dirs or args.compact_review_errors):
+        parser.error("--dry-run/--apply are only valid with --repair-report-dirs or --compact-review-errors")
     if args.delete_finding:
         return delete_finding_cli(args)
     if args.repair_report_dirs:
         return repair_report_dirs_cli(args)
+    if args.compact_review_errors:
+        return compact_review_errors_cli(args)
     verbosity = clamp_verbosity(args.verbose)
     note = None
     if args.from_file:
@@ -1917,7 +1958,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.edit_finding:
         return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission,
-                             args.edit_finding, args.delete_finding, args.repair_report_dirs)):
+                             args.edit_finding, args.delete_finding, args.repair_report_dirs,
+                             args.compact_review_errors)):
         if verbosity.verbose:
             print(f"[/ledger] verbosity={verbosity.level}")
             print(f"[/ledger] storage_root={hunter.storage.lane_root}")

@@ -50,3 +50,16 @@ def test_bbh_maintainer_guide_routes_new_overlays_to_canonical_registry():
     assert "class-overlay route list at the bottom" in guidance
     assert "`impact-escalation` skill in AI Policies" in guidance
     assert "Verify the listed skill resolves" in guidance
+
+
+def test_report_edits_and_every_poc_route_to_owning_skills():
+    entry = ENTRY.read_text(encoding="utf-8")
+    capture = (ROOT / "skills/manual-hunter/SKILL.md").read_text(encoding="utf-8")
+    for text in (entry, capture):
+        assert "Any PoC, including an inline `curl`" in text
+        assert "triager-first-poc-authoring" in text
+        assert "standalone PoC, also load" not in text
+    assert "Any later edit to a report loads\n   `bunny-report-and-triage` first" in entry
+    assert "every unrequested region in a targeted revision" not in entry
+    assert "load it again before any later edit to that report" in capture
+    assert "preserve those files in older packets" not in capture

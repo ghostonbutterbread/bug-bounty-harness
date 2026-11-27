@@ -210,6 +210,32 @@ Suggested values:
   `chain_watch` conditions appear.
 - `watch`: especially relevant if the named future primitive appears.
 
+### Composition and cross-run handoff
+
+The gadget query returns pointers, not a semantic chain matcher. A bounded
+`--limit` query reports `has_more: true` in JSON and warns in text when matches
+remain; narrow by current location/surface/tags or raise the limit before
+concluding no supplier exists. Open candidate cards and compare proven `grants`
+with exact `requires` and `chain_watch` in the actor, origin, request type,
+consumer, and timing that matter. Matching words alone do not establish a usable
+supplier: a header writer for XHR does not satisfy one needed on a victim's
+document navigation. Keep negative candidates, evidence pointers, the next
+discriminator or concrete blocker, and a wake condition in the gadget card.
+Recording the gadget is not completion while a safe distinct supplier question
+remains.
+
+For a confirmed gadget leaving one bounded unresolved security question,
+create/update a sanitized `/leads` projection linked to the MapStore card. Put
+the exact missing capability in the Lead's public unknown, not speculative
+impact. `/leads <program> --push` can surface agent-resolvable one-away work;
+when an owned fixture cannot be obtained through normal setup, mark it blocked
+and use `--needs-you` only if the operator must act. MapStore owns the factual
+component, Leads the public pressure card, and the private Hypothesis Ledger
+the unfinished branches. When the complete unauthorized effect is independently
+verified, ingest through `/ledger` and link back to the component gadgets;
+retain the components for future chains. A separately proven standalone
+vulnerability goes to Findings immediately despite an unproven stronger chain.
+
 ### Impact Waiver Convention
 
 Use an impact waiver for in-scope behavior that future agents should not keep

@@ -17,22 +17,22 @@ Preserve confirmed conditional primitives as chainable MapStore gadgets rather t
 
 ## Implemented contract
 
-MapStore gadget cards distinguish proven `grants` from unproven `requires`, use `chain_watch` for a specific supplier, and retain supplier negatives, next discriminator or blocker. Existing `query --intent gadget --tags gadget` returns current pointers; agents open candidates and compare actor/origin/request/consumer compatibility. On verified end-to-end unauthorized effect, ingest a finding via `/ledger` and retain linked gadget records. The test exercises a synthetic sink and an incompatible XHR-only setter; it does not claim autonomous semantic matching.
+MapStore gadget cards distinguish proven `grants` from unproven `requires`, use `chain_watch` for a specific supplier, and retain supplier negatives, next discriminator or blocker. `query --intent gadget --tags gadget` returns current pointers and `has_more` on bounded JSON views; text reports omitted matches. Agents inspect candidates and compare actor/origin/request/consumer compatibility. A bounded question also gets a linked public Lead; successful full-chain proof goes through `/ledger`, retaining component gadgets. Synthetic tests show both a sink and an XHR-only candidate are retrievable, **not** that the CLI judges compatibility.
 
 ## Evidence and review
 
-- Tests and commands: `tests/test_gadget_chain_guidance.py` plus `agents/test_map_store.py -k 'gadget or query'`: 18 passed. `tests/test_gadget_chain_guidance.py` plus `tests/test_lead_closure_guidance.py`: 9 passed. A larger selected suite reached 79 tests but timed out at 180 seconds, not counted as a pass. `git diff --check` passed.
-- Independent review: pending.
-- Replay/cohort/fixture evidence: synthetic local MapStore write/query fixture with an incompatible XHR-only setter; no target traffic.
-- Merge/ancestry evidence: feature cleanly fast-forwarded to `origin/beta` at `2cf09166`; beta integration not attempted.
+- Tests and commands: 111 passed in 184.61s (`agents/test_map_store.py`, `tests/test_gadget_chain_guidance.py`, `tests/test_lead_closure_guidance.py`, `tests/test_skill_hygiene.py`) with repo venv, current pinned Bounty Core, `PYTHONPATH=<feature-root>`, and task scratch TMPDIR. Earlier 180-second suite timeout did not produce a verdict; the completed rerun supersedes it. `git diff --check` passed.
+- Independent review: first review of implementation `9537f406` by Claude Code CLI returned ACCEPT with no blockers; it noted silent gadget-query truncation, free-text wake discoverability, and dossier ambiguity. The current fix range warns on truncation, projects bounded questions into public Leads, and clarifies the dossier; it does **not** implement automatic semantic wake/matching. Narrow re-review pending.
+- Replay/cohort/fixture evidence: synthetic local MapStore write/query + public Lead projection; an XHR-only candidate is deliberately returned as a card, but compatibility judgment is not automated. No target traffic.
+- Merge/ancestry evidence: the auto-created feature branch began hundreds of commits behind current beta and was fast-forwarded to `2cf09166` before editing; it has **not** been integrated into beta.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** full MapStore suite plus leads suite did not finish within 180 seconds; focused related selections did pass.
-- **Command / fixture / environment needed:** `PYTHONPATH=<feature-root> <pinned-venv-python> -m pytest -q agents/test_map_store.py tests/test_lead_closure_guidance.py` with a longer allowed runtime.
-- **Trigger to run it:** if review or subsequent changes require broad MapStore regression evidence; not a substitute for the focused pass.
-- **Why it blocks integration, activation, or promotion:** broad suite verdict remains unverified, but focused changed-path coverage is available; reviewer decides if broader test is necessary before integration.
-- **Next completion step / successor reference:** independent diff review, integrate after accepted verdict and safe beta checkout assessment.
+- **Missing test or evidence:** no fresh-agent live-hunt behavior trial; this fixture proves storage/retrieval and lead projection, not that an agent autonomously exhausts suppliers or matches them semantically.
+- **Command / fixture / environment needed:** a later isolated agent evaluation with a real load route and representative safe synthetic chains.
+- **Trigger to run it:** before claiming the policy changes actual agent behavior end to end, especially on Hoster.
+- **Why it blocks integration, activation, or promotion:** not a blocker to beta skill/code integration after review; it limits any claim of autonomous chain discovery or real-world exploitability.
+- **Next completion step / successor reference:** re-review the BBH fix range, integrate only after safe beta checkout assessment, then verify intended runtime projection.
 
 ## Interruption / resume handoff
 

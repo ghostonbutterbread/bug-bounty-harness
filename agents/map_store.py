@@ -1874,6 +1874,14 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         until = parse_time_filter(args.until)
 
     intent = normalize_query_intent(args.intent)
+    if intent == GADGET_INTENT and args.limit is not None and args.limit < 1:
+        print("ERROR: gadget query limit must be positive", file=sys.stderr)
+        return 2
+    requested_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+    if intent == GADGET_INTENT and "gadget" not in {slugify(t) for t in requested_tags}:
+        requested_tags.append("gadget")
+    # Fetch one extra gadget to distinguish a complete view from a truncated one.
+    query_limit = args.limit + 1 if intent == GADGET_INTENT and args.limit is not None else args.limit
     # Dedupe answers are an exact tested-state check for the requested URL.
     # Broad app/surface observations belong to app-facts or coverage queries;
     # including them here makes unrelated coverage look URL-specific.
@@ -1882,23 +1890,30 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         url=args.url,
         surface=args.surface,
         scope=effective_scope,
-        tags=[t.strip() for t in args.tags.split(",") if t.strip()],
+        tags=requested_tags,
         statuses=[s.strip() for s in args.status.split(",") if s.strip()],
         agent_id=args.agent_id,
         run_id=args.run_id,
         include_archived=args.include_archived,
         since=since,
         until=until,
-        limit=args.limit,
+        limit=query_limit,
         cross_family=args.cross_family,
         cross_family_entries=cross_entries,
     )
+    has_more = intent == GADGET_INTENT and args.limit is not None and len(results) > args.limit
+    if has_more:
+        results = results[: args.limit]
 
     if args.json:
         payload: Any = results
         if intent != DEFAULT_QUERY_INTENT:
             payload = build_query_intent_summary(results, intent=intent)
+            if intent == GADGET_INTENT:
+                payload["has_more"] = has_more
         print(json.dumps(payload, indent=2))
+        if has_more:
+            print("WARNING: gadget query truncated; narrow filters or raise --limit", file=sys.stderr)
     else:
         if not results:
             print("(no observations found)")
@@ -1909,7 +1924,8 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
             print(f"Tested: {summary['tested']}")
             tested_for = ", ".join(summary["tested_for"]) or "(none inferred)"
             print(f"Tested for: {tested_for}")
-            print(f"Observations: {summary['observation_count']}")
+            count_label = "Returned observations" if intent == GADGET_INTENT else "Observations"
+            print(f"{count_label}: {summary['observation_count']}")
             if summary["status_counts"]:
                 statuses = ", ".join(
                     f"{status}={count}"
@@ -1917,13 +1933,16 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
                 )
                 print(f"Statuses: {statuses}")
             print("Pointers:")
-            for obs in summary["observations"][: args.limit or 10]:
+            display_limit = args.limit or 10
+            for obs in summary["observations"][:display_limit]:
                 labels = ", ".join(obs.get("tested_for", [])) or "unclassified"
                 successor = f" | superseded by {obs['superseded_by']}" if obs.get("superseded_by") else ""
                 print(
                     f"- {obs.get('status')} | {labels} | "
                     f"{obs.get('title')} | {obs.get('path')}{successor}"
                 )
+            if intent == GADGET_INTENT and (has_more or len(summary["observations"]) > display_limit):
+                print("(more matches; narrow filters or raise --limit)")
             return 0
         for entry in results:
             ts = entry.get("timestamp", "")

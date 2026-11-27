@@ -7,8 +7,8 @@
 - **Intended integration target:** `origin/beta` after review; local `beta` checkout is behind and may be an active runtime.
 - **Last updated:** 2026-11-27
 - **Owning feature branch/ref:** `bug-bounty-harness/t_033d0e36-expose-gadget-prerequisite-matching-and`
-- **Latest immutable recovery checkpoint:** `9537f406838cec0d61168ac5a050742245544107`
-- **Feature implementation commit(s):** `9537f406838cec0d61168ac5a050742245544107`
+- **Latest immutable recovery checkpoint:** `a55b43939db2a28f6879e11a0eea55073a21a57f`
+- **Feature implementation commit(s):** `9537f406838cec0d61168ac5a050742245544107`, `a55b43939db2a28f6879e11a0eea55073a21a57f`
 - **Inspiration / canonical references:** Discord 1575940700426604818; AI Policies `impact-fit-policy` and `hypothesis-expansion-policy` on beta/grant-policies.
 
 ## Intent
@@ -37,8 +37,8 @@ MapStore gadget cards distinguish proven `grants` from unproven `requires`, use 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_033d0e36-expose-gadget-prerequisite-matching-and`
-- **Latest immutable recovery checkpoint:** `9537f406838cec0d61168ac5a050742245544107`
-- **Feature implementation commit(s):** `9537f406838cec0d61168ac5a050742245544107`
+- **Latest immutable recovery checkpoint:** `a55b43939db2a28f6879e11a0eea55073a21a57f`
+- **Feature implementation commit(s):** `9537f406838cec0d61168ac5a050742245544107`, `a55b43939db2a28f6879e11a0eea55073a21a57f`
 - **Exact resume point:** independent review of both repository commits; integrate after accepted verdict.
 - **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
 

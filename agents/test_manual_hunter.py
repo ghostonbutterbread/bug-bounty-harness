@@ -556,6 +556,8 @@ class ManualHunterTests(unittest.TestCase):
         for stored, expected in (
             ({"state": "raw"}, {"state": "submitted"}),
             ({"state": "unsubmitted", "report": "H1-9", "result": "bogus"}, {"state": "submitted", "report": "H1-9"}),
+            # A report an agent stored as a number is kept (as text), like before.
+            ({"state": "raw", "report": 123456, "result": " Duplicate "}, {"state": "submitted", "report": "123456", "result": "duplicate"}),
         ):
             with self.subTest(stored=stored):
                 ledger = json.loads(self._ledger_path().read_text(encoding="utf-8"))

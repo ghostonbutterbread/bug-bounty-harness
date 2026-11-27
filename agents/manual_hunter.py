@@ -1457,7 +1457,7 @@ class ManualHunter:
         stored = current.get("submission")
         if not isinstance(stored, dict):
             stored = {}
-        carried = {key: stored[key] for key in ("report", "result") if isinstance(stored.get(key), str)}
+        carried = {key: stored[key] for key in ("report", "result") if stored.get(key) is not None}
         if str(carried.get("result") or "").strip().lower() not in SUBMISSION_RESULTS:
             carried.pop("result", None)
         submission = normalize_submission({**carried, "state": state}, report=report, result=result)

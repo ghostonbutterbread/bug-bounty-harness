@@ -1,5 +1,23 @@
 # Known defects awaiting their own task
 
+## Ledger readers raise on a legacy stored submission state (`raw`, `unsubmitted`)
+
+**Location:** `agents/finding_visibility.py` (`is_closed_finding`, `submission_state`,
+via `normalize_submission`) and `agents/me_ledger.py` (`visible_for_default_work`
+call near line 496, `normalize_submission` near line 551).
+
+**Evidence:** these readers pass the stored `submission` through the strict
+validator, so a finding stored as `{"state": "raw"}` raises `ValueError invalid
+submission state: raw` and the whole lane read fails. Four real findings carry
+such states (`raw` x2, `unsubmitted` x2). `set_submission` no longer checks the
+stored state (fix/submission-legacy-state), so each finding clears once a new
+state is recorded; until then the `me_ledger` prior-work and default-work reads
+fail for those lanes.
+
+**Impact:** agent prior-work lookups on an affected lane error instead of
+answering. Fix: a lenient read for stored records (unknown state read as
+`not_submitted`, unknown result ignored), strict validation kept for writes.
+
 ## Failed-review CLI output stored in the ledger (`review_error`) — resolved
 
 **Location:** `agents/base_team/review.py` (`review_single_finding`, `stage2_review`).

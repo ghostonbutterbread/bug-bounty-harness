@@ -134,8 +134,10 @@ bbh agents/map_store.py update-status \
 
 ### Gadget Capability Convention
 
-Use `gadget` for either a genuinely confirmed, exploitable primitive or an
-observed residual that can be considered in future chain synthesis. Tag the
+Use `gadget` for either a reproducible primitive with a demonstrated conditional
+effect that might compose into an attack, or an observed residual that can be
+considered in future chain synthesis. A primitive need not have a victim-delivery
+path to be a gadget, but its unproven prerequisite must be explicit. Tag the
 second class as `gadget,residual`. Do not use either tag for hypotheses,
 untested guesses, generic leads, unconfirmed sink shape, or a plain negative
 with no material observation.
@@ -170,6 +172,15 @@ Fields:
 - `chain_watch`: the future primitive, app condition, or capability crossing
   that should make agents reconsider this gadget.
 
+Keep `grants` limited to the demonstrated effect and put an unproven delivery,
+writer, victim, role, or consumer in `requires`; a local header rewrite proves
+only header-conditional execution, not victim-deliverable XSS. Put the exact
+missing supplier in `chain_watch`. A *one-away* card has one named independent
+capability missing from an otherwise plausible chain; it is a priority judgment,
+not a new field, finding status, or claim of likely impact. Record tested
+supplier candidates and negative evidence with a next discriminator or concrete
+fixture/scope blocker so later agents can resume rather than redo the hunt.
+
 For a residual, add:
 
 ```text
@@ -198,6 +209,32 @@ Suggested values:
 - `deferred`: already reviewed against current known gadgets; wake when
   `chain_watch` conditions appear.
 - `watch`: especially relevant if the named future primitive appears.
+
+### Composition and cross-run handoff
+
+The gadget query returns pointers, not a semantic chain matcher. A bounded
+`--limit` query reports `has_more: true` in JSON and warns in text when matches
+remain; narrow by current location/surface/tags or raise the limit before
+concluding no supplier exists. Open candidate cards and compare proven `grants`
+with exact `requires` and `chain_watch` in the actor, origin, request type,
+consumer, and timing that matter. Matching words alone do not establish a usable
+supplier: a header writer for XHR does not satisfy one needed on a victim's
+document navigation. Keep negative candidates, evidence pointers, the next
+discriminator or concrete blocker, and a wake condition in the gadget card.
+Recording the gadget is not completion while a safe distinct supplier question
+remains.
+
+For a confirmed gadget leaving one bounded unresolved security question,
+create/update a sanitized `/leads` projection linked to the MapStore card. Put
+the exact missing capability in the Lead's public unknown, not speculative
+impact. `/leads <program> --push` can surface agent-resolvable one-away work;
+when an owned fixture cannot be obtained through normal setup, mark it blocked
+and use `--needs-you` only if the operator must act. MapStore owns the factual
+component, Leads the public pressure card, and the private Hypothesis Ledger
+the unfinished branches. When the complete unauthorized effect is independently
+verified, ingest through `/ledger` and link back to the component gadgets;
+retain the components for future chains. A separately proven standalone
+vulnerability goes to Findings immediately despite an unproven stronger chain.
 
 ### Impact Waiver Convention
 

@@ -347,9 +347,8 @@ generic reasons such as "old" or "did not work".
 
 `gadget` entries have two evidence tiers. Both use the capability block below.
 
-- **Confirmed gadget:** a reproducible, exploitable primitive that could
-  participate in a stronger cross-class chain. Use `chain_status: ready` or
-  `deferred`.
+- **Confirmed gadget:** a reproducible conditional primitive, even without
+  victim delivery or another prerequisite. Use `chain_status: ready` or `deferred`.
 - **Residual:** a material observed capability, oracle, trust anchor,
   reachability fact, format fact, or enforcement point disclosed while a control
   correctly rejects a request. Tag it `gadget,residual` and use
@@ -415,10 +414,10 @@ Capability:
   notification injection, report auto-open, or trusted embed navigation
 ```
 
-Query the current gadget ledger with:
+For gadget matching and promotion, load `references/map-store-reference.md`; query:
 
 ```bash
-bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --intent gadget --limit 20
 ```
 
 ## Control-Gap and Enforcement Facts

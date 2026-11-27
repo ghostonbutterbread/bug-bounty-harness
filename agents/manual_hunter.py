@@ -25,7 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
-from agents.finding_visibility import normalize_submission
+from agents.finding_visibility import SUBMISSION_RESULTS, normalize_submission
 from agents.ledger import (
     create_team_ledger_from_storage,
     ledger_get,
@@ -1451,11 +1451,16 @@ class ManualHunter:
         )
         if current is None:
             raise ValueError(f"no finding found for fid {target_fid}")
-        submission = normalize_submission(
-            {**normalize_submission(current.get("submission")), "state": state},
-            report=report,
-            result=result,
-        )
+        # Only the new value is validated. The stored state is replaced, never
+        # checked, so a legacy or agent-written value ("raw", "unsubmitted") cannot
+        # block recording a new one; an unrecognised stored result is dropped too.
+        stored = current.get("submission")
+        if not isinstance(stored, dict):
+            stored = {}
+        carried = {key: stored[key] for key in ("report", "result") if isinstance(stored.get(key), str)}
+        if str(carried.get("result") or "").strip().lower() not in SUBMISSION_RESULTS:
+            carried.pop("result", None)
+        submission = normalize_submission({**carried, "state": state}, report=report, result=result)
         updated = update_team_finding(
             self.program,
             {"fid": current["fid"], "submission": submission},

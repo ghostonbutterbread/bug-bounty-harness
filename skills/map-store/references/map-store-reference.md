@@ -134,8 +134,10 @@ bbh agents/map_store.py update-status \
 
 ### Gadget Capability Convention
 
-Use `gadget` for either a genuinely confirmed, exploitable primitive or an
-observed residual that can be considered in future chain synthesis. Tag the
+Use `gadget` for either a reproducible primitive with a demonstrated conditional
+effect that might compose into an attack, or an observed residual that can be
+considered in future chain synthesis. A primitive need not have a victim-delivery
+path to be a gadget, but its unproven prerequisite must be explicit. Tag the
 second class as `gadget,residual`. Do not use either tag for hypotheses,
 untested guesses, generic leads, unconfirmed sink shape, or a plain negative
 with no material observation.
@@ -169,6 +171,15 @@ Fields:
   This is not a permanent exhausted/retired flag.
 - `chain_watch`: the future primitive, app condition, or capability crossing
   that should make agents reconsider this gadget.
+
+Keep `grants` limited to the demonstrated effect and put an unproven delivery,
+writer, victim, role, or consumer in `requires`; a local header rewrite proves
+only header-conditional execution, not victim-deliverable XSS. Put the exact
+missing supplier in `chain_watch`. A *one-away* card has one named independent
+capability missing from an otherwise plausible chain; it is a priority judgment,
+not a new field, finding status, or claim of likely impact. Record tested
+supplier candidates and negative evidence with a next discriminator or concrete
+fixture/scope blocker so later agents can resume rather than redo the hunt.
 
 For a residual, add:
 

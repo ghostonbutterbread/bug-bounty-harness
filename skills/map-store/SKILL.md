@@ -347,9 +347,10 @@ generic reasons such as "old" or "did not work".
 
 `gadget` entries have two evidence tiers. Both use the capability block below.
 
-- **Confirmed gadget:** a reproducible, exploitable primitive that could
-  participate in a stronger cross-class chain. Use `chain_status: ready` or
-  `deferred`.
+- **Confirmed gadget:** a reproducible primitive with a demonstrated conditional
+  effect that could participate in a stronger chain, even if victim delivery or
+  another independent prerequisite is still missing. Use `chain_status: ready`
+  or `deferred`.
 - **Residual:** a material observed capability, oracle, trust anchor,
   reachability fact, format fact, or enforcement point disclosed while a control
   correctly rejects a request. Tag it `gadget,residual` and use
@@ -415,11 +416,25 @@ Capability:
   notification injection, report auto-open, or trusted embed navigation
 ```
 
-Query the current gadget ledger with:
+Query the program's current gadget cards with:
 
 ```bash
-bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --intent gadget --limit 20
 ```
+
+The query returns pointers, not a semantic chain matcher; its 20-result
+window is not a completeness claim. Start with the current location or relevant
+surface/tags, widen or raise `--limit` if needed, and open candidate cards for
+role, feature, and delivery details. Compare proven `grants` against the current
+card's exact `requires` and `chain_watch`, including actor, request type,
+origin, and consumer; matching words alone do not establish a usable supplier.
+If a prerequisite is still missing, keep the gadget visible with the candidates
+tested, evidence pointers, next discriminator or concrete blocker, and a wake
+condition. Do not call a harness-supplied precondition a victim-deliverable
+capability, or retire a card merely because the current hunt ended. When the
+full unauthorized effect is independently verified, ingest that vulnerability
+through `/ledger` and link its component gadgets; retain the component records
+for future chains.
 
 ## Control-Gap and Enforcement Facts
 

@@ -540,6 +540,39 @@ class ManualHunterTests(unittest.TestCase):
             {"state": "dropped", "report": "H1-123", "result": "duplicate"},
         )
 
+    def test_set_submission_replaces_a_stored_state_it_does_not_recognise(self) -> None:
+        # Only the new value is validated: legacy or agent-written stored states
+        # ("raw", "unsubmitted") must not block recording a new one.
+        note_path = self.tmp / "finding.md"
+        note_path.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Renderer-controlled input reaches SQLite execution.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note_path)]), 0)
+        for stored, expected in (
+            ({"state": "raw"}, {"state": "submitted"}),
+            ({"state": "unsubmitted", "report": "H1-9", "result": "bogus"}, {"state": "submitted", "report": "H1-9"}),
+            # A report an agent stored as a number is kept (as text), like before.
+            ({"state": "raw", "report": 123456, "result": " Duplicate "}, {"state": "submitted", "report": "123456", "result": "duplicate"}),
+        ):
+            with self.subTest(stored=stored):
+                ledger = json.loads(self._ledger_path().read_text(encoding="utf-8"))
+                ledger["findings"][0]["submission"] = stored
+                self._ledger_path().write_text(json.dumps(ledger), encoding="utf-8")
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    rc = main([self.program, "--lane", "apk", "--set-submission", "D01", "--submission-state", "submitted"])
+                self.assertEqual(rc, 0, stdout.getvalue())
+                finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+                self.assertEqual(finding["submission"], expected)
+        # The new value is still validated.
+        with self.assertRaises((ValueError, SystemExit)), redirect_stdout(io.StringIO()):
+            main([self.program, "--lane", "apk", "--set-submission", "D01", "--submission-state", "raw"])
+
     def test_operator_submission_follows_frozen_packet_without_moving_evidence(self) -> None:
         note_path = self.tmp / "finding.md"
         note_path.write_text(
